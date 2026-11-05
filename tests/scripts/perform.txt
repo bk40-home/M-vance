@@ -1,0 +1,32 @@
+# Layer / split (Kris 3 Nov): GLO to PERFORM 1/2 (after PLAY MODE 1/2, 2/2), MODE to SPLIT, SPLIT learned from a key
+# (KNOB2 touched, then a key: C4, key 7 at the octave +0), a low and a high key, PANEL to LOWER, the FILTER
+# page with its L tag, HOME with both names, then DUAL. FM-1 ids: GLO 7, SEL 3, HOME 8; KNOB1..4 enc 2..5.
+# tests/run_host.sh tests/scripts/perform.txt -> build/host/mvance.wav and the screens
+50 enc 6 1
+100 btn 7
+200 btn 7
+300 btn 7
+400 enc 2 2
+500 enc 3 1
+600 keys 0x80
+700 keys 0
+800 shot
+900 keys 0x01
+1000 shot
+1500 keys 0x4000
+2100 keys 0
+2200 enc 5 1
+2300 shot
+2400 btn 3
+2500 shot
+2600 btn 8
+2700 shot
+2800 btn 7
+2850 btn 7
+2900 btn 7
+2950 enc 2 -1
+3000 btn 8
+3100 keys 0x91
+3600 shot
+3700 keys 0
+4500 end

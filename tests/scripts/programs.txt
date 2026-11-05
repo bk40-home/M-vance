@@ -1,0 +1,23 @@
+# Programs (FM-1 ids: SAVE 9; enc PRESETS 6, KNOB1..4 2..5): boot on 01; PRESETS to 06; SAVE page: rename (CURSOR 4,
+# CHAR +1), TO 03, MODE SWAP, SAVE: 06 and 03 trade places; SAVE twice: WRITE the new name; PRESETS back to 06: the old
+# 03. tests/run_host.sh tests/scripts/programs.txt -> screens, and "blob 0 saved" once silent
+200 shot
+300 enc 6 5
+400 shot
+500 keys 0x80
+900 keys 0
+1000 btn 9
+1100 enc 3 3
+1200 enc 4 1
+1300 shot
+1400 enc 2 -3
+1500 enc 5 1
+1600 shot
+1700 btn 9
+1800 shot
+1900 btn 9
+2000 btn 9
+2100 shot
+2200 enc 6 3
+2300 shot
+6000 end

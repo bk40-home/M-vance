@@ -1,0 +1,82 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# M-vance parameter overlay, keyed by JP-8080 patch byte offset (decimal).
+# The JE-8086 table (docs/ref/parameterDescriptions_je.json) gives each byte's range, default and value names;
+# this file adds what the engine and the panel need. tools/gen_params.py merges the two into firmware/gen/mv_params.h.
+#
+#   key     C name suffix (MV_P_<KEY>)          label   panel label, <= 7 characters (240 px / 4 knobs)
+#   sec     JP panel section                    status  HAVE / ADAPT / NEW / STORE (kept, not used) / DROP
+#   law     byte -> engine law (Stage 5)        jt      the JT component it is ported from
+#
+# Morph bytes 74..238 are generated from the JE names (sec CTRL / VELO); only the switches are listed here.
+params:
+  16:  {key: LFO1_WAVE,    label: WAVE,    sec: LFO1,  status: HAVE,  law: enum,          jt: Lfo}
+  17:  {key: LFO1_RATE,    label: RATE,    sec: LFO1,  status: HAVE,  law: jp_lfo1_rate,  jt: JpLfoRate}
+  18:  {key: LFO1_FADE,    label: FADE,    sec: LFO1,  status: HAVE,  law: jp_env_tau,    jt: JpEnvLaw (attack on depth)}
+  19:  {key: LFO2_RATE,    label: RATE,    sec: LFO2,  status: HAVE,  law: jp_lfo2_rate,  jt: JpLfoRate lfo2HzFromNorm}
+  20:  {key: LFO2_DSEL,    label: DEPSEL,  sec: LFO2,  status: STORE, law: none,          jt: "-"}
+  21:  {key: RING,         label: RING,    sec: OSCC,  status: ADAPT, law: switch,        jt: OscSection ring}
+  22:  {key: XMOD,         label: XMOD,    sec: OSCC,  status: HAVE,  law: jp_xmod,       jt: JpXmodLaw}
+  23:  {key: BALANCE,      label: BALANCE, sec: OSCC,  status: HAVE,  law: balance,       jt: mix.balance}
+  24:  {key: MOD_DEST,     label: MODDEST, sec: PITCH, status: HAVE,  law: enum,          jt: mix.pitch_mod_dest}
+  25:  {key: OSC_LFO1,     label: LFO1,    sec: PITCH, status: HAVE,  law: jp_mod_pitch,  jt: JpModLaw}
+  26:  {key: PITCH_LFO2,   label: LFO2,    sec: PITCH, status: HAVE,  law: jp_mod_pitch,  jt: JpModLaw}
+  27:  {key: PENV_DEPTH,   label: DEPTH,   sec: PENV,  status: HAVE,  law: jp_mod_env,    jt: JpModLaw envPitchSemis}
+  28:  {key: PENV_A,       label: ATTACK,  sec: PENV,  status: HAVE,  law: jp_env_tau,    jt: JpEnvLaw}
+  29:  {key: PENV_D,       label: DECAY,   sec: PENV,  status: HAVE,  law: jp_env_tau,    jt: JpEnvLaw}
+  30:  {key: OSC1_WAVE,    label: WAVE,    sec: OSC1,  status: HAVE,  law: enum,          jt: OscCore 13/20/noise/21/12/18/19}
+  31:  {key: OSC1_C1,      label: CTRL1,   sec: OSC1,  status: HAVE,  law: per_wave,      jt: per wave (DETUNE/OFFSET/FREQ/HARM/PW/SHAPE)}
+  32:  {key: OSC1_C2,      label: CTRL2,   sec: OSC1,  status: HAVE,  law: per_wave,      jt: per wave (MIX/LFO1/RESO/FBK/PWM/LFO1)}
+  33:  {key: OSC2_WAVE,    label: WAVE,    sec: OSC2,  status: HAVE,  law: enum,          jt: BLP/JvSAW/JvTRI/noise}
+  34:  {key: OSC2_SYNC,    label: SYNC,    sec: OSC2,  status: HAVE,  law: switch,        jt: OscSection sync}
+  35:  {key: OSC2_RANGE,   label: RANGE,   sec: OSC2,  status: ADAPT, law: osc2_range,    jt: osc2.pitch_offset (+WIDE)}
+  36:  {key: OSC2_FINE,    label: FINE,    sec: OSC2,  status: ADAPT, law: osc2_fine,     jt: Osc2Fine (+WIDE table)}
+  37:  {key: OSC2_C1,      label: CTRL1,   sec: OSC2,  status: ADAPT, law: per_wave,      jt: per wave (PW/SHAPE/FREQ)}
+  38:  {key: OSC2_C2,      label: CTRL2,   sec: OSC2,  status: ADAPT, law: per_wave,      jt: per wave (PWM/LFO1/RESO)}
+  39:  {key: FLT_TYPE,     label: TYPE,    sec: FILT,  status: HAVE,  law: enum,          jt: JpFilter}
+  40:  {key: FLT_SLOPE,    label: SLOPE,   sec: FILT,  status: HAVE,  law: enum,          jt: JpFilter}
+  41:  {key: CUTOFF,       label: CUTOFF,  sec: FILT,  status: HAVE,  law: jp_cutoff,     jt: JpFilter}
+  42:  {key: RESO,         label: RESO,    sec: FILT,  status: HAVE,  law: jp_reso,       jt: JpFilter}
+  43:  {key: KEYFOLLOW,    label: KEYFOL,  sec: FILT,  status: HAVE,  law: jp_keyfollow,  jt: filter.key_track}
+  44:  {key: FLT_LFO1,     label: LFO1,    sec: FILT,  status: HAVE,  law: jp_mod_filter, jt: lfo1.filter_depth}
+  45:  {key: FLT_LFO2,     label: LFO2,    sec: FILT,  status: HAVE,  law: jp_mod_filter, jt: lfo2.filter_depth}
+  46:  {key: FENV_DEPTH,   label: ENVDEP,  sec: FILT,  status: HAVE,  law: jp_mod_filter, jt: filter.env_amount}
+  47:  {key: FENV_A,       label: ATTACK,  sec: FENV,  status: HAVE,  law: jp_env_tau,    jt: JpEnvLaw}
+  48:  {key: FENV_D,       label: DECAY,   sec: FENV,  status: HAVE,  law: jp_env_tau,    jt: JpEnvLaw}
+  49:  {key: FENV_S,       label: SUSTAIN, sec: FENV,  status: HAVE,  law: linear,        jt: EnvGen}
+  50:  {key: FENV_R,       label: RELEASE, sec: FENV,  status: HAVE,  law: jp_env_tau,    jt: JpEnvLaw}
+  51:  {key: AMP_LEVEL,    label: LEVEL,   sec: AMP,   status: HAVE,  law: amp_level,     jt: voice.amp_level}
+  52:  {key: AMP_LFO1,     label: LFO1,    sec: AMP,   status: NEW,   law: jp_mod_amp_or_pan, jt: "tremolo / auto-pan / pan (byte 58)"}
+  53:  {key: AMP_LFO2,     label: LFO2,    sec: AMP,   status: HAVE,  law: jp_mod_amp,    jt: JpModLaw ampIndex}
+  54:  {key: AENV_A,       label: ATTACK,  sec: AENV,  status: HAVE,  law: jp_env_tau,    jt: JpEnvLaw}
+  55:  {key: AENV_D,       label: DECAY,   sec: AENV,  status: HAVE,  law: jp_env_tau,    jt: JpEnvLaw}
+  56:  {key: AENV_S,       label: SUSTAIN, sec: AENV,  status: HAVE,  law: linear,        jt: EnvGen}
+  57:  {key: AENV_R,       label: RELEASE, sec: AENV,  status: HAVE,  law: jp_env_tau,    jt: JpEnvLaw}
+  58:  {key: PAN_MODE,     label: LFO1MOD, sec: AMP,   status: NEW,   law: enum,          jt: "-"}
+  59:  {key: TONE_BASS,    label: BASS,    sec: AMP,   status: ADAPT, law: tone_shelf,    jt: fx.bass_gain}
+  60:  {key: TONE_TREBLE,  label: TREBLE,  sec: AMP,   status: ADAPT, law: tone_shelf,    jt: fx.treble_gain}
+  61:  {key: MFX_TYPE,     label: TYPE,    sec: FX,    status: ADAPT, law: enum,          jt: FxChain kJpModTypes (12 = drive)}
+  62:  {key: MFX_LEVEL,    label: LEVEL,   sec: FX,    status: HAVE,  law: square,        jt: fx.mod_mix}
+  63:  {key: DLY_TYPE,     label: TYPE,    sec: FX,    status: ADAPT, law: enum,          jt: FxChain kDelayPresets}
+  64:  {key: DLY_TIME,     label: TIME,    sec: FX,    status: HAVE,  law: jp_delay_time, jt: fx.delay_time (import law)}
+  65:  {key: DLY_FBK,      label: FEEDBK,  sec: FX,    status: HAVE,  law: linear,        jt: fx.delay_feedback}
+  66:  {key: DLY_LEVEL,    label: LEVEL,   sec: FX,    status: HAVE,  law: linear,        jt: fx.delay_mix}
+  67:  {key: BEND_UP,      label: BENDUP,  sec: VOICE, status: HAVE,  law: semitones,     jt: voice.bend_range}
+  68:  {key: BEND_DOWN,    label: BENDDN,  sec: VOICE, status: HAVE,  law: semitones,     jt: voice.bend_range_down}
+  69:  {key: PORTA_SW,     label: PORTA,   sec: VOICE, status: HAVE,  law: switch,        jt: glide.enable}
+  70:  {key: PORTA_TIME,   label: PTIME,   sec: VOICE, status: HAVE,  law: porta_time,    jt: glide.time}
+  71:  {key: MONO,         label: MONO,    sec: VOICE, status: HAVE,  law: switch,        jt: voice.poly_mode}
+  72:  {key: LEGATO,       label: LEGATO,  sec: VOICE, status: HAVE,  law: switch,        jt: voice.legato}
+  73:  {key: OSC_SHIFT,    label: SHIFT,   sec: OSCC,  status: NEW,   law: octaves,       jt: "-"}
+  152: {key: MORPH_BEND,   label: BNDMRPH, sec: CTRL,  status: STORE, law: switch,        jt: "-"}
+  155: {key: VELO_SW,      label: VELO,    sec: VELO,  status: STORE, law: switch,        jt: "-"}
+  236: {key: IND_BENDER,   label: IBEND,   sec: CTRL,  status: STORE, law: none,          jt: "-"}
+  237: {key: IND_VELO,     label: IVELO,   sec: VELO,  status: STORE, law: none,          jt: "-"}
+  238: {key: IND_CTRL,     label: ICTRL,   sec: CTRL,  status: STORE, law: none,          jt: "-"}
+  239: {key: ENV_SOLO,     label: ENVSOLO, sec: VOICE, status: STORE, law: none,          jt: "-"}
+  241: {key: OSC2_EXT,     label: EXTIN,   sec: OSC2,  status: DROP,  law: none,          jt: "-"}
+  242: {key: VMOD_SEND,    label: VMSEND,  sec: VOICE, status: DROP,  law: none,          jt: "-"}
+  243: {key: UNISON,       label: UNISON,  sec: VOICE, status: ADAPT, law: switch,        jt: voice.unison}
+  244: {key: UNISON_DET,   label: UNIDET,  sec: VOICE, status: ADAPT, law: unison_detune, jt: voice.unison_detune}
+  245: {key: PATCH_GAIN,   label: GAIN,    sec: AMP,   status: NEW,   law: enum,          jt: "-"}
+  246: {key: EXT_TRIG,     label: EXTTRIG, sec: VOICE, status: DROP,  law: none,          jt: "-"}
+  247: {key: EXT_TRIG_DST, label: TRIGDST, sec: VOICE, status: DROP,  law: none,          jt: "-"}

@@ -1,0 +1,105 @@
+# M-vance factory bank (Kris 2 Nov, B1): 64 programs picked from three JP-8000/8080 banks for a broad selection, each
+# renamed and with one value changed. Built by tools/make_bank.py into build/mvance-factory.syx and, through
+# tools/mid2bank (the firmware's own SysEx parser and range clamp), firmware/gen/mv_factory.h.
+#
+#   source <letter> <file>            a bank: a .mid or .syx of JP-8000/8080 DT1 messages
+#   <slot> <from> "<name>" <edit> ... # where it came from
+#     slot   1..64, the program number on the FM-1
+#     from   A:24  user patch 24 of source A (1..128, as the JP numbers them: A11 = 1 .. B88 = 128)
+#            D:P26A  performance 26's upper patch (P26B: its lower)
+#     name   up to 16 characters (ASCII 32..125); the two letters in front say what it is:
+#            LD lead, PD pad, BS bass, PL pluck, AR arp, BR brass, ST strings, BL bell / keys, FX effect
+#     edit   KEY=value (the stored byte) or KEY+n / KEY-n; KEY as in tools/mvance-params.yaml (CUTOFF, RESO,
+#            FENV_D, AENV_R, DLY_LEVEL, MFX_LEVEL, PORTA_TIME, LFO1_RATE ...). Signed values are stored with
+#            their centre (64 = 0), as the JP stores them. L.KEY=value edits the LOWER patch
+#   performances (Kris 3 Nov, layer / split): every program is one; these lines say how it plays
+#     D:P26           a whole performance of the source: its upper and lower patch, KEY MODE, SPLIT and BALANCE
+#     LOWER=A:19      the LOWER patch (else a copy of the upper: a single)
+#     MODE=SINGLE|DUAL|SPLIT  SPLIT=60 (notes below it LOWER)  BAL=64 (0..127, 64 both full)
+#     e.g.  60  A:34  "LD Split Demo"  LOWER=A:19 MODE=SPLIT SPLIT=60
+#   LFO1 SYNC (Kris 5 Nov): a performance's patch (D:P26, D:P26A, LOWER=D:P26B) brings its JP part's LFO1 SYNC with
+#   it; SYNC= (upper) / L.SYNC= (lower) set it: OFF 1/16 1/8T 1/16D 1/8 1/4T 1/8D 1/4 1/2T 1/4D 1/2 1/1T 1/2D 1/1
+#   2/1T 1/1D 2/1 3M 4M 5M 6M 7M 8M (or 0..22; D dotted, nM n measures). Synced, LFO1 RATE is not used.
+#
+# The sources are third-party banks: see LICENSING.md before publishing a build with this bank.
+
+source A docs/presets/Alan_Marcero_Trance_A.mid
+source B docs/presets/Alan_Marcero_Trance_B.mid
+source D docs/presets/Dustons_Trance_Classics_Vol_3.mid
+
+# ---- leads 1-16
+ 1  A:24    "LD Millennium"     AENV_R=24       # A LD 1999 Trance (release 14)
+ 2  A:25    "LD Seventies Saw"  DLY_LEVEL=28    # A LD 70s Supersaw (delay off)
+ 3  A:34    "LD Classic Gate"   DLY_LEVEL=30    # A LD ClassicTrance (delay off)
+ 4  A:46    "LD Sync Hammer"    PORTA_TIME=30   # A LD Hard 80s Sync (glide 21)
+ 5  A:50    "LD Wax Wings"      DLY_LEVEL=26    # A LD Icarus (delay off)
+ 6  A:62    "LD Dorian Edge"    RESO=48         # A LD Phrygian (reso 41)
+ 7  A:63    "LD Glide Wall"     PORTA_TIME=56   # A LD Porta SprSaw (glide 50)
+ 8  B:73    "LD Saw Crown"      CUTOFF=32       # B LD SawOfLegand 1 (cutoff 25)
+ 9  B:76    "LD Saw Cathedral"  DLY_LEVEL=24    # B LD SawOfLegand 4 (delay off)
+10  B:81    "LD Frost Flight"   RESO=56         # B LD Snow Flight (reso 49)
+11  B:85    "LD Whiteout"       FENV_D=100      # B LD The Blizzard (filter decay 108)
+12  B:89    "LD Hook Maker"     DLY_LEVEL=30    # B LD Trance Maker (delay off)
+13  B:94    "LD Question Mark"  AENV_R=52       # B LD What's That ? (release 61)
+14  D:P4A   "LD Arc Light"      MFX_LEVEL=64    # D DST Perfecto LD (multi-FX 73)
+15  D:P22A  "LD Three Rivers"   CUTOFF=100      # D DST Nelson LD / ADVTHREE (cutoff 94)
+16  D:P50A  "LD Summer Haze"    RESO=34         # D DST Vath LD / SUMMER (reso 26)
+
+# ---- pads 17-28
+17  B:96    "PD Slow Tide"      AENV_R=90       # B PD Abner (release 81)
+18  B:99    "PD Eighty Eight"   MFX_LEVEL=104   # B PD CouldBeJP8 (multi-FX 96)
+19  B:100   "PD Data Fog"       CUTOFF=80       # B PD Digital World (cutoff 86)
+20  B:104   "PD Solar Wind"     FENV_D=110      # B PD Into The Sun (filter decay 122)
+21  B:106   "PD Laser Mist"     RESO=34         # B PD LazerPhazer (reso 27)
+22  B:111   "PD Phase Garden"   CUTOFF=84       # B PD Phased (cutoff 77)
+23  B:118   "PD Quilt"          AENV_R=84       # B PD Warm Blanket (release 74)
+24  B:119   "PD Whisper"        RESO=72         # B PD Whisp (reso 66)
+25  D:P20A  "PD Open Sky"       AENV_R=70       # D DST OffShoreH PD / SKY (release 57)
+26  D:P27A  "PD Dark Matter"    MFX_LEVEL=44    # D DST Push PD / DARKNESS (multi-FX 30)
+27  D:P38A  "PD Square Glow"    AENV_R=70       # D DST Jupiter PD (release 58)
+28  D:P40A  "PD Wide Air"       DLY_LEVEL=100   # D DST Airwave PD / Dimension 8000 U (delay 127)
+
+# ---- basses 29-40
+29  A:4     "BS Round Belly"    CUTOFF=4        # A BA Chubby Kitten (cutoff 0)
+30  A:9     "BS Res Rubber"     RESO=56         # A BA Jupiter Res (reso 48)
+31  A:10    "BS Glide Grit"     PORTA_TIME=36   # A BA Maor Levi (glide 30)
+32  A:12    "BS Ladder Low"     RESO=46         # A BA Moogtastic (reso 40)
+33  A:14    "BS Runner"         FENV_D=44       # A BA Run Away Bass (filter decay 38)
+34  A:17    "BS Square Root"    CUTOFF=6        # A BA Squareular (cutoff 0)
+35  A:19    "BS Sub Thump"      FENV_D=40       # A BA Sub Puncher (filter decay 47)
+36  A:21    "BS Night Walker"   AENV_R=40       # A BA The Stalker (release 53)
+37  D:P3A   "BS Downward"       FENV_D=110      # D DST Sasha BS (filter decay 127)
+38  D:P31A  "BS Rubber Mono"    RESO=56         # D DST Blanche BS (reso 48)
+39  D:P36A  "BS Earthy"         CUTOFF=16       # D DST Nature BS (cutoff 10)
+40  D:P56A  "BS Acid Twist"     RESO=80         # D DST Anjuna BS (reso 88)
+
+# ---- plucks and arps 41-48
+41  B:121   "PL Filament"       DLY_LEVEL=36    # B PLK Aly Fila (delay off)
+42  B:122   "PL Chapel"         DLY_LEVEL=30    # B PLK Consecratn (delay off)
+43  B:124   "PL Muted Pick"     FENV_D=34       # B PLK Mute Pikes (filter decay 29)
+44  B:126   "PL Viper"          RESO=20         # B PLK Snake Bite (reso 11)
+45  B:128   "PL Canal Pluck"    DLY_LEVEL=32    # B PLK Van Dyk Like (delay off)
+46  B:90    "AR Trance Steps"   FENV_D=70       # B LD Trancy Arp (filter decay 78)
+47  A:53    "AR Pulse Train"    DLY_LEVEL=20    # A LD JP8 Pulses (delay off)
+48  D:P29A  "PL Bright Stab"    MFX_LEVEL=100   # D DST PushHi BS (multi-FX 122)
+
+# ---- brass, strings, bells, keys 49-56
+49  A:44    "BR Soft Horns"     AENV_A=24       # A LD Gassy Brass (attack 19)
+50  A:52    "BR Synth Brass"    CUTOFF=58       # A LD JP8 Brass (cutoff 52)
+51  A:64    "BR Square Horns"   PORTA_TIME=16   # A LD Pulse Horns (glide 12)
+52  B:83    "BL Story Chime"    AENV_R=34       # B LD Story Time (release 26). (A LD FM Bell was near silent on
+                                                #  the host: RING + X-MOD 127 + OSC2 +WIDE + SHIFT +2: to check)
+53  B:112   "ST Ensemble"       MFX_LEVEL=90    # B PD Poly Strings (multi-FX 83)
+54  B:97    "ST Banded Bow"     AENV_R=76       # B PD Banded String (release 68)
+55  A:41    "BL Metal Keys"     RESO=56         # A LD FM Goodness (reso 64)
+56  D:P26A  "BR Victory Brass"  MFX_LEVEL=72    # D DST Push LD / Chariots U (multi-FX 80)
+
+# ---- effects and the odd ones 57-64
+57  A:7     "FX Feedback Loop"  FENV_D=50       # A BA Feedback FX (filter decay 42)
+58  A:59    "FX Shape Shifter"  RESO=32         # A LD Morphing FX (reso 24)
+59  B:84    "FX Odd Machines"   CUTOFF=74       # B LD StrangeThings (cutoff 82)
+60  A:26    "FX LFO Wobble"     LFO1_RATE=40    # A LD AdjustLFORate (LFO 1 rate 0: now it moves by itself)
+61  B:117   "FX Steel Storm"    CUTOFF=70       # B PD Terminator (cutoff 63)
+62  A:1     "FX Growler"        PORTA_TIME=14   # A BA ActuallySkrlx (glide 9)
+63  D:P6A   "FX Fuzz Box"       MFX_LEVEL=50    # D DST Friends BS (distortion 42)
+64  D:P34A  "FX Jet Stream"     MFX_LEVEL=56    # D DST Tiga LD (jet phaser 47)

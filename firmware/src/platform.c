@@ -7,7 +7,8 @@
  *   updater             the M-UPGRADE SysEx path: the web installer / the hub can always reach the FM-1
  *   MIDI                USB in and out, the FM-1's TRS jack in (midi_get: 1 USB, 2 TRS; midi_send); clock and
  *                       transport (F8 FA FB FC) reach the app too
- *   USB audio           the output as a class-compliant 16-bit stereo input, 44.1 or 48 kHz
+ *   USB audio           the output as a class-compliant 16-bit stereo input, 44.1 or 48 kHz; and a 44.1 kHz
+ *                       stereo output: the computer plays through the FM-1 (FELUCCA_UAC_OUT, uac_out.h)
  *   keys, knobs, LEDs   fm1_in.notes / buttons, fm1_input_edges, fm1_enc_take, fm1_led_key, fm1_led_key_glow
  *                       (hal/fm1_input.h; SMK-37: hal/smk_input.h, the same calls and velocity, pads, faders, wheels)
  *   screen              240 x 240, lcd_fill, draw_text_box with FONT_S (16 px) / FONT_L (32 px) (gfx.c); LCD_IDLE
@@ -123,6 +124,11 @@ static volatile uint32_t fm1_ms;                /* milliseconds since power-on (
 #else
 #define UAC_ONLY(x) ((void)0)
 #endif
+#if FELUCCA_UAC_OUT                             /* (usb.c: on with FELUCCA_UAC unless -DFELUCCA_UAC_OUT=0) */
+#define UAC_OUT_ONLY(x) x
+#else
+#define UAC_OUT_ONLY(x) ((void)0)
+#endif
 
 /* ---- flash: read anywhere; erase / program only the update's staging area and the app's store (store.h) */
 #include "store.h"
@@ -151,6 +157,9 @@ static uint8_t recovery_active;
 #define OTA_IDENTITY (recovery_active ? "FM-1_000" : FELUCCA_ID)
 #endif
 #include "ota.c"
+/* a whole SysEx (F0 .. F7) to the computer over USB, before any MIDI waiting (the app's: M-vance's program dump).
+ * 0 sent, -1 the computer did not read for 500 ms (cut off; the next one ends it first) */
+static int sysex_send(const uint8_t *p, uint32_t n) { return ota_wire_send(p, n); }
 static void recovery_poll(void);
 static uint32_t ota_now_ms(void) { return fm1_ms; }
 static void ota_idle(void)
@@ -384,6 +393,9 @@ void fm1_alnk0_irq(void)                       /* via isr_alnk0 (hal/fm1_isr.S) 
             UAC_ONLY(uac_tap(o + 2u * b, 32u));   /* the computer records what the speaker plays */
         for (i = 0; i < HALF_WORDS; i++)
             o[i] <<= 7;
+        /* the computer's audio (USB audio output), after the tap so the recording never holds it, at a fixed level
+         * on the same scale: synth (+-32767 << 7) + computer (+-32768 << 7) stays inside 24 bits, no clamp */
+        UAC_OUT_ONLY(uac_play(o, HALF_FRAMES));
         fm1_audio_ack_half();
     }
     in_audio = 0;
@@ -397,6 +409,14 @@ static void platform_poll(void)
     int32_t a;
     fm1_wdt_feed();
     usb_retry(fm1_ms);
+#ifdef APP_SYSEX
+    {   /* a SysEx for the app (Roland's: 41 ..; M-vance's program transfer): it takes it, the frame is freed. The
+         * updater's own (packed, never 41 first) stay for ota_service below */
+        const uint8_t *p;
+        uint32_t n;
+        if (ota_frame_get(&p, &n) && n && p[0] == 0x41u) { APP_SYSEX(p, n); ota_frame_done(); }
+    }
+#endif
     ota_service();
     if (usb.ota_req) {
         usb.ota_req = 0;

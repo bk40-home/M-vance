@@ -15,6 +15,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #ifdef __linux__
 #include <unistd.h>
 #include <sys/ioctl.h>
@@ -71,6 +72,15 @@ static uint32_t fm1_input_edges(uint32_t *released)
     return b;
 }
 static uint32_t fm1_input_note_edges(void) { return 0; }   /* (the script sets fm1_in.notes) */
+/* the FM-1's free-running 24 MHz counter (fm1_time.h), from the computer's clock: an app's render timing runs on
+ * the host too (the host's figures are a guide only: the computer is many times faster than the chip) */
+#define FM1_TICKS_PER_US 24u
+static uint32_t fm1_ticks(void)
+{
+    struct timespec t;
+    clock_gettime(CLOCK_MONOTONIC, &t);
+    return (uint32_t)((uint64_t)t.tv_sec * 24000000u + (uint64_t)t.tv_nsec * 24u / 1000u);
+}
 static int32_t host_enc[HOST_NENC], host_enc_pos[HOST_NENC];   /* detents owed to the app; the position so far (the film's log) */
 static int32_t fm1_enc_take(uint32_t e) { int32_t v = host_enc[e % HOST_NENC]; host_enc[e % HOST_NENC] = 0; return v; }
 static uint64_t host_leds;                      /* bit id: LED id lit (0..13 buttons, 14..40 keys) */
@@ -168,6 +178,51 @@ static const host_ev_t *script = SCRIPT0;
 static uint32_t script_n = sizeof SCRIPT0 / sizeof SCRIPT0[0], end_ms = 6500, frame_fps;
 static const uint32_t SHOT[] = {1000, 3000};
 
+/* SysEx in (the app's program transfer, M-vance): "T sx F0 41 .. F7" (hex bytes) one message at T, "T syx FILE" every
+ * message of a .syx file from T on, one each SYX_GAP ms (as docs/bank.html paces them). Each reaches the app's
+ * APP_SYSEX as the device's USB hands it over: the bytes between F0 and F7. What the app sends (sysex_send) goes to
+ * OUT.syx */
+#define SYX_GAP 30u
+typedef struct { uint32_t t, off, len; } host_sx_t;
+static host_sx_t host_sx[8192];
+static uint8_t host_sx_pool[1u << 21];
+static uint32_t host_sx_n, host_sx_used, host_sx_next;
+static void host_sx_add(uint32_t t, const uint8_t *m, uint32_t n)   /* m: F0 .. F7 */
+{
+    uint32_t i;
+    if (n < 3u || m[0] != 0xF0u || m[n - 1u] != 0xF7u || host_sx_n >= 8192u || host_sx_used + n > sizeof host_sx_pool) return;
+    for (i = 1; i + 1u < n; i++) host_sx_pool[host_sx_used + i - 1u] = m[i];
+    host_sx[host_sx_n].t = t; host_sx[host_sx_n].off = host_sx_used; host_sx[host_sx_n].len = n - 2u;
+    host_sx_n++; host_sx_used += n - 2u;
+}
+static void host_sx_file(uint32_t t, const char *path)
+{
+    static uint8_t b[1u << 20];
+    FILE *f = fopen(path, "rb");
+    uint32_t n, i, s = 0, k = 0;
+    if (!f) { perror(path); exit(1); }
+    n = (uint32_t)fread(b, 1, sizeof b, f);
+    fclose(f);
+    for (i = 0; i < n; i++) {
+        if (b[i] == 0xF0u) s = i;
+        else if (b[i] == 0xF7u) host_sx_add(t + SYX_GAP * k++, b + s, i - s + 1u);
+    }
+}
+#ifdef APP_SYSEX
+static FILE *host_sx_out;
+static int sysex_send(const uint8_t *p, uint32_t n)
+{
+    extern const char *host_out_name(void);
+    if (!host_sx_out) {
+        char name[512];
+        snprintf(name, sizeof name, "%s.syx", host_out_name());
+        host_sx_out = fopen(name, "wb");
+    }
+    if (host_sx_out) { fwrite(p, 1, n, host_sx_out); fflush(host_sx_out); }
+    return 0;
+}
+#endif
+
 static void read_script(const char *path)
 {
     static host_ev_t ev[65536];
@@ -192,7 +247,23 @@ static void read_script(const char *path)
         else if (!strcmp(what, "fader")) { sscanf(line, "%*u %*s %u %u", &a, &b); e.smk = HS_FADER; e.sa = (uint8_t)a; e.sb = (uint16_t)b; }
         else if (!strcmp(what, "wheel")) { sscanf(line, "%*u %*s %u %u", &a, &b); e.smk = HS_WHEEL; e.sa = (uint8_t)a; e.sb = (uint16_t)b; }
         else if (!strcmp(what, "xkey")) { sscanf(line, "%*u %*s %u %u", &a, &b); e.smk = HS_XKEY; e.sa = (uint8_t)a; e.sb = (uint16_t)b; }
-        else if (!strcmp(what, "shot")) e.smk = HS_SHOT;   /* (any board: the screen now -> OUT-<ms>.ppm) */
+        else if (!strcmp(what, "shot")) e.smk = HS_SHOT;
+        else if (!strcmp(what, "syx")) {        /* a .syx file's messages, paced */
+            char p[200];
+            if (sscanf(line, "%*u %*s %199s", p) == 1) host_sx_file(e.t, p);
+            continue;
+        } else if (!strcmp(what, "sx")) {       /* one message, hex bytes */
+            uint8_t m[700];
+            unsigned v;
+            int pos = 0, used;
+            uint32_t k = 0;
+            const char *q = line;
+            sscanf(q, "%*u %*s%n", &pos);
+            q += pos;
+            while (k < sizeof m && sscanf(q, "%x%n", &v, &used) == 1) { m[k++] = (uint8_t)v; q += used; }
+            host_sx_add(e.t, m, k);
+            continue;
+        }   /* (any board: the screen now -> OUT-<ms>.ppm) */
         else if (!strcmp(what, "midi") || !strcmp(what, "trs")) {
             sscanf(line, "%*u %*s %i %u %u", (int *)&a, &b, &c);
             e.st = (uint8_t)a; e.d1 = (uint8_t)b; e.d2 = (uint8_t)c; e.src = what[0] == 't' ? 2 : 1;
@@ -220,7 +291,8 @@ static void read_script(const char *path)
     script_n = n;
 }
 
-static const char *host_out = "build/host/dinghy";
+static const char *host_out = "build/host/mvance";
+const char *host_out_name(void) { return host_out; }
 static int16_t *wav;
 static uint32_t wav_n;
 
@@ -288,6 +360,12 @@ static void platform_poll(void)                 /* one call = one millisecond */
     static uint32_t step, shot, owed, frame;
     static int32_t blk[2u * HALF_FRAMES];
     fm1_ms++;
+#ifdef APP_SYSEX
+    if (host_sx_next < host_sx_n && host_sx[host_sx_next].t <= fm1_ms) {   /* one a millisecond at most */
+        APP_SYSEX(host_sx_pool + host_sx[host_sx_next].off, host_sx[host_sx_next].len);
+        host_sx_next++;
+    }
+#endif
 #if BOARD_SMK37
     fm1_in.frames++;                            /* (the SMK scans ~625 frames a second; enough for "settled") */
 #endif

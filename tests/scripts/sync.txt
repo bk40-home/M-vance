@@ -1,0 +1,17 @@
+# LFO1 SYNC (Kris 5 Nov): program 37 (BS Downward: its JP part at 1/4D) held; LFO 1/3 shows RATE 1 as the division,
+# LFO 3/3 its SYNC 1; KNOB1 down 9 steps to OFF and RATE 1 shows its number again. FM-1 ids: LFO 5, HOME 8;
+# KNOB1 enc 2, PRESETS 6. tests/run_host.sh tests/scripts/sync.txt -> the screens and build/host/mvance.wav
+50 enc 6 36
+100 keys 0x80
+600 btn 5
+700 shot
+800 btn 5
+900 btn 5
+1000 shot
+1100 enc 2 -9
+1200 shot
+1300 btn 5
+1400 shot
+1500 btn 8
+1600 keys 0
+2000 end

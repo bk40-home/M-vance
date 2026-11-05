@@ -1,0 +1,23 @@
+# Stage 7 FX pages (FM-1 ids: FX 2, SEL 3; KNOB1..4 enc 2..5) and the effects heard: a chord with
+# SUPER CHORUS SLW and a PAN L->R delay. tests/run_host.sh tests/scripts/fx.txt -> build/host/mvance.wav + screens
+100 btn 2
+200 btn 2
+300 enc 3 100
+400 shot
+500 btn 2
+600 enc 3 80
+700 enc 4 90
+800 enc 5 90
+900 shot
+1000 keys 0x91
+1100 shot
+2000 keys 0
+2500 btn 3
+2600 btn 3
+2700 btn 3
+2800 shot
+3000 btn 2
+3100 btn 2
+3200 enc 2 12
+3300 shot
+6000 end

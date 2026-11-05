@@ -1,0 +1,444 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M-vance Bank Tool</title>
+<link rel="icon" type="image/png" href="img/icon.png">
+<meta name="description" content="Send JP-8000/8080 patches and banks to the M-vance FM-1, audition them, and read its 64 programs back as a .syx.">
+<!-- The M-vance bank tool (Kris 4 Nov, T1: fm1-port/mvance-bank-transfer-proposal-2026-11-04.md). WebMIDI with SysEx
+     (Chrome / Edge): open a .mid or .syx of JP-8000/8080 SysEx, audition a patch on the FM-1 (its temporary area:
+     nothing saved), send chosen ones into chosen program slots (saved by the FM-1 once the transfer is over), read
+     all 64 programs back and download them as a .syx (tools/make_bank.py --from-device makes that the factory bank).
+     The protocol: firmware/src/mv_xfer.h. Self-contained: no external files. WebMIDI needs https or localhost
+     (GitHub Pages, or "python -m http.server" in docs/ and http://localhost:8000/bank.html). -->
+<style>
+:root {
+  --bg: #0d0b09; --panel: #17130f; --line: #2c241b; --ink: #efe6d8; --mute: #a39582; --amber: #ff9a1f; --amber-dim: #b5650a;
+  --ok: #8fc46a; --bad: #e0614a;
+  --mono: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+* { box-sizing: border-box; }
+html { background: var(--bg); }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 var(--sans); }
+a { color: var(--amber); }
+.wrap { max-width: 1180px; margin: 0 auto; padding: 0 16px; }
+header.top { border-bottom: 1px solid var(--line); }
+header.top .wrap { display: flex; align-items: center; gap: 20px; min-height: 56px; flex-wrap: wrap; }
+.mark { font: 700 19px/1 var(--mono); letter-spacing: .08em; color: var(--amber); text-decoration: none; }
+.sub { color: var(--mute); font-size: 14px; }
+h2 { font: 700 12px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--amber); margin: 0 0 12px; }
+.bar { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; padding: 16px 0; border-bottom: 1px solid var(--line); }
+.bar label { color: var(--mute); font-size: 13px; display: flex; gap: 6px; align-items: center; }
+select, input[type=number], input[type=text] { background: var(--panel); color: var(--ink); border: 1px solid var(--line);
+  border-radius: 6px; padding: 6px 8px; font: 14px var(--sans); min-width: 0; }
+input[type=number] { width: 64px; }
+button { background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 7px 12px;
+  font: 600 14px var(--sans); cursor: pointer; }
+button.primary { background: var(--amber); color: #1a1006; border-color: var(--amber); }
+button:disabled { opacity: .45; cursor: default; }
+button:not(:disabled):hover { filter: brightness(1.12); }
+.cols { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; padding: 18px 0 40px; }
+.cols > section { min-width: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px; }
+.tools { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 10px; }
+.list { max-height: 62vh; overflow: auto; border-top: 1px solid var(--line); }
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th { position: sticky; top: 0; background: var(--panel); text-align: left; color: var(--mute); font-weight: 600; font-size: 12px;
+  padding: 6px 6px; border-bottom: 1px solid var(--line); }
+td { padding: 3px 6px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+td.n { font-family: var(--mono); color: var(--mute); width: 46px; }
+td.k { font-family: var(--mono); font-size: 12px; color: var(--mute); width: 56px; }
+td input[type=text] { width: 100%; font-family: var(--mono); font-size: 13px; padding: 3px 6px; }
+td button { padding: 3px 8px; font-size: 12px; }
+.status { font: 13px/1.4 var(--mono); color: var(--mute); padding: 10px 0; min-height: 40px; }
+.status .ok { color: var(--ok); } .status .bad { color: var(--bad); }
+progress { width: 220px; accent-color: var(--amber); }
+.empty { color: var(--mute); font-size: 14px; padding: 18px 4px; }
+.help { color: var(--mute); font-size: 13px; margin: 0 0 10px; }
+@media (max-width: 860px) { .cols { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<header class="top"><div class="wrap">
+  <a class="mark" href="index.html">M-VANCE</a>
+  <span class="sub">Bank tool: send JP-8000/8080 patches to the FM-1, read its programs back</span>
+</div></header>
+
+<main class="wrap">
+  <div class="bar">
+    <button id="connect" class="primary">Connect MIDI</button>
+    <label>To FM-1 <select id="outSel" disabled></select></label>
+    <label>From FM-1 <select id="inSel" disabled></select></label>
+    <progress id="prog" max="1" value="0" hidden></progress>
+  </div>
+  <div class="status" id="status">Connect, then open a bank file (.mid or .syx of JP-8000/8080 SysEx). Chrome or Edge;
+    the FM-1 over USB.</div>
+
+  <div class="cols">
+    <section>
+      <h2>File</h2>
+      <p class="help">Tick what to send; names can be edited (up to 16 characters). <b>Play</b> auditions on the FM-1
+        without saving it (SAVE on the FM-1 keeps it).</p>
+      <div class="tools">
+        <input type="file" id="file" accept=".mid,.midi,.syx">
+        <button id="all">All</button><button id="none">None</button>
+        <label class="sub">first slot <input type="number" id="slot" min="1" max="64" value="1"></label>
+        <button id="send" class="primary" disabled>Send ticked to slots</button>
+      </div>
+      <div class="list" id="fileList"><div class="empty">No file open.</div></div>
+    </section>
+    <section>
+      <h2>FM-1 programs</h2>
+      <p class="help">Read what the FM-1 holds now. <b>Download .syx</b> saves it; <code>python3 tools/make_bank.py
+        --from-device FILE.syx</code> makes it the factory bank.</p>
+      <div class="tools">
+        <button id="pull" class="primary" disabled>Read all 64</button>
+        <label class="sub">slot <input type="number" id="pullSlot" min="1" max="64" value="1"></label>
+        <button id="pullOne" disabled>Read one</button>
+        <button id="save" disabled>Download .syx</button>
+      </div>
+      <div class="list" id="devList"><div class="empty">Not read yet.</div></div>
+    </section>
+  </div>
+</main>
+
+<script>
+"use strict";
+/* ---- constants: the protocol (firmware/src/mv_xfer.h) and the bank format (tools/make_bank.py) */
+const NPROG = 64, PATCH = 248, NPERF = 16;
+const PERF_DEF = [0, 60, 64, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];   // MV_PERF_DEF: SINGLE, split 60, balance 64, 4+4
+const MODES = ["SINGLE", "DUAL", "SPLIT"];
+const GAP_MS = 35;            // between two messages sent: the FM-1 holds one received message at a time
+const QUIET_MS = 2500;        // a dump is over when nothing came for this long
+
+const $ = (id) => document.getElementById(id);
+let midi = null, out = null, inp = null;
+let fileItems = [];           // {kind:"P"|"U", no, com (64 B), up, lo (248 B), ext (16 B or null), name, tick}
+let devMsgs = new Map();      // performance pp -> [its 4 messages] (as the FM-1 sent them)
+let rxWait = null;            // a dump being read: {resolve, timer}
+
+/* ---- status line */
+function say(text, cls) {
+  const el = $("status");
+  el.textContent = "";
+  const s = document.createElement("span");
+  if (cls) s.className = cls;
+  s.textContent = text;
+  el.appendChild(s);
+}
+function progress(v, max) {
+  const p = $("prog");
+  p.hidden = max === 0;
+  p.max = max || 1; p.value = v;
+}
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/* ---- Roland DT1 / RQ1 (device id 10h, model 00 06) */
+function rsum(bytes) { let s = 0; for (const b of bytes) s += b; return (128 - (s % 128)) % 128; }
+function dt1(addr, data) {
+  const body = [...addr, ...Array.from(data, (b) => b & 0x7f)];
+  return new Uint8Array([0xf0, 0x41, 0x10, 0x00, 0x06, 0x12, ...body, rsum(body), 0xf7]);
+}
+function rq1(addr, size) {
+  const body = [...addr, ...size];
+  return new Uint8Array([0xf0, 0x41, 0x10, 0x00, 0x06, 0x11, ...body, rsum(body), 0xf7]);
+}
+
+/* ---- reading a file: the F0..F7 messages of a .syx, or of a Standard MIDI File's tracks */
+function vlq(b, pos) {
+  let v = 0, c;
+  do { c = b[pos.i++]; v = (v << 7) | (c & 0x7f); } while (c & 0x80);
+  return v;
+}
+function smfSysex(b) {
+  const out = [];
+  let i = 14;                                          // after MThd (its 6 bytes of header)
+  while (i + 8 <= b.length) {
+    const len = (b[i + 4] << 24) | (b[i + 5] << 16) | (b[i + 6] << 8) | b[i + 7];
+    const isTrk = b[i] === 0x4d && b[i + 1] === 0x54 && b[i + 2] === 0x72 && b[i + 3] === 0x6b;
+    const end = i + 8 + len;
+    if (isTrk) {
+      const pos = { i: i + 8 };
+      let rs = 0, pend = null;                         // running status; a SysEx continued by F7 escapes
+      while (pos.i < end) {
+        vlq(b, pos);                                    // (delta time)
+        let s = b[pos.i];
+        if (s & 0x80) pos.i++; else s = rs;
+        if (s === 0xf0 || s === 0xf7) {
+          const n = vlq(b, pos), data = b.slice(pos.i, pos.i + n);
+          pos.i += n;
+          let m = s === 0xf0 ? [0xf0, ...data] : (pend ? [...pend, ...data] : null);
+          if (m) {
+            if (m[m.length - 1] === 0xf7) { out.push(new Uint8Array(m)); pend = null; } else pend = m;
+          }
+        } else if (s === 0xff) {
+          pos.i++; const n = vlq(b, pos); pos.i += n;
+        } else {
+          rs = s;
+          pos.i += (s & 0xf0) === 0xc0 || (s & 0xf0) === 0xd0 ? 1 : 2;
+        }
+      }
+    }
+    i = end;
+  }
+  return out;
+}
+function rawSysex(b) {
+  const out = [];
+  let s = -1;
+  for (let i = 0; i < b.length; i++) {
+    if (b[i] === 0xf0) s = i;
+    else if (b[i] === 0xf7 && s >= 0) { out.push(b.slice(s, i + 1)); s = -1; }
+  }
+  return out;
+}
+/* the patches and performances in the messages (as tools/make_bank.py bank_patches) */
+function bankOf(msgs) {
+  const pats = new Map(), coms = new Map(), exts = new Map(), syncs = new Map();   // syncs: pp -> [upper, lower]
+  for (const m of msgs) {
+    if (m.length < 12 || m[1] !== 0x41 || m[3] !== 0x00 || m[4] !== 0x06 || m[5] !== 0x12) continue;
+    const a = m.slice(6, 10), body = m.slice(10, m.length - 2);
+    if (rsum(m.slice(6, m.length - 2)) !== m[m.length - 2]) continue;   // a bad checksum: left out
+    let key, off;
+    if (a[0] === 0x02 && a[1] <= 1) {                  // user patch: 02 bb pp xx, odd pp = bytes 128..
+      key = "U" + (a[1] * 64 + (a[2] >> 1) + 1); off = (a[2] & 1) * 128 + a[3];
+    } else if (a[0] === 0x03 && a[2] >= 0x40 && a[2] <= 0x43) {   // performance pp: 40/41 upper, 42/43 lower
+      key = "P" + (a[1] + 1) + (a[2] < 0x42 ? "A" : "B"); off = (a[2] & 1) * 128 + a[3];
+    } else if (a[0] === 0x03 && a[2] === 0x00) {       // its common: name, KEY MODE 0x10, SPLIT 0x11, BALANCE 0x13
+      const c = coms.get(a[1]) || new Uint8Array(64);
+      c.set(body.slice(0, 64 - a[3]), a[3]); coms.set(a[1], c); continue;
+    } else if (a[0] === 0x03 && (a[2] === 0x10 || a[2] === 0x11)) {   // a part: its LFO1 SYNC at offset 5 (JP)
+      if (a[3] <= 5 && 5 < a[3] + body.length) {
+        const s = syncs.get(a[1]) || [0, 0], v = body[5 - a[3]];
+        s[a[2] & 1] = v < 23 ? v : 0; syncs.set(a[1], s);
+      }
+      continue;
+    } else if (a[0] === 0x03 && a[2] === 0x70) {       // M-vance's own performance bytes
+      const x = exts.get(a[1]) || Uint8Array.from(PERF_DEF);
+      x.set(body.slice(0, NPERF - a[3]), a[3]); exts.set(a[1], x); continue;
+    } else continue;
+    const p = pats.get(key) || new Uint8Array(PATCH);
+    p.set(body.slice(0, PATCH - off), off);
+    pats.set(key, p);
+  }
+  const items = [];
+  for (const [pp, c] of [...coms].sort((x, y) => x[0] - y[0])) {
+    const up = pats.get("P" + (pp + 1) + "A");
+    if (!up) continue;
+    const lo = pats.get("P" + (pp + 1) + "B") || up;
+    items.push({ kind: "P", no: pp + 1, com: c, up, lo, ext: exts.get(pp) || null, sync: syncs.get(pp) || [0, 0],
+                 name: nameOf(c), tick: false });
+  }
+  for (let n = 1; n <= 128; n++) {
+    const up = pats.get("U" + n);
+    if (up) items.push({ kind: "U", no: n, com: null, up, lo: up, ext: null, name: nameOf(up), tick: false });
+  }
+  return items;
+}
+function nameOf(b) { return String.fromCharCode(...b.slice(0, 16)).replace(/[^\x20-\x7d]/g, " ").trimEnd(); }
+function perfOf(it) {                                 // the 16 performance bytes (as make_bank: ext, else the common's)
+  if (it.ext) return Array.from(it.ext);
+  const p = PERF_DEF.slice();
+  if (it.com) { p[0] = it.com[0x10] <= 2 ? it.com[0x10] : 0; p[1] = it.com[0x11]; p[2] = it.com[0x13]; }
+  if (it.sync) { p[7] = it.sync[0]; p[8] = it.sync[1]; }   // MV_PF_SYNCUP / LO: the parts' LFO1 SYNC
+  return p;
+}
+/* an item as the 4 messages of a performance at base (03 pp = a slot, 01 00 = the temporary area) */
+function perfMsgs(it, a3, a2) {
+  const name = Array.from((it.name + " ".repeat(16)).slice(0, 16), (c) => {
+    const v = c.charCodeAt(0); return v >= 32 && v <= 125 ? v : 32; });
+  const up = Uint8Array.from(it.up); up.set(name, 0);
+  const pf = perfOf(it);
+  return [dt1([a3, a2, 0x00, 0x00], [...name, pf[0], pf[1], 0, pf[2]]),   // common (0x12 PANEL SELECT: UPPER)
+          dt1([a3, a2, 0x40, 0x00], up),
+          dt1([a3, a2, 0x42, 0x00], it.kind === "P" ? it.lo : up),        // a single patch: its lower a copy
+          dt1([a3, a2, 0x70, 0x00], pf)];                                  // M-vance's own bytes
+}
+
+/* ---- MIDI */
+async function connect() {
+  if (!navigator.requestMIDIAccess) { say("This browser has no WebMIDI: use Chrome or Edge.", "bad"); return; }
+  try {
+    midi = await navigator.requestMIDIAccess({ sysex: true });
+  } catch (e) {
+    say("MIDI with SysEx was not allowed (" + e.name + "). Open this page over https or localhost and allow it.", "bad");
+    return;
+  }
+  midi.onstatechange = fillPorts;
+  fillPorts();
+}
+function fillPorts() {
+  const pick = (sel, ports, cur) => {
+    sel.textContent = "";
+    for (const p of ports.values()) {
+      const o = document.createElement("option");
+      o.value = p.id; o.textContent = p.name;
+      sel.appendChild(o);
+    }
+    const like = [...ports.values()].find((p) => /fm-?1|m-?vave|dinghy|m-?vance/i.test(p.name));
+    sel.value = cur && ports.has(cur) ? cur : like ? like.id : sel.value;
+    sel.disabled = ports.size === 0;
+  };
+  pick($("outSel"), midi.outputs, out && out.id);
+  pick($("inSel"), midi.inputs, inp && inp.id);
+  usePorts();
+}
+function usePorts() {
+  out = midi.outputs.get($("outSel").value) || null;
+  if (inp) inp.onmidimessage = null;
+  inp = midi.inputs.get($("inSel").value) || null;
+  if (inp) inp.onmidimessage = onMidi;
+  const ok = !!(out && inp);
+  $("pull").disabled = $("pullOne").disabled = !ok;
+  $("send").disabled = !(out && fileItems.length);
+  say(ok ? `Connected: ${out.name}.` : "No FM-1 port: plug it in (USB) and pick it above.", ok ? "ok" : "bad");
+}
+function onMidi(ev) {                                 // a dump's DT1s (performances: 03 pp ..) collected
+  const m = ev.data;
+  if (m[0] !== 0xf0 || m[1] !== 0x41 || m[4] !== 0x06 || m[5] !== 0x12 || m[6] !== 0x03) return;
+  const pp = m[7], area = m[8];
+  const k = area === 0x00 ? 0 : area === 0x40 ? 1 : area === 0x42 ? 2 : area === 0x70 ? 3 : -1;
+  if (k < 0 || pp >= NPROG) return;
+  const set = devMsgs.get(pp) || [null, null, null, null];
+  set[k] = new Uint8Array(m);
+  devMsgs.set(pp, set);
+  if (rxWait) rxWait.poke();
+}
+async function sendAll(msgs, what) {
+  progress(0, msgs.length);
+  for (let i = 0; i < msgs.length; i++) {
+    out.send(msgs[i]);
+    progress(i + 1, msgs.length);
+    await sleep(GAP_MS);
+  }
+  progress(0, 0);
+  say(what, "ok");
+}
+
+/* ---- the file pane */
+async function openFile(f) {
+  const b = new Uint8Array(await f.arrayBuffer());
+  const msgs = b[0] === 0x4d && b[1] === 0x54 ? smfSysex(b) : rawSysex(b);
+  fileItems = bankOf(msgs);
+  drawFile();
+  say(fileItems.length ? `${f.name}: ${fileItems.filter((i) => i.kind === "P").length} performances, ` +
+      `${fileItems.filter((i) => i.kind === "U").length} patches.` : `${f.name}: no JP-8000/8080 patches in it.`,
+      fileItems.length ? "ok" : "bad");
+  $("send").disabled = !(out && fileItems.length);
+}
+function drawFile() {
+  const box = $("fileList");
+  box.textContent = "";
+  if (!fileItems.length) { box.innerHTML = '<div class="empty">No patches in this file.</div>'; return; }
+  const t = document.createElement("table");
+  t.innerHTML = "<thead><tr><th></th><th>#</th><th>Kind</th><th>Name</th><th></th></tr></thead>";
+  const tb = document.createElement("tbody");
+  for (const it of fileItems) {
+    const tr = document.createElement("tr");
+    const cb = document.createElement("input"); cb.type = "checkbox"; cb.checked = it.tick;
+    cb.onchange = () => { it.tick = cb.checked; };
+    const nm = document.createElement("input"); nm.type = "text"; nm.maxLength = 16; nm.value = it.name;
+    nm.oninput = () => { it.name = nm.value.replace(/[^\x20-\x7d]/g, ""); };
+    const play = document.createElement("button"); play.textContent = "Play";
+    play.onclick = () => audition(it);
+    const mode = it.kind === "P" ? MODES[perfOf(it)[0]] : "PATCH";
+    tr.append(td(cb), td(it.kind + it.no, "n"), td(mode, "k"), td(nm), td(play));
+    tb.appendChild(tr);
+  }
+  t.appendChild(tb);
+  box.appendChild(t);
+}
+function td(x, cls) {
+  const c = document.createElement("td");
+  if (cls) c.className = cls;
+  if (typeof x === "string") c.textContent = x; else c.appendChild(x);
+  return c;
+}
+async function audition(it) {
+  if (!out) { say("Connect first.", "bad"); return; }
+  await sendAll(perfMsgs(it, 0x01, 0x00), `Playing "${it.name}" on the FM-1 (not saved: SAVE on the FM-1 keeps it).`);
+}
+async function sendTicked() {
+  const ticked = fileItems.filter((i) => i.tick);
+  const first = Math.max(1, Math.min(64, parseInt($("slot").value, 10) || 1));
+  if (!ticked.length) { say("Tick the ones to send.", "bad"); return; }
+  if (first + ticked.length - 1 > NPROG) { say(`${ticked.length} from slot ${first} goes past 64.`, "bad"); return; }
+  const last = first + ticked.length - 1;
+  if (!confirm(`Write ${ticked.length} program(s) into FM-1 slot${ticked.length > 1 ? "s " + first + "-" + last : " " + first}?` +
+               " What is there now is replaced.")) return;
+  const msgs = [];
+  ticked.forEach((it, k) => msgs.push(...perfMsgs(it, 0x03, first - 1 + k)));
+  await sendAll(msgs, `Sent to slot${ticked.length > 1 ? "s " + first + "-" + last : " " + first}. The FM-1 saves them` +
+                      " to flash a moment after (when nothing is sounding).");
+}
+
+/* ---- the FM-1 pane */
+function readDump(pp, n) {                            // ask, then wait until nothing more comes
+  return new Promise((resolve) => {
+    let timer = null;
+    const done = () => { rxWait = null; resolve(); };
+    rxWait = { poke: () => { clearTimeout(timer); timer = setTimeout(done, QUIET_MS);
+                             progress(countFrom(pp, n), n * 4); } };
+    timer = setTimeout(done, QUIET_MS * 2);           // (the first answer may take a moment)
+    out.send(rq1([0x03, pp, 0x00, 0x00], [0x00, n, 0x00, 0x00]));
+  });
+}
+function countFrom(pp, n) {
+  let c = 0;
+  for (let k = pp; k < pp + n; k++) for (const m of devMsgs.get(k) || []) if (m) c++;
+  return c;
+}
+async function pull(pp, n) {
+  for (let k = pp; k < pp + n; k++) devMsgs.delete(k);
+  say(n > 1 ? "Reading all 64 programs..." : `Reading slot ${pp + 1}...`);
+  await readDump(pp, n);
+  progress(0, 0);
+  const got = countFrom(pp, n);
+  drawDev();
+  say(got === n * 4 ? `Read ${n} program${n > 1 ? "s" : ""}.` : `Only ${got} of ${n * 4} messages came back: try again.`,
+      got === n * 4 ? "ok" : "bad");
+  $("save").disabled = devMsgs.size !== NPROG || [...devMsgs.values()].some((s) => s.some((m) => !m));
+}
+function drawDev() {
+  const box = $("devList");
+  box.textContent = "";
+  const t = document.createElement("table");
+  t.innerHTML = "<thead><tr><th>Slot</th><th>Mode</th><th>Name</th></tr></thead>";
+  const tb = document.createElement("tbody");
+  for (let pp = 0; pp < NPROG; pp++) {
+    const s = devMsgs.get(pp);
+    if (!s) continue;
+    const name = s[1] ? nameOf(s[1].slice(10, 26)) : "?";
+    const mode = s[3] ? MODES[s[3][10]] || "?" : s[0] ? MODES[s[0][26]] || "?" : "?";
+    const tr = document.createElement("tr");
+    tr.append(td(String(pp + 1), "n"), td(mode, "k"), td(name));
+    tb.appendChild(tr);
+  }
+  t.appendChild(tb);
+  box.appendChild(t);
+}
+function download() {                                 // the 64 in slot order, 4 messages each (make_bank's own order)
+  const parts = [];
+  for (let pp = 0; pp < NPROG; pp++) parts.push(...devMsgs.get(pp));
+  const d = new Date(), z = (v) => String(v).padStart(2, "0");
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob(parts, { type: "application/octet-stream" }));
+  a.download = `mvance-device-${d.getFullYear()}${z(d.getMonth() + 1)}${z(d.getDate())}-${z(d.getHours())}${z(d.getMinutes())}.syx`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+/* ---- wiring */
+$("connect").onclick = connect;
+$("outSel").onchange = $("inSel").onchange = usePorts;
+$("file").onchange = (e) => { if (e.target.files[0]) openFile(e.target.files[0]); };
+$("all").onclick = () => { fileItems.forEach((i) => (i.tick = true)); drawFile(); };
+$("none").onclick = () => { fileItems.forEach((i) => (i.tick = false)); drawFile(); };
+$("send").onclick = sendTicked;
+$("pull").onclick = () => pull(0, NPROG);
+$("pullOne").onclick = () => pull(Math.max(1, Math.min(64, parseInt($("pullSlot").value, 10) || 1)) - 1, 1);
+$("save").onclick = download;
+</script>
+</body>
+</html>

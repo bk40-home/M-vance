@@ -1,0 +1,16 @@
+# HOME's knobs (Kris 3 Nov): KNOB1 CUTOFF (CC 74), KNOB2 RESO (CC 71), KNOB3 DELAY send (CC 94), KNOB4 REVERB (global
+# LEVEL, no CC: saved with the settings). FM-1 ids: KNOB1..4 enc 2..5, PRESETS 6, HOME 8, SEL 3.
+# tests/run_host.sh tests/scripts/home.txt: "MIDI out B0 74/71/94 .." lines, and the screens
+50 enc 6 7
+100 keys 0x91
+600 enc 2 3
+700 enc 3 2
+800 enc 4 5
+900 enc 5 6
+1000 shot
+1100 keys 0
+1200 btn 3
+1300 shot
+1400 btn 8
+1500 shot
+1600 end

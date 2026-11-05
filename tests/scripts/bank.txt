@@ -1,0 +1,13 @@
+# the factory bank question (A1, Kris 3 Nov): run with MV_HOST_BANK_ASK=1 (as after a flash with a new bank and
+# programs saved). The question shows; a knob turned meanwhile is dropped; SAVE loads the bank: the 8 blobs and
+# the perf slot go to flash one a pass once silent, then the settings (the bank's id). FM-1 ids: SAVE 9, KNOB1 enc 2.
+# MV_HOST_BANK_ASK=1 tests/run_host.sh tests/scripts/bank.txt
+100 shot
+200 keys 0x91
+300 enc 2 5
+600 keys 0
+800 shot
+900 btn 9
+1000 shot
+4000 shot
+4100 end

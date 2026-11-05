@@ -1,64 +1,78 @@
-<p align="center"><img src="assets/logo.svg" width="96" alt="Dinghy"></p>
+<p align="center"><img src="assets/logo.png" width="480" alt="M-vance: seven fanned sawtooth waves in amber, a black plate with M-VANCE in pixel letters"></p>
 
-# Dinghy
+# M-vance
 
-**The smallest firmware for the M-VAVE FM-1 to build your own on.**
+**A JP-8000/8080-style virtual analog for the M-VAVE FM-1: the JT-8000 synth engine, ported to the FM-1.**
 
-Dinghy plays a sine wave on the keys, and that is all it does. Under it is everything an FM-1 firmware needs
-before it can be any fun: the update path, the USB rescue, MIDI over USB and the TRS jack (with clock), USB audio, the
-keys, knobs and LEDs, the screen, flash storage, and the same again for the M-Vave SMK-37. It all works, so you start
-with the part you actually want to write.
+M-vance is open-source firmware for the M-VAVE FM-1. It is the FM-1 edition of the **JT-8000**, a JP-8000-style synth
+for the Teensy 4.1: its floating-point DSP rewritten in C99 fixed point for the FM-1's chip (no FPU), with the JP's
+laws (envelope times, LFO rates, modulation depths, the filter's cutoff and resonance) measured against the JP-8000's
+own firmware running in the JE-8086 emulator. Super Saw, the JP filter, the multi-effects, delay, a plate reverb, an
+arpeggiator and 64 programs, on eight voices.
 
-```
-firmware/src/dinghy.c     <- your firmware: ~300 lines, a 4-voice sine. Start here.
-firmware/src/platform.c   <- the plumbing (boot, USB, MIDI, updates, audio ISR, storage). Done; read it, don't fight it.
-firmware/src/store.h      <- where your data lives in flash, per board
-firmware/src/*.c, hal/    <- Felucca's platform, as SLOOP / sloopDX / OberVave carry it; the SMK-37 layer
-```
+<p align="center"><img src="docs/img/home.png" width="240" alt="The M-vance home screen: the name, the program, the note, a keyboard with the keys that sound"></p>
 
-Dinghy is based on [Felucca](https://github.com/hugelton/Felucca) by Leo Kuroshita (Hügelton Instruments), with its
-platform as [SLOOP](https://github.com/isod89/sloop-fm1) (isod89) carries it: it keeps that platform and throws away the
-rest. The smallest boat of the family, after the felucca and the sloop.
+- **Web page:** <https://bk40-home.github.io/M-vance/> (from `docs/`)
+- **Cheat sheet:** [docs/cheatsheet.html](docs/cheatsheet.html): two A4 pages to print and keep by the FM-1
 
-<p align="center"><img src="docs/screen.png" width="240" alt="Dinghy's screen: the name, the note played, a keyboard with the keys that sound"></p>
+> **Status: in development, not yet released.** Builds are tested on the FM-1 as they go; the first release will be
+> on [Releases](https://github.com/bk40-home/M-vance/releases) and, once listed, on the
+> [FM-1 Firmware Hub](https://thefirmwarehub.com). Package identity `FM-1_960`.
 
-> **Status: 0.4.** 0.3 was tested on the FM-1: the install, MIDI in (pitch exact, 4 voices), USB audio at
-> 44.1 / 48 kHz, the keys, the screen, the octave kept in flash, and back to another firmware through the hub.
-> 0.4 brings OberVave's platform over: the TRS MIDI IN, the clock, blobs and slots, the loader's screen, the SMK-37.
-> That code runs on the device in OberVave (FM-1 and SMK-37); Dinghy 0.4 itself is tested on the host only so far.
-
-## What you get
+## The synth
 
 | | |
 | --- | --- |
-| **Updates that always work** | `tools/fm1_install.py`, the web installers and the [FM-1 Firmware Hub](https://thefirmwarehub.com) reach your firmware over USB, so you (and your users) can always install the next build, or go back to the official firmware. |
-| **USB rescue** | Hold **OCT-** while switching on: no sound, only the updater. If your firmware crashes twice at boot, the FM-1 goes there by itself. |
-| **MIDI** | USB in and out (class compliant) and the FM-1's TRS MIDI IN, in one queue: `midi_get()` says where a message came from, `midi_send()`. Clock, start, stop and continue reach your app. |
-| **USB audio** | The FM-1 shows up as a 16-bit stereo audio input (44.1 or 48 kHz): record it into any DAW or phone. Nothing to do. |
-| **Panel** | 27 keys, 14 buttons, 7 encoders, the MASTER knob, the LEDs, by name (`BTN_PLAY`, `ENC_KNOB1`, ...). |
-| **Screen** | 240 x 240, text in two sizes, rectangles, lines, pixels. |
-| **Storage** | `settings_*` (4 KB), 8 blobs of 4 KB (`blob_*`), 8 slots of 16 KB (`slot_*`), each with a CRC, in places no other part of the flash is in reach of. |
-| **Never waits for the screen** | `LCD_IDLE`: your app reads MIDI and the keys while the screen's DMA runs, so a chord never stumbles over a redraw. |
-| **The SMK-37 too** | `./build.sh --board smk37` (Pro, Elite, MKE-P37): the same app on M-Vave's 37-key keyboard, with velocity, outer keys, 16 coloured pads, faders and wheels. [docs/SMK37.md](docs/SMK37.md) |
-| **An update screen** | The update loader draws your name in your colour, a progress bar and what to do, also after an install was cut off (FM-1). |
-| **A crash screen** | A fault shows where it happened (the PC), then the FM-1 restarts. |
-| **Host mode** | The same `dinghy.c` on your computer: the screen as an image, the sound as a WAV, scripted keys, knobs, MIDI (USB and TRS, a clock), SMK-37 pads and wheels. No FM-1 needed to try an idea. |
-| **Tests and CI** | `tests/run_tests.sh`: the host app, the flash maps, the update path, the loader, the installer. A tag `vX.Y` on GitHub builds, tests and releases the packages with a build attestation. |
-| **Checks** | The build fails on what bricks or breaks an FM-1 firmware: a 64-bit division, a call into the chip ROM, too much RAM, a register touched outside `hal/`. |
+| **Voices** | 8. POLY, MONO (last note, LEGATO), UNISON (every voice on one note, DETUNE), PORTAMENTO in every mode. A VOICES limit (GLOBAL). |
+| **OSC 1** | SUPER SAW, TRIANGLE MOD, NOISE, FEEDBACK OSC, SQUARE, SAW, TRIANGLE. CTRL 1 and CTRL 2 change job with the wave, as on the JP. |
+| **OSC 2** | SQUARE, SAW, TRIANGLE, NOISE. SYNC to OSC 1, RANGE ±25 semitones with the WIDE ends, FINE. |
+| **Common** | RING, X-MOD, BALANCE, OSC SHIFT. PITCH ENV: attack, decay, depth up to ±4 octaves. |
+| **Filter** | The JP filter: LPF, BPF, HPF at −12 or −24 dB, RESONANCE, KEY FOLLOW, LFO 1 / LFO 2 depths, FILTER ENV (ADSR). |
+| **Amp** | AMP ENV (ADSR), LEVEL, tremolo from either LFO, AUTO PAN or a fixed pan position. |
+| **LFOs** | LFO 1: triangle, saw, square, random, with FADE. LFO 2: triangle, brought in by the mod wheel. |
+| **Effects** | TONE (bass, treble), MULTI-FX (super chorus, flanger, phaser, twist, freeze, DISTORTION), DELAY (five stereo patterns, as a send), a stereo plate REVERB (global), a look-ahead limiter on the output. |
+| **Arpeggiator** | [Skiff](https://github.com/illuminus5/skiff)'s: 14 modes, 1/4 to 4 bars with triplets, 1–4 octaves, gate, swing, chance, HOLD (latch), note order. Its own tempo, or MIDI clock. |
+| **Layer / split** | Every program is a performance, as on the JP: an UPPER and a LOWER patch, played SINGLE, DUAL (both on every key) or SPLIT (LOWER below the split key: set it by touching SPLIT and pressing a key). The 8 voices are cut between them (1+7 .. 7+1), BALANCE between them, each its own MIDI channel if wanted, and the arp on either part or both (a split's left hand arpeggiates under the right). PANEL picks the part the pages edit. From the JT-8000's performance. |
+| **Programs** | 64 in flash: 16 leads, 12 pads, 12 basses, 8 plucks and arps, 8 brass, strings and bells, 8 effects (16 is a SPLIT, 28 a DUAL). SAVE: write (rename, copy to another slot), swap (reorder), back to the factory sound. A `*` by the name: edited, not saved. |
+| **MIDI** | USB-MIDI in and out, the TRS MIDI IN. Notes, program change, pitch bend (BEND + / − per program), mod wheel, clock and START. Every knob sends and receives the JP-8080's MODE2 CC. |
 
-## Build your own
+Integers only: the chip has no FPU. Tables are generated by `tools/gen_tables.py` (and `gen_rv_tables.py`,
+`gen_params.py`) and committed.
 
-From nothing to your own firmware on the FM-1, step by step. Each step works before you go to the next.
+## The panel
 
-### 1. Copy it
+The JP-8080's sections are pages on the FM-1's screen. A section button opens its first page, again the next (it
+loops); KNOB 1–4 edit the four columns, left to right; SELECT steps the knob touched last; ALGORITHM walks every page;
+PRESETS picks the program; HOME goes home. On HOME the four knobs are CUTOFF, RESO, DELAY (the send) and REVERB (the
+global level), over a voice strip and a scope of the output.
 
-On GitHub: **Use this template** (top right on this page) or fork it, then clone your copy. Rename nothing yet:
-first make sure the unchanged Dinghy builds on your machine.
+| Button | Pages |
+| --- | --- |
+| **LFO** | LFO 1/2 (WAVE, RATE 1, FADE, DEST), LFO 2/2 (RATE 2, DEPTH SELECT, pitch LFO 1, pitch LFO 2) |
+| **EDIT** | OSC 1, OSC 2 (2 pages), OSC COMMON |
+| **ENV** | PITCH ENV, FILTER ENV, AMP ENV |
+| **SEL** | FILTER (2 pages), AMP |
+| **FX** | TONE, MULTI-FX, DELAY, REVERB (2 pages, global) |
+| **GLO** | PLAY MODE (2 pages), PERFORM (2 pages: MODE, SPLIT, BALANCE, PANEL / VOICES, ARP, CH LO, CH UP), GLOBAL (MIDI CH, VOICES, TEMPO), DEBUG (CPU average and 3 s peak, voices, octave, MIDI channel, notes in, clock, firmware version: off every other screen) |
+| **ARP** | tap: the arp on / off; hold 0.5 s: ARP (2 pages, global) |
+| **SAVE** | its page: TO, CURSOR, CHAR, MODE (WRITE / SWAP / FACTORY); SAVE again does it |
 
-### 2. Set up once
+Every knob, range and choice: the [cheat sheet](docs/cheatsheet.html). It is generated from the firmware's own page
+table (`tests/run_docs.sh`), so it shows the panel exactly as the build has it.
 
-You need Linux on x86-64 (or macOS / Windows with Docker or WSL), Python 3 with Pillow, the JieLi toolchain
-and three files of the JieLi AC79 SDK:
+## Install
+
+- **The FM-1 Firmware Hub** (once listed): [thefirmwarehub.com](https://thefirmwarehub.com) in Chrome or Edge, the FM-1
+  on USB, pick M-vance. Going back to another firmware, or the official one, works the same way.
+- **From the command line:** `python3 tools/fm1_install.py mvance-X.Y.fwsc` (from a release, or your own build).
+- **If it won't start:** hold **OCT-** while switching on: the USB rescue, no sound, only the updater. Install a
+  working build (or another firmware from the hub) from there. Installing firmware is at your own risk.
+
+## Build and run
+
+M-vance is built on [Dinghy](https://github.com/zvenson/dinghy) and keeps its platform (boot, USB, updates, audio,
+storage) unchanged. You need Linux on x86-64 (or Windows with WSL, macOS with Docker), Python 3 with Pillow, the JieLi
+toolchain and three files of the JieLi AC79 SDK:
 
 ```sh
 pip3 install Pillow mido python-rtmidi
@@ -67,72 +81,53 @@ git clone --depth 1 --branch AC79NN_SDK_V1.2.1_2023-12-13 \
     https://gitee.com/Jieli-Tech/fw-AC79_AIoT_SDK.git ~/fw-AC79_AIoT_SDK
 ```
 
-On macOS the build runs the toolchain in a `linux/amd64` Docker container by itself (have Docker running).
-`JIELI_TOOLCHAIN` and `AC79_SDK` point elsewhere if your copies live somewhere else.
-
-### 3. Hear it without an FM-1
+Then:
 
 ```sh
-tests/run_host.sh                           # -> build/host/dinghy.wav and screen PNGs
+sh tests/run_unit.sh                        # the engine's unit tests
+tests/run_host.sh [script]                  # the firmware on your computer: build/host/mvance.wav and the screens
+sh tests/run_docs.sh                        # the cheat sheet and the web page's screens, from the firmware
+./build.sh                                  # build/mvance.fwsc (refuses what would brick an FM-1)
+./build.sh --release 0.1                    # build/mvance-0.1.fwsc, the version on the screen
+python3 tools/fm1_install.py build/mvance.fwsc
 ```
 
-Host mode runs the same `dinghy.c` on your computer: the sound as a WAV, the screen as images. Most ideas can be
-tried here first, in seconds.
+The factory bank is a list, `tools/bank/factory.txt`: a source bank and patch per slot, its name and its edits.
+`python3 tools/make_bank.py` turns it into `build/mvance-factory.syx` (a JP-8080 SysEx bank) and
+`firmware/gen/mv_factory.h`; rebuild the firmware after. `python3 tools/make_bank.py --auto` instead takes every
+`.mid` / `.syx` in `docs/presets/`: it writes `tools/bank/auto.txt` (64 programs in the same groups, the files taking
+turns, layered performances whole, duplicates and empty init patches left out) and builds the bank from it. A program can also be designed from scratch: `INIT` as its source (the JP init
+patch) and its edits naming choices (`OSC1_WAVE=SUPERSAW FLT_TYPE=BPF MONO=ON`; `tools/make_bank.py` says how).
+`python3 tools/audition.py` plays every program on the host build to
+`build/audition/NN_name.wav` with its level, to hear a bank before flashing it (Linux / macOS / WSL).
 
-### 4. Your first change
+Programs saved on an FM-1 belong to the bank they were saved from. A firmware with a different factory bank
+asks at power-on: **SAVE** loads the new bank (all 64 replaced, your saves with them), **HOME** keeps your
+programs (it does not ask again until the next new bank). SAVE's FACTORY mode brings back one slot.
 
-Open [firmware/src/dinghy.c](firmware/src/dinghy.c) (~200 lines). The sound is `app_audio()`: it gets an empty
-buffer of stereo frames and adds to it. Make the sine a square:
+**Programs to and from a computer:** [docs/bank.html](docs/bank.html) (Chrome or Edge, WebMIDI; open it from GitHub
+Pages, or run `python -m http.server` in `docs/` and open `http://localhost:8000/bank.html`). Open a `.mid` or `.syx`
+of JP-8000/8080 SysEx: **Play** auditions a patch or performance on the FM-1 without saving it, **Send ticked to
+slots** writes the ticked ones into the slots from the one you choose (one ticked: one targeted slot), **Read all 64**
+reads the FM-1's programs back and **Download .syx** saves them. `python3 tools/make_bank.py --from-device FILE.syx`
+then makes those the factory bank: the file is kept as `tools/bank/device.syx`, `factory.txt` takes every slot from it
+(each line's comment says where the program came from; the old list goes to `tools/bank/history/`), and the bank is
+built. USB only (the TRS jack has no SysEx). The protocol, JP-8080 DT1 / RQ1 with one M-vance area for the
+performance bytes: `firmware/src/mv_xfer.h`; `python3 tests/xfer_test.py` checks it on the host build.
 
-```c
-s = ((int32_t)ph < 0 ? 8000 : -8000) * amp >> 15;     /* instead of s = (sine(ph) * amp) >> 15; */
-```
+`tests/scripts/*.txt` are host scripts (keys, buttons, knobs, MIDI over time; `tests/host.c` says what a line can
+do). The compare tools in `tools/compare/` (`run_compare.sh`) run the fixed-point code next to the JT-8000's float code.
+The chip's rules: [docs/RULES.md](docs/RULES.md); the platform's calls: [docs/API.md](docs/API.md); the SMK-37 build
+(not yet tested with M-vance): [docs/SMK37.md](docs/SMK37.md).
 
-Run `tests/run_host.sh` again and listen to `build/host/dinghy.wav`. The screen is drawn in `app_main()`, the keys
-are read there too: change the text, add a knob ([docs/API.md](docs/API.md) has every call).
+## Credits and licence
 
-### 5. Onto the FM-1
+GPL-3.0-only, see [LICENSE](LICENSE) and [LICENSING.md](LICENSING.md) for who made what. M-vance (the engine, the
+panel, the programs, the tools and tests in `firmware/src/mv_*`, `tools/gen_*`, `tools/compare/`) is by Kris
+(bk40-home), ported from his JT-8000. It stands on [Dinghy](https://github.com/zvenson/dinghy) (zvenson), which carries
+the FM-1 platform of [Felucca](https://github.com/hugelton/Felucca) by Leo Kuroshita (Hügelton Instruments) with the
+changes of [SLOOP](https://github.com/isod89/sloop-fm1) (isod89); the arpeggiator is
+[Skiff](https://github.com/illuminus5/skiff)'s (illuminus5).
 
-```sh
-./build.sh                                       # -> build/dinghy.fwsc (fails on what would brick the FM-1)
-python3 tools/fm1_install.py build/dinghy.fwsc   # over USB; asks before it writes, restarts into your build
-python3 tools/fm1_install.py --info              # what runs on the connected FM-1
-```
-
-That is the whole loop: change, hear it on the host, build, install. Back to another firmware, or to the official
-one, with the [FM-1 Firmware Hub](https://thefirmwarehub.com) in Chrome or Edge: Dinghy (and every copy of it)
-answers the hub's updater like every firmware there. Installing firmware is at your own risk.
-
-### 6. When it goes wrong
-
-- **It crashes:** the screen shows where (the PC), then the FM-1 restarts. Twice at boot and it goes to the
-  USB rescue by itself.
-- **It won't start at all:** hold **OCT-** while switching on: the USB rescue, no sound, only the updater. Install
-  a working build (or another firmware from the hub) from there.
-- **The build refuses:** it checks for a 64-bit division, a call into the chip ROM, too much RAM, a register touched
-  outside `hal/`. [docs/RULES.md](docs/RULES.md) says why each one matters; read it before your first crash.
-
-### 7. Make it yours, release it, get into the hub
-
-Your name and logo, your own package identity (so the FM-1 and the installers tell your firmware from Dinghy),
-a GitHub release with the `.fwsc`, and how to get listed next to the others in the
-[FM-1 Firmware Hub](https://thefirmwarehub.com): **[docs/MAKE-IT-YOURS.md](docs/MAKE-IT-YOURS.md)**.
-
-## Where to go next
-
-- **[docs/API.md](docs/API.md)**: everything `platform.c` gives you, with the panel's ids, the screen calls, the
-  audio contract, MIDI, storage, the flash map, timing, the SMK-37.
-- **[docs/SMK37.md](docs/SMK37.md)**: building and installing for the M-Vave SMK-37.
-- **[docs/MAKE-IT-YOURS.md](docs/MAKE-IT-YOURS.md)**: turn Dinghy into your firmware: the name, the package
-  identity, releases, getting into the FM-1 Firmware Hub.
-- **[docs/RULES.md](docs/RULES.md)**: the chip's rules (no FPU, no libgcc, the audio ISR's budget) and what the build
-  checks for you. Read it before your first crash, not after.
-
-## License
-
-GPL-3.0-only, as Felucca and SLOOP: you may change and share it, and whoever gets your firmware gets its source.
-Details, credits and third-party parts in [LICENSING.md](LICENSING.md).
-
-The platform is Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments, with SLOOP's changes (isod89);
-the SMK-37 layer by M. Geisler (genkigenki); the loader's screen after Skiff (illuminus5). Dinghy (the app, the host
-mode, the docs) by zvenson.
+JP-8000 and JP-8080 are trademarks of Roland Corporation; "M-VAVE" and "FM-1" belong to their owners. M-vance is not
+made by, endorsed by or affiliated with them, and none of these marks appear in the firmware.

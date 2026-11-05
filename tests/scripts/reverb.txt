@@ -1,0 +1,18 @@
+# REVERB pages (FX 2: TONE, MULTI-FX, DELAY, REVERB 1/2, REVERB 2/2) and its tail; KNOB1..4 enc 2..5.
+# tests/run_host.sh tests/scripts/reverb.txt -> build/host/mvance.wav + screens
+100 btn 2
+200 btn 2
+300 btn 2
+400 btn 2
+500 enc 2 90
+600 enc 3 100
+700 enc 4 30
+800 shot
+900 btn 2
+1000 enc 4 1
+1100 shot
+1200 enc 4 -1
+1300 keys 0x91
+2000 keys 0
+2100 shot
+9000 end

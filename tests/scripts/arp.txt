@@ -1,0 +1,23 @@
+# ARP (FM-1 ids: ARP 10, GLO 7; KNOB1..4 enc 2..5): tap = on, a chord arpeggiated (UP, 1/16, 120 BPM), hold = pages,
+# MODE to UPDN, OCTAVE 2, HOLD on (the latch: keys up, it plays on), tap = off.
+# tests/run_host.sh tests/scripts/arp.txt -> build/host/mvance.wav + screens
+100 btn 10
+300 keys 0x91
+1300 shot
+1400 btndown 10
+2000 btnup 10
+2100 enc 2 2
+2200 enc 4 1
+2300 shot
+2400 btndown 10
+3000 btnup 10
+3100 enc 2 1
+3200 shot
+3300 keys 0
+4300 shot
+4400 btn 10
+4500 btn 7
+4600 btn 7
+4700 btn 7
+4800 shot
+6500 end

@@ -1,0 +1,20 @@
+# the DEBUG page (Kris 3 Nov): GLO x6 (PLAY MODE 1/2 2/2, PERFORM 1/2 2/2, GLOBAL, DEBUG); the footer gone from HOME and
+# the pages (the scope and the columns take the space). FM-1 ids: GLO 7, HOME 8, LFO 5, KNOB2 enc 3.
+# tests/run_host.sh tests/scripts/debug.txt: the screens
+50 keys 0x91
+600 shot
+700 btn 5
+800 enc 3 5
+900 shot
+1000 btn 7
+1050 btn 7
+1100 btn 7
+1150 btn 7
+1200 btn 7
+1250 btn 7
+1700 shot
+1800 keys 0
+2300 shot
+2400 btn 8
+2500 shot
+2600 end

@@ -1,0 +1,44 @@
+# Stage 7 panel walk (FM-1 ids: FX 2, SEL 3, ENV 4, LFO 5, EDIT 6, GLO 7, HOME 8; enc SELECT 0, ALGORITHM 1,
+# KNOB1..4 2..5). A screen after each step: tests/run_host.sh tests/scripts/panel.txt
+200 keys 0x80
+400 shot
+500 keys 0
+600 btn 6
+700 enc 3 5
+800 shot
+900 btn 6
+1000 enc 3 3
+1100 shot
+1200 btn 6
+1300 shot
+1400 btn 6
+1500 enc 4 -20
+1600 shot
+1700 btn 3
+1800 enc 4 -30
+1900 enc 5 40
+2000 shot
+2100 btn 3
+2200 enc 5 -10
+2300 shot
+2400 btn 4
+2500 shot
+2600 btn 4
+2700 shot
+2800 btn 2
+2900 enc 4 2
+3000 shot
+3100 btn 2
+3200 shot
+3300 btn 5
+3400 shot
+3500 btn 7
+3600 enc 2 1
+3700 shot
+3800 btn 7
+3900 btn 7
+4000 enc 2 3
+4100 shot
+4200 btn 8
+4300 shot
+6000 end
