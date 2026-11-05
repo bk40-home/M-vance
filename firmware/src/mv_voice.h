@@ -144,7 +144,8 @@ typedef struct {
     volatile uint8_t tempo;                     /* TEMPO, BPM (global; the main loop turns it into arp_beat) */
     volatile uint32_t arp_beat;                 /* a quarter note in samples: TEMPO, or the MIDI clock's (main loop) */
     volatile uint32_t lfo1_sync_inc[2];         /* a part's synced LFO1 step (mv_lfo_sync_inc), 0 free: main loop sets */
-    uint32_t sync_key[2];                       /* main loop: the sync byte and beat those steps were made for */
+    uint8_t sync_s[2];                          /* main loop: the LFO1 SYNC byte each part's step was made for */
+    uint32_t sync_beat[2];                      /* main loop: and the beat (samples) it was made for */
     volatile uint8_t arp_start;                 /* MIDI START seen (main loop sets, the ISR clears) */
     uint8_t arp_live;                           /* the arp the ISR is running (follows arpb[ON] at a block's start) */
 #if MV_PROFILE
@@ -161,7 +162,8 @@ void mv_engine_note_off(mv_engine_t *e, uint32_t note);                 /* main 
 void mv_engine_note_to(mv_engine_t *e, uint32_t note, uint32_t vel, uint32_t to);   /* vel 0: off */
 void mv_engine_render(mv_engine_t *e, int32_t *out, uint32_t n);        /* ISR: n stereo frames, adds Q15 */
 /* main loop, after arp_beat or a program / perf byte may have moved: each part's synced LFO1 step from its LFO1 SYNC
- * byte and arp_beat (a divide only when one of the two changed) */
+ * byte and arp_beat. A divide only when the byte changes or the beat moves more than 1/512 (0.2 %) from the one the
+ * step was made for: MIDI clock jitter leaves the step alone (Kris 5 Nov, fix 2) */
 void mv_engine_sync(mv_engine_t *e);
 int mv_engine_sounding(const mv_engine_t *e, uint32_t note);            /* a key held for this note */
 int mv_engine_quiet(const mv_engine_t *e);                              /* nothing sounds, not even a release */

@@ -12,7 +12,8 @@
 // worst single sample in dBFS. Pass mark: argv[1] (default -50 dB, as cmp_filter).
 // What is left (2026-11-02, phase re-aligned; error feedback in the recursive filters): -57 .. -85 dB, worst
 // samples -63 dBFS or lower. The largest are the short delays with feedback: the 16-bit lines (Q14, truncated toward
-// zero so a tail ends) against the JT's float lines, compounded each repeat. Next, the JT's own float32 positions:
+// zero so a tail ends) against the JT's float lines, compounded each repeat. Since 5 Nov (3a) the lines are Q13
+// (+-4.0 headroom, one bit coarser): worst -51.5 dB (DLY MONO SHORT t64 fb100), worst sample still -65 dBFS or lower. Next, the JT's own float32 positions:
 // its read index is a float up to 2400 (Multi-FX) / 62500 (delay), steps of 0.0002 / 0.004 of a sample.
 //
 //   g++ -std=c++17 -O2 -I$JT -Ifirmware/src -Ifirmware/gen tools/compare/cmp_fx.cpp $JT/core/dsp/FxChain.cpp

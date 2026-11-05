@@ -74,7 +74,8 @@ void mv_engine_init(mv_engine_t *e)
     for (v = 0; v < MV_ARP_N; v++) e->arpb[v] = MV_ARP_DEF[v];   /* arp off (its defaults) until the settings load */
     e->tempo = 120; e->arp_beat = 22050u; e->arp_start = 0; e->arp_live = 0;
     e->lfo1_sync_inc[0] = e->lfo1_sync_inc[1] = 0;   /* free until the main loop says (mv_engine_sync) */
-    e->sync_key[0] = e->sync_key[1] = 0;
+    e->sync_s[0] = e->sync_s[1] = 0;            /* OFF, matching lfo1_sync_inc 0 */
+    e->sync_beat[0] = e->sync_beat[1] = 0;
     for (v = 0; v < MV_NV; v++) {
         mv_voice_t *p = &e->v[v];
         p->o1.ph = 0; p->o1.inc = 0; p->o2.ph = 0; p->o2.inc = 0;
@@ -607,9 +608,15 @@ void mv_engine_sync(mv_engine_t *e)
 {
     uint32_t i, beat = e->arp_beat;
     for (i = 0; i < 2u; i++) {
-        uint32_t s = e->perf[MV_PF_SYNC(i)], key = s ? (s << 24 | (beat & 0xFFFFFFu)) + 1u : 0u;   /* 0: OFF */
-        if (key == e->sync_key[i]) continue;    /* nothing moved: no divide */
-        e->sync_key[i] = key;
+        uint32_t s = e->perf[MV_PF_SYNC(i)], was = e->sync_beat[i];
+        uint32_t d = beat > was ? beat - was : was - beat;   /* how far the beat has moved since the last step */
+        /* Nothing to do when the byte is the same and either it is OFF or the beat is within 1/512 of the one the
+         * step was made for. 1/512 (0.2 %, 0.24 BPM at 120) is above the MIDI clock's ms jitter, even averaged over
+         * 4 quarters (about 11 samples at 130 BPM, 0.05 %), and far below a hearable LFO rate change: the LFO is
+         * free-running (no phase to keep), so holding the step a hair off the tempo costs nothing. */
+        if (s == e->sync_s[i] && (!s || d <= (was >> 9))) continue;
+        e->sync_s[i] = (uint8_t)s;
+        e->sync_beat[i] = beat;
         e->lfo1_sync_inc[i] = s ? mv_lfo_sync_inc(s, beat) : 0u;   /* (one 32-bit store: the ISR reads it whole) */
     }
 }

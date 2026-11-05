@@ -340,7 +340,7 @@ void mv_fx_set(mv_fx_t *f, const uint8_t *b)
 {
     uint32_t mtype = b[61] > 12u ? 0u : b[61], mlvl = b[62] & 127u, dtype = b[63] > 4u ? 0u : b[63];
     uint32_t dtime = b[64] & 127u, dfbk = b[65] & 127u, dlvl = b[66] & 127u;
-    int was_drive = f->on_drive, was_dly = f->on_dly, was_any = f->on_drive | f->on_mfx | f->on_dly;
+    int was_drive = f->on_drive, was_dly = f->on_dly;
     if (f->key[0] == mtype && f->key[1] == mlvl && f->key[2] == dtype && f->key[3] == dtime && f->key[4] == dfbk &&
         f->key[5] == dlvl)
         return;                                 /* nothing moved: no work (the usual case) */

@@ -447,16 +447,25 @@ int main(void)
     }
     {   /* LFO1 SYNC (Kris 5 Nov): a part's sync byte puts the tempo's step in place of RATE's; it follows the beat,
          * each part its own (DUAL: LOWER synced, UPPER free), and OFF gives RATE back */
-        uint32_t inc4 = mv_lfo_sync_inc(7, 22050), key;
+        uint32_t inc4 = mv_lfo_sync_inc(7, 22050);
         e.perf[MV_PF_MODE] = MV_KEY_SINGLE;
         e.patch.b[17] = 0; e.lower.b[17] = 0;   /* LFO1 RATE 0: the slowest */
         e.arp_beat = 22050;                     /* 120 BPM */
         e.perf[MV_PF_SYNCUP] = 7;               /* 1/4 */
         mv_engine_sync(&e);
         CHECK(e.lfo1_sync_inc[0] == inc4 && e.lfo1_sync_inc[1] == 0, "sync 1/4: the step made for UPPER only");
-        key = e.sync_key[0];
         mv_engine_sync(&e);
-        CHECK(e.sync_key[0] == key && e.lfo1_sync_inc[0] == inc4, "nothing moved: the same step (no divide)");
+        CHECK(e.sync_beat[0] == 22050u && e.lfo1_sync_inc[0] == inc4, "nothing moved: the same step (no divide)");
+        /* clock jitter (Kris 5 Nov, fix 2): within 1/512 of the beat the step is held, beyond it the step follows */
+        e.arp_beat = 22050u + 43u; mv_engine_sync(&e);   /* +0.195 %: 22050 >> 9 = 43 */
+        CHECK(e.sync_beat[0] == 22050u && e.lfo1_sync_inc[0] == inc4, "beat +43 samples (jitter): the step held");
+        e.arp_beat = 22050u - 43u; mv_engine_sync(&e);
+        CHECK(e.sync_beat[0] == 22050u && e.lfo1_sync_inc[0] == inc4, "beat -43 samples (jitter): the step held");
+        e.arp_beat = 22050u + 44u; mv_engine_sync(&e);   /* just over: a real tempo change */
+        CHECK(e.sync_beat[0] == 22094u && e.lfo1_sync_inc[0] == mv_lfo_sync_inc(7, 22094),
+              "beat +44 samples: the step follows");
+        e.arp_beat = 22050u; mv_engine_sync(&e);   /* back to 120 BPM for the checks below */
+        CHECK(e.lfo1_sync_inc[0] == inc4, "back at 22050: the 1/4 step again");
         mv_engine_note_on(&e, 60, 100); run(50, 0);
         CHECK(e.part[0].lfo1.inc == inc4 && inc4 != MV_LFO1_INC[0], "sync on: UPPER's LFO1 runs at 1/4, not RATE's");
         e.patch.b[17] = 127; run(20, 0);
@@ -474,6 +483,40 @@ int main(void)
               "DUAL: LOWER synced at 1/1, UPPER free on its RATE");
         mv_engine_note_off(&e, 60); run(1500, 0);
         e.perf[MV_PF_MODE] = MV_KEY_SINGLE; e.perf[MV_PF_SYNCLO] = 0; mv_engine_sync(&e);
+    }
+    {   /* the FX limiter (Kris 5 Nov, 1a: fm1-port/mvance-azs-crackle-diagnosis-2026-11-05.md): DUAL, both parts at
+         * PATCH GAIN +12 dB with the chorus on, a 4-note chord (the AZS bank's case): the bus runs several times over
+         * full scale. The look-ahead limiter takes it: no sample past the ceiling, no flat-topped run (a clamp), and
+         * once released the tail and the limiter's held block play out to silence */
+        uint32_t b2, i, flat = 0, run_n = 0, over = 0;
+        int32_t prev = 0, peak = 0;
+        e.perf[MV_PF_MODE] = MV_KEY_DUAL; e.perf[MV_PF_BAL] = 64;
+        e.patch.b[245] = 2; e.lower.b[245] = 2;         /* +12 dB */
+        e.patch.b[51] = 127; e.lower.b[51] = 127;
+        e.patch.b[61] = 0; e.patch.b[62] = 100;          /* MULTI-FX SC SLW at 100 (the FX chain is UPPER's) */
+        e.patch.b[41] = 127; e.lower.b[41] = 127;
+        mv_engine_note_on(&e, 60, 127); mv_engine_note_on(&e, 64, 127);
+        mv_engine_note_on(&e, 67, 127); mv_engine_note_on(&e, 72, 127);
+        for (b2 = 0; b2 < 200u; b2++) {                 /* ~1.2 s */
+            memset(buf, 0, sizeof buf);
+            mv_engine_render(&e, buf, 256);
+            for (i = 0; i < 512u; i++) {
+                int32_t a = buf[i] < 0 ? -buf[i] : buf[i];
+                if (a > peak) peak = a;
+                if (a > 31784) over++;
+                if (i & 1u) continue;                   /* L: a flat run at the top = a clamp */
+                if (a >= 31000 && buf[i] == prev) { if (++run_n == 3u) flat++; } else run_n = 0;
+                prev = buf[i];
+            }
+        }
+        CHECK(e.fxlim.g < (1 << 29), "the FX limiter works on a hot bus (gain %.2f)", e.fxlim.g / 1073741824.0);
+        CHECK(over == 0 && peak <= 31784, "no sample past the ceiling (peak %d, %u over)", peak, over);
+        CHECK(flat == 0, "no clamp: %u flat runs at the top", flat);
+        mv_engine_note_off(&e, 60); mv_engine_note_off(&e, 64); mv_engine_note_off(&e, 67); mv_engine_note_off(&e, 72);
+        run(4000, 0);
+        CHECK(mv_engine_quiet(&e) && !mv_lim_pending(&e.fxlim), "after the tail: quiet, nothing held in the FX limiter");
+        e.patch.b[245] = 0; e.lower.b[245] = 0; e.patch.b[62] = 0; e.perf[MV_PF_MODE] = MV_KEY_SINGLE;
+        run(500, 0);
     }
     printf("mv_voice_test: %d checks, %d failed\n", checks, fails);
     return fails != 0;

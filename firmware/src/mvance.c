@@ -132,7 +132,13 @@ static struct { uint8_t oct, ch, rv[MV_RV_N], arp[MV_ARP_N], tempo, prog, bank[4
 /* prog: one of the spares (34 bytes still: the record loads as before). bank: 4 more (A1, Kris 3 Nov), the factory
  * bank the saved programs belong to (mv_prog_factory_id, little-endian; 0 = not recorded yet) */
 static mv_prog_t prog;                          /* the 64 programs (RAM; flash blobs 0..3) */
-static uint32_t idle_ok, midi_src, clk_n, clk_t0, clk_bpm, clk_run, clk_beat_ms, clk_q_ms;   /* clk_q_ms: a quarter */
+static uint32_t idle_ok, midi_src, clk_n, clk_t0, clk_bpm, clk_run, clk_beat_ms;
+/* The MIDI clock's tempo, averaged over its last 4 quarter notes (Kris 5 Nov, fix 2). One quarter is timed on the
+ * 1 ms tick, so it reads e.g. 461, 462, 461 .. ms at 130 BPM: taken alone, the arp's beat and every synced LFO1 step
+ * changed on almost every beat (and mv_engine_sync redid its 64-bit divide each time). The sum of 4 has 0.25 ms
+ * resolution and stays put while the clock is steady; a new tempo is fully followed after 4 beats.
+ * clk_qwin: the last 4 quarters (ms), a ring at clk_qi; clk_qn: how many are in it (0..4); clk_qsum: their sum. */
+static uint32_t clk_qwin[4], clk_qi, clk_qn, clk_qsum;
 
 static mv_ui_t ui;                              /* the panel pages (mv_ui.c) */
 static uint32_t prog_req = 0xFF;                /* a MIDI program change for the main loop (0xFF none) */
@@ -201,8 +207,13 @@ static void midi_in(void)
             if (clk_n % 24u == 0u) {
                 if (clk_n) {
                     uint32_t ms = fm1_ms - clk_t0;   /* a quarter's length */
-                    clk_bpm = ms ? (60000u + ms / 2u) / ms : 0;
-                    clk_q_ms = ms;                  /* the arp's tempo while the clock comes (Kris 1 Nov, 8) */
+                    if (clk_qn == 4u) clk_qsum -= clk_qwin[clk_qi];   /* full: the oldest quarter drops out */
+                    else clk_qn++;
+                    clk_qwin[clk_qi] = ms;
+                    clk_qsum += ms;
+                    clk_qi = (clk_qi + 1u) & 3u;
+                    /* BPM over the window (rounded): what DEBUG shows, and nonzero says the clock is coming */
+                    clk_bpm = clk_qsum ? (60000u * clk_qn + clk_qsum / 2u) / clk_qsum : 0;
                 }
                 clk_t0 = fm1_ms;
                 clk_beat_ms = fm1_ms;
@@ -404,7 +415,10 @@ static void app_main(void)
         (void)e;
 
         midi_in();
-        if (clk_bpm && fm1_ms - clk_t0 > 2000u) clk_bpm = 0, clk_run = 0;   /* the clock has stopped coming */
+        if (clk_bpm && fm1_ms - clk_t0 > 2000u) {   /* the clock has stopped coming: forget its tempo */
+            clk_bpm = 0; clk_run = 0;
+            clk_qi = clk_qn = clk_qsum = 0;     /* (a clock that comes back starts a new average) */
+        }
         if (sel_dirty) { sel_dirty = 0; dirty = 1; t_change = fm1_ms; }   /* the program's number: kept in flash */
 
         oct = (int8_t)set.oct;
@@ -431,9 +445,11 @@ static void app_main(void)
             }
         }
         fm1_led_key(BTN_ARP, eng.arpb[MV_ARP_ON] != 0u);   /* the arp on */
-        /* the arp's quarter note in samples: the MIDI clock's while it comes (clk_bpm drops 2 s after it stops),
-         * else TEMPO (a 32-bit divide a pass: main loop) */
-        eng.arp_beat = clk_bpm && clk_q_ms ? FS * clk_q_ms / 1000u : FS * 60u / (eng.tempo ? eng.tempo : 120u);
+        /* the arp's quarter note in samples: the MIDI clock's 4-quarter average while it comes (clk_bpm drops 2 s
+         * after it stops), else TEMPO. 32-bit: FS * clk_qsum is at most 44100 * 4 * 2000 = 352.8 M (a quarter
+         * over 2 s ends the clock). A divide a pass, main loop only; mv_engine_sync divides only on a change. */
+        eng.arp_beat = clk_bpm && clk_qn ? FS * clk_qsum / (clk_qn * 1000u)
+                                         : FS * 60u / (eng.tempo ? eng.tempo : 120u);
         mv_engine_sync(&eng);                   /* LFO1 SYNC: the parts' steps at this beat (a divide only on a change) */
         for (k = 0; k < 7u; k++)                /* the section shown: its button lit */
             fm1_led_key(UI_LED_BTN[k], mv_ui_button(&ui) == UI_LED_BTN[k]);
