@@ -60,6 +60,11 @@
  *   CH LO / CH UP  a part's MIDI channel (0: the global one; mvance.c gates MIDI in with them, then the split)
  *   ARP      which part(s) the arp plays: AUTO (UPPER in SINGLE, BOTH in DUAL, LOWER in SPLIT), UPPER, LOWER, BOTH.
  *            Keys for the other part play it directly, so a split's left hand arpeggiates under the right
+ * SEQ (Kris 6 Nov, mv_seq.h): two tracks, UPPER and LOWER, each playing only into its own part. A key a part gets
+ * while its track is armed (seq_arm) and the transport runs is written (and still plays live, or feeds the arp);
+ * the tracks' notes go straight to the part's voices, not through the arp (5a). Its block runs beside the arp's
+ * (control rate, before the voices); START / STOP / CLEAR / disarm are requests the main loop sets and the ISR
+ * carries out, as the arp's
  * TONE, MULTI-FX, DELAY are one chain, set by UPPER's bytes (the RAM holds one delay); reverb and limiter global.
  * Threads: the main loop calls note_on / note_off / set_bend / set_wheel and edits the patch bytes; the audio
  * ISR calls render. Notes cross in a single-producer ring, so the ISR alone owns the voices. */
@@ -73,6 +78,7 @@
 #include "mv_fx.h"
 #include "mv_reverb.h"
 #include "mv_arp.h"
+#include "mv_seq.h"
 #include "mv_lim.h"
 #include "mv_perf.h"                         /* the performance bytes: MV_PF_*, MV_KEY_*, MV_TO_* */
 
@@ -148,6 +154,20 @@ typedef struct {
     uint32_t sync_beat[2];                      /* main loop: and the beat (samples) it was made for */
     volatile uint8_t arp_start;                 /* MIDI START seen (main loop sets, the ISR clears) */
     uint8_t arp_live;                           /* the arp the ISR is running (follows arpb[ON] at a block's start) */
+    mv_seq_t seq;                               /* the sequencer (mv_seq.c): runs on the ISR, beside the arp */
+    volatile uint8_t seqb[MV_SQ_N];             /* its settings: LENGTH x 2, QUANT, MUTE x 2 (global; the panel) */
+    volatile uint8_t seq_run;                   /* the transport: 1 running (main loop: PLAY, REC, MIDI START/STOP) */
+    volatile uint8_t seq_restart;               /* from bar 1 again while running (MIDI START; main sets, ISR clears) */
+    volatile uint8_t seq_arm;                   /* tracks recording: MV_TO_UP / MV_TO_LO bits (main loop: REC) */
+    volatile uint8_t seq_clear[2];              /* a track to empty (main loop sets 1, the ISR clears) */
+    volatile uint8_t seq_ext;                   /* started by MIDI START: the ticks held to the clock's pulses */
+    volatile uint32_t seq_pulse;                /* MIDI clock pulses since that START (main loop counts them) */
+    uint8_t seq_live, seq_armed;                /* the transport and the arming the ISR is running with */
+    mv_seq_ev_t seq_lbuf[MV_SEQ_NEV];           /* a clip to load (phase 3): the main loop fills it, then asks .. */
+    uint16_t seq_ln;                            /* .. its events, .. */
+    uint8_t seq_lroot;                          /* .. its ROOT, .. */
+    volatile uint8_t seq_load;                  /* .. the track + 1 (0: none); the ISR loads it and clears this. The
+                                                   main loop touches seq_lbuf only while this is 0 */
 #if MV_PROFILE
     volatile uint32_t prof_osc, prof_flt;       /* MV_PROFILE: ticks spent in the oscillators / the filter */
 #endif

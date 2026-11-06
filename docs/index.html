@@ -78,7 +78,7 @@ footer p { margin: 0 0 8px; max-width: 860px; }
 
 <header class="top"><div class="wrap">
   <a class="mark" href="#"><img src="img/icon.png" alt="" width="28" height="28" style="vertical-align:-8px;margin-right:10px;border-radius:6px">M-VANCE</a>
-  <nav><a href="#engine">Engine</a><a href="#panel">Panel</a><a href="#install">Install</a><a href="cheatsheet.html">Cheat sheet</a><a href="bank.html">Bank tool</a><a href="https://github.com/bk40-home/M-vance">Source</a></nav>
+  <nav><a href="#engine">Engine</a><a href="#panel">Panel</a><a href="#install">Install</a><a href="cheatsheet.html">Cheat sheet</a><a href="bank.html">Bank tool</a><a href="sim/">Simulator</a><a href="https://github.com/bk40-home/M-vance">Source</a></nav>
 </div></header>
 
 <main class="wrap">
@@ -89,9 +89,10 @@ footer p { margin: 0 0 8px; max-width: 860px; }
     <p class="lead">A JP-8000/8080-style virtual analog for the M-VAVE FM-1.</p>
     <p class="sub">Open-source firmware: the JT-8000 synth engine ported to the FM-1's integer-only chip, with its laws
       measured against the JP-8000's own firmware. Super Saw, the JP filter, the multi-effects, delay, a plate reverb,
-      an arpeggiator and 64 programs, on eight voices.</p>
+      an arpeggiator, a two-track sequencer and 64 programs, on eight voices.</p>
     <div class="cta">
       <a class="btn primary" href="https://github.com/bk40-home/M-vance/releases/latest">Download</a>
+      <a class="btn ghost" href="sim/">Play in browser</a>
       <a class="btn ghost" href="cheatsheet.html">Cheat sheet</a>
       <a class="btn ghost" href="#install">How to install</a>
     </div>
@@ -129,6 +130,7 @@ footer p { margin: 0 0 8px; max-width: 860px; }
     <tr><th>Effects</th><td>TONE (bass, treble) · MULTI-FX: super chorus, flanger, phaser, twist, freeze and DISTORTION · DELAY: five stereo patterns · a stereo plate REVERB with damping, filters and FREEZE · a limiter on the output.</td></tr>
     <tr><th>Arpeggiator</th><td>From <a href="https://github.com/illuminus5/skiff">Skiff</a>: 14 modes (up, down, converge, pinky, walk, chord …), 1/4 to 4 bars with triplets, 1–4 octaves, gate, swing, chance, HOLD (latch), note order. Follows MIDI clock.</td></tr>
     <tr><th>Layer / split</th><td>Every program is a performance: an UPPER and a LOWER patch, SINGLE, DUAL or SPLIT (LOWER below the split key, learned from a key press), the 8 voices cut between them, BALANCE, a MIDI channel each, and the arp on either part or both. From the JT-8000's performance.</td></tr>
+    <tr><th>Sequencer</th><td>Two tracks, LOWER and UPPER, recorded in real time, each playing its own part (a split's bass line under a live right hand). 1, 2, 4 or 8 bars per track, QUANT (1/16, 1/8 and triplets), overdub, MUTE, CLEAR. PLAY and REC on the panel, or MIDI START / STOP, locked to the clock. TRANSPOSE: the keys move a playing track (from its first note). A piano roll shows each track, a bar at a time. Up to 128 notes a track; 12 named clips in flash, saved from and loaded into either track.</td></tr>
     <tr><th>Programs</th><td>64, kept in the FM-1's flash. Rename, copy, reorder (SWAP) and restore the factory sound, all from the panel.</td></tr>
     <tr><th>MIDI</th><td>USB-MIDI in and out, the FM-1's TRS MIDI IN. Notes, program change, pitch bend, mod wheel, clock and START. Every knob sends and receives the JP-8080's own CC numbers, so a DAW records the panel.</td></tr>
   </table>

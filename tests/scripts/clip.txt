@@ -1,0 +1,53 @@
+# Sequencer phase 3 (Kris 6 Nov): clips. FM-1 ids: OCT- 0, OCT+ 1, GLO 7, HOME 8, SAVE 9, SEQ 11, PLAY 12, REC 13;
+# KNOB1..4 enc 2..5. SPLIT at C4, PART SELECT LOWER, REC: a bass line (2 bars, 120 BPM), REC off. SEQ x3: the CLIP
+# page; CHAR: "CLIP01" -> "BLIP01"; MODE SAVE; SAVE while running: shown, "WRITTEN AT STOP"; PLAY: stop -> the slot
+# sector is written (the log). REC held + REC: LOWER cleared. MODE LOAD; SAVE: clip 1 back into LOWER; PLAY: it plays;
+# SEQ twice: the roll shows it.
+# tests/run_host.sh tests/scripts/clip.txt -> build/host/mvance.wav and the screens
+100 btn 7
+200 btn 7
+300 btn 7
+400 enc 2 2
+500 btn 8
+600 btndown 0
+700 btndown 1
+900 btnup 1
+950 btnup 0
+1000 btn 0
+3400 btn 13
+3500 keys 0x1
+3750 keys 0
+4000 keys 0x1
+4250 keys 0
+4500 keys 0x10
+5000 keys 0
+5500 keys 0x40
+5750 keys 0
+6000 keys 0x20
+6500 keys 0
+7500 btn 13
+7600 btn 11
+7700 btn 11
+7800 btn 11
+7900 shot
+8000 enc 4 -1
+8100 enc 5 1
+8200 btn 9
+8300 shot
+9000 btn 12
+9600 shot
+10000 btndown 13
+11200 btnup 13
+11300 btn 13
+11500 btn 11
+11600 btn 11
+11700 btn 11
+11800 enc 5 -1
+11900 btn 9
+12000 shot
+12100 btn 12
+13000 btn 11
+13050 btn 11
+13500 shot
+16200 btn 12
+17000 end

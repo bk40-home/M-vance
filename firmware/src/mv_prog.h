@@ -22,16 +22,11 @@
 #include <stdint.h>
 #include "mv_patch.h"
 #include "mv_perf.h"                         /* MV_PF_*, MV_PERF_DEF */
-/* The factory bank (Kris 5 Nov, B): the local one when it is there, else the INIT-only one committed to GitHub.
- * mv_factory.h is git-ignored (its programs come from third-party banks, LICENSING.md); both headers define the
- * same names (MV_NPROG, MV_FACTORY, MV_FACTORY_LO, MV_FACTORY_PERF), and both are made by tools/make_bank.py. */
-#if __has_include("mv_factory.h")
-#include "mv_factory.h"                        /* local: tools/make_bank.py [tools/bank/factory.txt] */
-#define MV_FACTORY_PUBLIC 0                    /* (tests that check particular programs run) */
-#else
-#include "mv_factory_public.h"                 /* public: tools/make_bank.py tools/bank/public.txt */
-#define MV_FACTORY_PUBLIC 1                    /* (64 INIT programs: those tests are skipped) */
-#endif
+/* The factory bank: firmware/gen/mv_factory.h, built by tools/make_bank.py from tools/bank/factory.txt, which takes
+ * its 64 programs from tools/bank/mvance.syx (Kris's own bank, edited on the device). It defines MV_NPROG, MV_FACTORY,
+ * MV_FACTORY_LO and MV_FACTORY_PERF, and is committed (no local/public split any more). */
+#include "mv_factory.h"
+#define MV_FACTORY_PUBLIC 0                    /* retained so the tests' factory-bank checks still compile and run */
 
 #define MV_PROG_PER_BLOB 16u                   /* programs a flash blob holds */
 #define MV_PROG_BLOB0 0u                       /* blobs 0..3 */

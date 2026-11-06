@@ -66,20 +66,18 @@ def main():
         subprocess.run(["cc", "-O2", "-Wno-unused-function", "-DDINGHY_HOST", '-DAPP_VER="xfer"', "-Ifirmware/hal",
                         "-Ifirmware/src", "-Ifirmware/gen", "-o", str(exe), "firmware/src/mvance.c",
                         "firmware/src/mv_dsp.c"], cwd=ROOT, check=True)
-    # the bank the build uses (firmware/src/mv_prog.h): the local one when mv_factory.h is there, else the public one
-    local = (ROOT / "firmware/gen/mv_factory.h").exists()
-    syx = ROOT / ("build/mvance-factory.syx" if local else "build/mvance-public.syx")
-    if not syx.exists():                        # both made by tools/make_bank.py (the public one needs no presets)
-        sys.exit(f"xfer_test: no {syx.relative_to(ROOT)}: run python3 tools/make_bank.py"
-                 + ("" if local else " tools/bank/public.txt"))
-    fac = msgs(syx.read_bytes())
-    check(len(fac) == 256, f"the factory .syx: 4 messages a program ({len(fac)})")
-    # a different bank: each program one slot on (64 -> 1), so every slot changes
-    alt = [renumber(m, (m[7] + 1) % 64) for m in fac]
-    alt.sort(key=lambda m: m[7])
     all64 = rq1([0x03, 0, 0, 0], [0, 64, 0, 0])
     with tempfile.TemporaryDirectory() as t:
         tmp = Path(t)
+        # the factory as the device actually holds it: patches are canonicalised on load, so a raw source .syx can
+        # differ at inert/unmapped bytes (e.g. 130/131); dumping the untouched factory gives the device's own bytes,
+        # the right baseline for a transfer round-trip (everything the firmware models comes back byte for byte).
+        _, facdump = run(exe, tmp, "fac", "100 syx $T/rq.syx\n4000 end\n", {"rq.syx": all64})
+        fac = msgs(facdump)
+        check(len(fac) == 256, f"the factory dump: 4 messages a program ({len(fac)})")
+        # a different bank: each program one slot on (64 -> 1), so every slot changes
+        alt = [renumber(m, (m[7] + 1) % 64) for m in fac]
+        alt.sort(key=lambda m: m[7])
         # 1. a whole bank in, a dump of all 64 out: the same bytes
         out, dump = run(exe, tmp, "bank", f"100 syx $T/alt.syx\n9000 syx $T/rq.syx\n16000 end\n",
                         {"alt.syx": b"".join(alt), "rq.syx": all64})

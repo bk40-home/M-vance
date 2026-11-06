@@ -15,6 +15,12 @@
 #define P_DEBUG 0x160u                          /* DEBUG: marks the page (KNOB1: nothing; mvance.c draws it, mv_debug.c) */
 #define P_LSYNC 0x170u                          /* LFO 3/3: LFO1 SYNC of the part PANEL edits (a performance byte,
                                                    MV_PF_SYNCUP / LO: Kris 5 Nov, on the LFO page) */
+#define P_SQ 0x180u                             /* SEQ: P_SQ + MV_SQ_* (global settings, mv_seq.h) */
+#define P_SQLEN 0x190u                          /* SEQ: LENGTH of the selected track (PANEL's part; BOTH both) */
+#define P_SQBAR 0x191u                          /* ROLL: the bar shown (marks the page: mvance.c draws it, mv_roll.c) */
+#define P_SQPITCH 0x192u                        /* ROLL: the lowest row shown */
+#define P_SQROOT 0x193u                         /* ROLL: TRANSPOSE's ROOT of the selected track (RAM, with its notes) */
+#define P_CL 0x1A0u                             /* CLIP: P_CL + 0 CLIP, 1 CURSOR, 2 CHAR, 3 MODE (the panel's own) */
 #define TEMPO_MIN 40
 #define TEMPO_MAX 240
 #define IS_PATCH(p) ((p) < 0x100u)
@@ -56,6 +62,9 @@ static const ui_page_t PAGES[] = {
                                                                    do nothing here */
     {"ARP", BTN_ARP, 0, 2, {P_ARP + MV_ARP_MODE, P_ARP + MV_ARP_RATE, P_ARP + MV_ARP_OCT, P_ARP + MV_ARP_GATE}},
     {"ARP", BTN_ARP, 1, 2, {P_ARP + MV_ARP_HOLD, P_ARP + MV_ARP_SWING, P_ARP + MV_ARP_CHANCE, P_ARP + MV_ARP_ORDER}},
+    {"SEQ", BTN_SEQ, 0, 3, {P_SQLEN, P_SQ + MV_SQ_QUANT, P_SQ + MV_SQ_MUTELO, P_SQ + MV_SQ_MUTEUP}},   /* (Kris 6 Nov) */
+    {"SEQ", BTN_SEQ, 1, 3, {P_SQBAR, P_SQPITCH, P_SQ + MV_SQ_XPOSE, P_SQROOT}},   /* the piano roll (phase 2) */
+    {"SEQ", BTN_SEQ, 2, 3, {P_CL + 0, P_CL + 1, P_CL + 2, P_CL + 3}},          /* the clips (phase 3) */
     {"SAVE", BTN_SAVE, 0, 1, {P_SV + 0, P_SV + 1, P_SV + 2, P_SV + 3}},
 };
 #define NPAGES (sizeof PAGES / sizeof PAGES[0])
@@ -78,6 +87,22 @@ static uint32_t ui_part(const mv_engine_t *e, uint32_t p, int *both)
     if (panel == MV_UI_BOTH) { *both = 1; return MV_PART_UP; }
     return panel == MV_UI_LOWER ? MV_PART_LO : MV_PART_UP;
 }
+/* CLIP: the name to edit from the clip chosen: its own, or CLIPnn when it is empty */
+static void clip_name_from(mv_ui_t *u)
+{
+    uint32_t i, k = u->cl_sel;
+    if (u->clips && u->clips->dir[k].used) {
+        for (i = 0; i < MV_CLIP_NAME; i++) u->cl_name[i] = u->clips->dir[k].name[i];
+        return;
+    }
+    for (i = 0; i < 4u; i++) u->cl_name[i] = "CLIP"[i];
+    u->cl_name[4] = (char)('0' + (k + 1u) / 10u); u->cl_name[5] = (char)('0' + (k + 1u) % 10u);
+}
+
+uint32_t mv_ui_track(const mv_ui_t *u, const mv_engine_t *e)
+{
+    return e->perf[MV_PF_MODE] != MV_KEY_SINGLE && u->panel == MV_UI_LOWER ? MV_PART_LO : MV_PART_UP;
+}
 static const mv_patch_t *ui_patch(const mv_engine_t *e, uint32_t p)   /* what a column shows */
 {
     int both;
@@ -92,7 +117,7 @@ static const char *btn_name(uint32_t b)
 {
     uint32_t i;
     for (i = 0; i < 6u; i++) if (SECTION_BTN[i] == b) return SECTION_NAME[i];
-    return b == BTN_ARP ? "ARP" : b == BTN_SAVE ? "SAVE" : b == BTN_HOME ? "HOME" : "";
+    return b == BTN_ARP ? "ARP" : b == BTN_SAVE ? "SAVE" : b == BTN_HOME ? "HOME" : b == BTN_SEQ ? "SEQ" : "";
 }
 
 /* ---- what a column shows */
@@ -138,6 +163,18 @@ static const char *col_label(const mv_engine_t *e, uint32_t p)
     case P_ARP + MV_ARP_SWING: return "SWING";
     case P_ARP + MV_ARP_CHANCE: return "CHANCE";
     case P_ARP + MV_ARP_ORDER: return "ORDER";
+    case P_SQLEN: return "LENGTH";
+    case P_SQ + MV_SQ_QUANT: return "QUANT";
+    case P_SQ + MV_SQ_MUTELO: return "MUTE L";
+    case P_SQ + MV_SQ_MUTEUP: return "MUTE U";
+    case P_SQBAR: return "BAR";
+    case P_SQPITCH: return "PITCH";
+    case P_SQ + MV_SQ_XPOSE: return "TRANSP";
+    case P_SQROOT: return "ROOT";
+    case P_CL + 0: return "CLIP";
+    case P_CL + 1: return "CURSOR";
+    case P_CL + 2: return "CHAR";
+    case P_CL + 3: return "MODE";
     case 31: return C1A[b[30] < 7u ? b[30] : 5u];
     case 32: return C1B[b[30] < 7u ? b[30] : 5u];
     case 37: return C2A[b[33] & 3u];
@@ -187,6 +224,10 @@ static const char *choice_name(uint32_t p, uint32_t v)
     static const char *const PANEL[3] = {"UPPER", "LOWER", "BOTH"};
     static const char *const VSPL[7] = {"1+7", "2+6", "3+5", "4+4", "5+3", "6+2", "7+1"};   /* LOWER + UPPER */
     static const char *const ARPP[4] = {"AUTO", "UPPER", "LOWER", "BOTH"};
+    static const char *const SQLEN[4] = {"1 BAR", "2 BAR", "4 BAR", "8 BAR"};   /* LENGTH codes 1..4 */
+    static const char *const SQQ[MV_SQQ_N] = {"OFF", "1/16", "1/8", "1/16T", "1/8T"};
+    static const char *const SQX[MV_SQX_N] = {"OFF", "LOWER", "UPPER", "BOTH"};   /* TRANSPOSE: its tracks */
+    static const char *const CLM[2] = {"LOAD", "SAVE"};
     static const char *const SYNC[MV_LFO1_SYNC_N] = {"OFF", "1/16", "1/8T", "1/16.", "1/8", "1/4T", "1/8.", "1/4",
                                                      "1/2T", "1/4.", "1/2", "1/1T", "1/2.", "1/1", "2/1T", "1/1.",
                                                      "2/1", "3 MEAS", "4 MEAS", "5 MEAS", "6 MEAS", "7 MEAS",
@@ -204,7 +245,12 @@ static const char *choice_name(uint32_t p, uint32_t v)
     case 61: return MFX[v < 13u ? v : 0u];
     case 63: return DLY[v < 5u ? v : 0u];
     case 21: case 34: case 69: case 71: case 72: case 243: case P_RV + MV_RV_FREEZE: case P_ARP + MV_ARP_HOLD:
+    case P_SQ + MV_SQ_MUTELO: case P_SQ + MV_SQ_MUTEUP:
         return OFFON[v & 1u];
+    case P_SQLEN: return SQLEN[v >= 1u && v <= 4u ? v - 1u : 1u];
+    case P_SQ + MV_SQ_QUANT: return SQQ[v < MV_SQQ_N ? v : MV_SQQ_16];
+    case P_SQ + MV_SQ_XPOSE: return SQX[v < MV_SQX_N ? v : 0u];
+    case P_CL + 3: return CLM[v & 1u];
     case P_ARP + MV_ARP_MODE: return AMODE[v < MV_AM_N ? v : 0u];
     case P_ARP + MV_ARP_RATE: return ARATE[v < MV_ARP_NRATE ? v : 2u];
     case P_ARP + MV_ARP_ORDER: return AORDER[v & 1u];
@@ -292,6 +338,31 @@ static void col_value(const mv_engine_t *e, uint32_t p, uint32_t midi_ch, char *
         } else copy7(s, choice_name(p, u->sv_mode));
         return;
     }
+    if (p == P_SQLEN) {                         /* SEQ LENGTH: the selected track's (BOTH: UPPER's shown) */
+        int both;
+        copy7(s, choice_name(p, e->seqb[MV_SQ_LEN(ui_part(e, 0u, &both))]));
+        return;
+    }
+    if (p >= P_SQ && p < P_SQ + MV_SQ_N) { copy7(s, choice_name(p, e->seqb[p - P_SQ])); return; }   /* (all choices) */
+    if (p >= P_CL && p < P_CL + 4u) {           /* CLIP: values only (the page's two lines show the names) */
+        const mv_ui_t *u = ui_self;
+        if (!u) { s[0] = 0; return; }
+        if (p == P_CL + 0u) num(s, u->cl_sel + 1, 0);
+        else if (p == P_CL + 1u) num(s, u->cl_pos + 1, 0);
+        else if (p == P_CL + 2u) {              /* the character under the cursor; a space shown as SPC */
+            char ch = u->cl_name[u->cl_pos % MV_CLIP_NAME];
+            if (ch == ' ') copy7(s, "SPC"); else { s[0] = ch; s[1] = 0; }
+        } else copy7(s, choice_name(p, u->cl_mode));
+        return;
+    }
+    if (p == P_SQBAR) { num(s, (int32_t)(ui_self ? ui_self->roll_bar : 0u) + 1, 0); return; }   /* (the ROLL page
+                                                   draws its own: these are for the edit line's and dump's sake) */
+    if (p == P_SQPITCH) { num(s, ui_self ? ui_self->roll_lo : 0, 0); return; }
+    if (p == P_SQROOT) {
+        uint32_t r = e->seq.t[ui_self ? mv_ui_track(ui_self, e) : 0u].root;
+        if (r == MV_SEQ_NOROOT) copy7(s, "-"); else num(s, (int32_t)r, 0);
+        return;
+    }
     if (p == P_TEMPO) {                         /* BPM (the MIDI clock's, when one comes, rules the arp) */
         num(s, e->tempo, 0);
         *mode = BAR_UP; *fill = (e->tempo - TEMPO_MIN) * 1000 / (TEMPO_MAX - TEMPO_MIN);
@@ -329,6 +400,9 @@ static void col_value(const mv_engine_t *e, uint32_t p, uint32_t midi_ch, char *
 }
 
 uint32_t mv_ui_button(const mv_ui_t *u) { return PAGES[u->page].btn; }
+int mv_ui_roll(const mv_ui_t *u) { return PAGES[u->page].p[0] == P_SQBAR; }
+int mv_ui_clip_page(const mv_ui_t *u) { return PAGES[u->page].p[0] == P_CL; }
+void mv_ui_set_clips(mv_ui_t *u, const mv_clip_t *c) { u->clips = c; clip_name_from(u); }
 int mv_ui_debug(const mv_ui_t *u) { return PAGES[u->page].p[0] == P_DEBUG; }
 
 int mv_ui_split_learn(const mv_ui_t *u)
@@ -347,6 +421,12 @@ void mv_ui_init(mv_ui_t *u, const mv_prog_t *prog)
     u->drawn_sv = ~0u; u->arp_down = 0; u->arp_did = 0; u->arp_t = 0;
     u->page = 0; u->last = 0xFF; u->redraw = 1; u->t_touch = 0; u->drawn_line = ~0u;
     u->panel = MV_UI_UPPER; u->drawn_tag = 0; u->learned = 0;
+    u->ovl = MV_OV_NONE; u->ovl_t = 0; u->drawn_ovl = ~0u; u->ovl_track = MV_PART_UP;
+    u->oct_held = 0; u->oct_undo = 0; u->rec_t = 0; u->rec_down = 0; u->rec_did = 0;
+    u->roll_bar = 0; u->roll_lo = 48; u->roll_fit = 1;
+    u->clips = 0; u->cl_sel = 0; u->cl_pos = 0; u->cl_mode = MV_CL_LOAD; u->cl_act = 0; u->cl_msg = MV_CLM_NONE;
+    u->cl_msg_t = 0;
+    for (k = 0; k < MV_CLIP_NAME; k++) u->cl_name[k] = "CLIP01"[k];
     for (k = 0; k < 4u; k++) { u->t_knob[k] = 0; u->drawn[k] = ~0u; }
 }
 
@@ -387,6 +467,51 @@ static uint32_t edit(mv_ui_t *u, mv_engine_t *e, uint32_t col, int32_t step, uin
             *c = (uint8_t)mv_clamp((int32_t)*c + step, 32, 125);
         } else u->sv_mode = (uint8_t)mv_clamp((int32_t)u->sv_mode + step, 0, 2);
         return 0;
+    }
+    if (p == P_SQLEN) {                         /* SEQ LENGTH, the selected track's (BOTH: each by the step) */
+        int both;
+        uint32_t k = MV_SQ_LEN(ui_part(e, 0u, &both)), was = e->seqb[k];
+        e->seqb[k] = (uint8_t)mv_clamp((int32_t)was + step, MV_SQ_MIN[k], MV_SQ_MAX[k]);
+        if (both)
+            e->seqb[MV_SQ_LENLO] = (uint8_t)mv_clamp((int32_t)e->seqb[MV_SQ_LENLO] + step, MV_SQ_MIN[MV_SQ_LENLO], MV_SQ_MAX[MV_SQ_LENLO]);
+        return MV_UI_SETTING;
+    }
+    if (p >= P_CL && p < P_CL + 4u) {           /* CLIP: the clip (its name comes with it), the cursor, a character,
+                                                   the mode */
+        if (p == P_CL + 0u) {
+            uint32_t was = u->cl_sel;
+            u->cl_sel = (uint8_t)mv_clamp((int32_t)u->cl_sel + step, 0, MV_CLIP_N - 1);
+            if (u->cl_sel != was) clip_name_from(u);
+        } else if (p == P_CL + 1u) u->cl_pos = (uint8_t)mv_clamp((int32_t)u->cl_pos + step, 0, MV_CLIP_NAME - 1u);
+        else if (p == P_CL + 2u) {              /* ASCII 32..125, as the program names */
+            char *ch = &u->cl_name[u->cl_pos % MV_CLIP_NAME];
+            *ch = (char)mv_clamp((int32_t)*ch + step, 32, 125);
+        } else u->cl_mode = (uint8_t)mv_clamp((int32_t)u->cl_mode + step, 0, 1);
+        return 0;
+    }
+    if (p == P_SQBAR) {                         /* ROLL: the bar shown while stopped, within the track's loop */
+        uint32_t nb = mv_seq_len(e->seqb, mv_ui_track(u, e)) / MV_SEQ_BAR;
+        u->roll_bar = (uint8_t)mv_clamp((int32_t)u->roll_bar + step, 0, (int32_t)nb - 1);
+        return 0;
+    }
+    if (p == P_SQPITCH) {                       /* ROLL: the rows (fitting stops until the page opens again) */
+        u->roll_lo = (uint8_t)mv_clamp((int32_t)u->roll_lo + step, 0, 128 - (int32_t)MV_ROLL_ROWS);
+        u->roll_fit = 0;
+        return 0;
+    }
+    if (p == P_SQROOT) {                        /* ROLL: ROOT of the selected track (a byte the ISR reads; none yet:
+                                                   from C4). RAM, with the notes: not a setting */
+        mv_seq_track_t *T = &e->seq.t[mv_ui_track(u, e)];
+        int32_t r = T->root == MV_SEQ_NOROOT ? 60 : T->root;
+        T->root = (uint8_t)mv_clamp(r + step, 0, 127);
+        return 0;
+    }
+    if (p >= P_SQ && p < P_SQ + MV_SQ_N) {      /* SEQ: QUANT, MUTE, TRANSPOSE: global, kept in flash */
+        uint32_t k = p - P_SQ;
+        int32_t v0 = e->seqb[k], v = mv_clamp(v0 + step, MV_SQ_MIN[k], MV_SQ_MAX[k]);
+        if (v == v0) return 0;
+        e->seqb[k] = (uint8_t)v;
+        return MV_UI_SETTING;
     }
     if (p == P_TEMPO) {                         /* global, kept in flash */
         int32_t v0 = e->tempo, v = mv_clamp(v0 + step, TEMPO_MIN, TEMPO_MAX);
@@ -441,14 +566,87 @@ static uint32_t page_of(uint32_t b)            /* the first page of button b (0 
     return 0;
 }
 
+/* an overlay closed: the page (or HOME) under it drawn again */
+static uint32_t ovl_close(mv_ui_t *u)
+{
+    u->ovl = MV_OV_NONE;
+    u->redraw = 1;
+    return MV_UI_PAGE;
+}
+
+uint32_t mv_ui_oct(mv_ui_t *u, const mv_engine_t *e, uint32_t pressed, uint32_t released, uint8_t *oct)
+{
+    const uint32_t DN = 1u << BTN_OCT_DOWN, UP = 1u << BTN_OCT_UP;
+    uint32_t r = 0, p = (pressed & DN ? 1u : 0u) | (pressed & UP ? 2u : 0u);
+    int single = e->perf[MV_PF_MODE] == MV_KEY_SINGLE;
+    if (u->ovl == MV_OV_PART && (pressed & ~(DN | UP))) r |= ovl_close(u);   /* another button: closed */
+    if (p) {
+        uint32_t held = u->oct_held | p;
+        if (u->ovl == MV_OV_PART) {             /* PART SELECT: OCT- LOWER, OCT+ UPPER, both BOTH */
+            if (!single) u->panel = (uint8_t)(held == 3u ? MV_UI_BOTH : p & 1u ? MV_UI_LOWER : MV_UI_UPPER);
+            u->ovl_t = fm1_ms;
+        } else if (held == 3u) {                /* the other one while the first is held: PART SELECT opens */
+            if (p != 3u && u->oct_undo) {       /* the first press's octave step undone (both at once: none made) */
+                *oct = (uint8_t)(int8_t)((int8_t)*oct - u->oct_undo);
+                r |= MV_UI_SETTING;
+            }
+            u->ovl = MV_OV_PART; u->ovl_t = fm1_ms; u->drawn_ovl = ~0u;
+            r |= MV_UI_PAGE;
+        } else {                                /* one: the octave at once (-2 .. +2), the step kept for an undo */
+            int32_t o = (int8_t)*oct, n = mv_clamp(o + (p & 1u ? -1 : 1), -2, 2);
+            u->oct_undo = (int8_t)(n - o);
+            if (n != o) { *oct = (uint8_t)(int8_t)n; r |= MV_UI_SETTING; }
+        }
+        u->oct_held = (uint8_t)held;
+    }
+    u->oct_held &= (uint8_t)~((released & DN ? 1u : 0u) | (released & UP ? 2u : 0u));
+    if (!u->oct_held) u->oct_undo = 0;          /* (both up: the next press is a new one) */
+    if (u->ovl == MV_OV_PART && !u->oct_held && fm1_ms - u->ovl_t >= 2000u) r |= ovl_close(u);   /* 2 s: closed */
+    return r;
+}
+
 uint32_t mv_ui_input(mv_ui_t *u, mv_engine_t *e, uint32_t pressed, uint32_t released, uint8_t *midi_ch,
                      uint32_t out_ch)
 {
     uint32_t k, old = u->page, r = 0;
     int32_t d;
+    if (u->ovl == MV_OV_CLEAR && ((pressed & ~(1u << BTN_REC)) || fm1_ms - u->ovl_t >= 3000u))
+        r |= ovl_close(u);                      /* the CLEAR question: another button, or 3 s: kept */
+    /* PLAY (Kris 6 Nov): the transport, both tracks from bar 1; stopping disarms (the ISR ends the notes) */
+    if (pressed >> BTN_PLAY & 1u) {
+        e->seq_ext = 0;                         /* (the panel's start: free, on TEMPO or the clock's tempo) */
+        if (e->seq_run) { e->seq_run = 0; e->seq_arm = 0; }
+        else e->seq_run = 1;
+    }
+    /* REC: a tap arms / disarms the selected track (and starts the transport); held 1 s: CLEAR it? (REC: yes) */
+    if (pressed >> BTN_REC & 1u) {
+        u->rec_down = 1; u->rec_did = 0; u->rec_t = fm1_ms;
+        if (u->ovl == MV_OV_CLEAR) {            /* yes: that track emptied (its notes end) */
+            e->seq_clear[u->ovl_track & 1u] = 1;
+            u->rec_did = 1;
+            r |= ovl_close(u);
+        }
+    }
+    if (u->rec_down && !u->rec_did && fm1_ms - u->rec_t >= 1000u) {
+        u->rec_did = 1;
+        u->ovl = MV_OV_CLEAR; u->ovl_t = fm1_ms; u->drawn_ovl = ~0u; u->ovl_track = (uint8_t)mv_ui_track(u, e);
+        r |= MV_UI_PAGE;
+    }
+    if (released >> BTN_REC & 1u) {
+        if (u->rec_down && !u->rec_did) {
+            uint32_t bit = 1u << mv_ui_track(u, e);
+            e->seq_arm = (uint8_t)(e->seq_arm ^ bit);
+            if ((e->seq_arm & bit) && !e->seq_run) { e->seq_ext = 0; e->seq_run = 1; }   /* armed: running */
+        }
+        u->rec_down = 0;
+    }
+    if (pressed >> BTN_SEQ & 1u) u->page = (uint8_t)next_page(u->page, BTN_SEQ);   /* SEQ: its page */
     if (pressed & (1u << BTN_HOME)) u->page = 0;
     if (pressed >> BTN_SAVE & 1u) {             /* SAVE: its page (from the program playing); on it, do it */
-        if (PAGES[u->page].btn != BTN_SAVE) {
+        if (PAGES[u->page].p[0] == P_CL) {      /* (on the CLIP page: the clip's LOAD / SAVE, the page stays) */
+            u->cl_act = (uint8_t)(u->cl_mode + 1u);
+            r |= MV_UI_CLIP;
+        } else if (PAGES[u->page].btn != BTN_SAVE) {
             u->page = (uint8_t)page_of(BTN_SAVE);
             u->sv_to = u->cur; u->sv_pos = 0; u->sv_mode = 0;
         } else {
@@ -474,12 +672,14 @@ uint32_t mv_ui_input(mv_ui_t *u, mv_engine_t *e, uint32_t pressed, uint32_t rele
     if (u->page != old) {
         uint32_t c;
         u->redraw = 1; u->last = 0xFF;
+        if (PAGES[u->page].p[0] == P_SQBAR) u->roll_fit = 1;   /* ROLL opened: its rows fit the notes */
         for (c = 0; c < 4u; c++) (void)fm1_enc_take(ENC_KNOB1 + c);   /* nothing turned meanwhile lands here */
         return r | MV_UI_PAGE;
     }
     for (k = 0; k < 4u; k++) {                  /* KNOB1..4; a fast turn (detents < 40 ms apart) x 4, not choices */
         uint32_t p = PAGES[u->page].p[k];
         if ((d = fm1_enc_take(ENC_KNOB1 + k)) == 0) continue;
+        if (u->ovl) r |= ovl_close(u);          /* a knob turned: the overlay goes, the page edits */
         if ((IS_PATCH(p) || p == P_TEMPO || (p >= P_RV && p < P_RV + MV_RV_N) || (p >= P_ARP && p < P_ARP + MV_ARP_N))
             && !choice_name(p, 0) && fm1_ms - u->t_knob[k] < 40u)
             d *= 4;                             /* numbers only: not choices, MIDI CH or VOICES */
@@ -594,7 +794,8 @@ void mv_ui_draw(mv_ui_t *u, const mv_engine_t *e, uint32_t midi_ch)
         u->drawn_line = ~0u;
         u->redraw = 0;
     }
-    if (pg->p[0] == P_DEBUG) return;            /* DEBUG: the header only; its rows are mvance.c's (mv_debug.c) */
+    if (pg->p[0] == P_DEBUG || pg->p[0] == P_SQBAR) return;   /* DEBUG, ROLL: the header only; mvance.c draws the
+                                                   rest (mv_debug.c, mv_roll.c) */
     for (k = 0; k < 4u; k++) {
         uint32_t p = pg->p[k];
         int sel = fresh && u->last == k;
@@ -629,6 +830,47 @@ void mv_ui_draw(mv_ui_t *u, const mv_engine_t *e, uint32_t midi_ch)
             u->drawn_sv = key;
         }
     }
+    if (pg->p[0] == P_CL) {                     /* the CLIP page's two lines (as SAVE's): the name, what SAVE will do
+                                                   (or what the last one came to, for 2 s) */
+        static const char TRK[2] = {'U', 'L'};   /* the track letters */
+        char a[32], b[40];
+        const mv_clip_info_t *d = u->clips ? &u->clips->dir[u->cl_sel] : 0;
+        uint32_t i, j = 0, k = u->cl_sel + 1u, t = mv_ui_track(u, e), msg = fm1_ms - u->cl_msg_t < 2000u ? u->cl_msg : 0u;
+        const char *w;
+        for (i = 0; i < 5u; i++) a[j++] = "NAME "[i];   /* the name as edited, the cursor's character in [ ] */
+        for (i = 0; i < MV_CLIP_NAME; i++) {
+            if (i == u->cl_pos) a[j++] = '[';
+            a[j++] = u->cl_name[i];
+            if (i == u->cl_pos) a[j++] = ']';
+        }
+        a[j] = 0;
+        j = 0;
+        if (msg == MV_CLM_BUSY) w = "ANOTHER SAVE WAITS";
+        else if (u->clips && u->clips->err) w = "WRITE FAILED";
+        else if (u->clips && u->clips->pend == u->cl_sel) w = "WRITTEN AT STOP";
+        else if (msg == MV_CLM_LOADED) w = "LOADED > ";
+        else if (msg == MV_CLM_EMPTY) w = "EMPTY: NOTHING";
+        else if (u->cl_mode == MV_CL_LOAD) w = d && d->used ? "LOAD " : "EMPTY ";
+        else w = "SAVE ";
+        for (; *w; w++) b[j++] = *w;
+        if (msg == MV_CLM_LOADED) b[j++] = TRK[t];
+        else if (!msg && !(u->clips && (u->clips->err || u->clips->pend == u->cl_sel))) {
+            if (u->cl_mode == MV_CL_SAVE) { b[j++] = TRK[t]; b[j++] = ' '; b[j++] = '>'; b[j++] = ' '; }
+            b[j++] = (char)('0' + k / 10u); b[j++] = (char)('0' + k % 10u);
+            if (d && d->used) {                 /* its name (SAVE: the one it replaces) */
+                b[j++] = ' ';
+                for (i = 0; i < MV_CLIP_NAME; i++) b[j++] = d->name[i];
+                if (u->cl_mode == MV_CL_LOAD) { b[j++] = ' '; b[j++] = '>'; b[j++] = ' '; b[j++] = TRK[t]; }
+            }
+        }
+        b[j] = 0;                               /* (at most 5 + 4 + 2 + 7 + 4 = 22) */
+        key = show_key(a, b, (int32_t)msg, u->cl_mode);
+        if (key != u->drawn_sv) {
+            draw_text_box(0, COL_Y + 76u, 240, &FONT_S, a, C_HI, 1);
+            draw_text_box(0, COL_Y + 104u, 240, &FONT_S, b, C_AMB, 1);
+            u->drawn_sv = key;
+        }
+    }
     line[0] = 0;                                /* the edit line: "FILTER CUTOFF 96" */
     if (fresh && u->last < 4u) {
         const char *a;
@@ -643,6 +885,35 @@ void mv_ui_draw(mv_ui_t *u, const mv_engine_t *e, uint32_t midi_ch)
     }
     key = show_key(line, "", 0, 0);
     if (key != u->drawn_line) { draw_text_box(0, LINE_Y, 240, &FONT_S, line, C_AMB, 1); u->drawn_line = key; }
+}
+
+/* the overlay (PART SELECT, the CLEAR question): a box over the page, drawn only when what it shows changed */
+void mv_ui_overlay_draw(mv_ui_t *u, const mv_engine_t *e)
+{
+    static const char *const PART[3] = {"UPPER", "LOWER", "BOTH"};
+    const char *title, *val, *hint;
+    uint32_t key;
+    if (u->ovl == MV_OV_PART) {
+        int single = e->perf[MV_PF_MODE] == MV_KEY_SINGLE;
+        title = "PART SELECT";
+        val = single ? "SINGLE" : PART[u->panel % 3u];
+        hint = single ? "ONE PART ONLY" : "OCT- L  OCT+ U  BOTH L+U";
+    } else {
+        title = "CLEAR TRACK?";
+        val = u->ovl_track == MV_PART_LO ? "LOWER" : "UPPER";
+        hint = "REC CLEARS  OTHER KEEPS";
+    }
+    key = show_key(title, val, (int32_t)u->ovl, 0);
+    if (key == u->drawn_ovl) return;
+    u->drawn_ovl = key;
+    cv_begin(240, 64, C_BLACK);                 /* (FONT_L: upper case only, as these are) */
+    cv_rect(0, 0, 240, 1, C_LINE); cv_rect(0, 63, 240, 1, C_LINE);
+    cv_text((240 - text_w(&FONT_S, title)) / 2, 4, &FONT_S, title, C_GRAY);
+    cv_text((240 - text_w(&FONT_L, val)) / 2, 26, &FONT_L, val, C_WHITE);
+    cv_blit(0, 72);
+    cv_begin(240, 20, C_BLACK);
+    cv_text((240 - text_w(&FONT_S, hint)) / 2, 2, &FONT_S, hint, C_AMB);
+    cv_blit(0, 144);
 }
 
 #ifdef DINGHY_HOST
@@ -708,7 +979,9 @@ static void mv_ui_dump(const char *path, mv_engine_t *e)
                     e->patch.b[wb] = keep;
                 }
             } else {
-                fprintf(f, ", \"global\": %s", (p >= P_PF && p < P_PF + MV_PF_N) || p == P_LSYNC ? "false" : "true");   /* (PERFORM, SYNC: the program's) */
+                fprintf(f, ", \"global\": %s", (p >= P_PF && p < P_PF + MV_PF_N) || p == P_LSYNC ||
+                        (p >= P_SQBAR && p <= P_SQROOT) || (p >= P_CL && p < P_CL + 4u) ? "false" : "true");   /* (PERFORM, SYNC: the program's; ROLL's
+                                                   view and ROOT: neither the program's nor kept) */
                 if (p == P_MIDICH) { lo = 0; hi = 16; }
                 else if (p == P_VOICES) { lo = 1; hi = (int32_t)MV_NV; }
                 else if (p == P_TEMPO) { lo = TEMPO_MIN; hi = TEMPO_MAX; }
@@ -720,6 +993,15 @@ static void mv_ui_dump(const char *path, mv_engine_t *e)
                 else if (p == P_SV + 3u) { lo = 0; hi = 2; }
                 else if (p == P_PANEL) { lo = 0; hi = 2; }
                 else if (p == P_LSYNC) { lo = 0; hi = (int32_t)MV_LFO1_SYNC_N - 1; }
+                else if (p == P_SQLEN) { lo = 1; hi = 4; }
+                else if (p == P_SQBAR) { lo = 1; hi = 8; }
+                else if (p == P_SQPITCH) { lo = 0; hi = 128 - (int32_t)MV_ROLL_ROWS; }
+                else if (p == P_SQROOT) { lo = 0; hi = 127; }
+                else if (p == P_CL + 0u) { lo = 1; hi = MV_CLIP_N; }
+                else if (p == P_CL + 1u) { lo = 1; hi = MV_CLIP_NAME; }
+                else if (p == P_CL + 2u) { lo = 32; hi = 125; kind = "char"; }
+                else if (p == P_CL + 3u) { lo = 0; hi = 1; }
+                else if (p >= P_SQ && p < P_SQ + MV_SQ_N) { lo = MV_SQ_MIN[p - P_SQ]; hi = MV_SQ_MAX[p - P_SQ]; }
                 else if (p >= P_PF && p < P_PF + MV_PF_N) {
                     static const uint8_t TOP[MV_PF_N] = {2, 127, 127, 6, 16, 16, 3, MV_LFO1_SYNC_N - 1u, MV_LFO1_SYNC_N - 1u};
                     lo = 0; hi = TOP[p - P_PF];

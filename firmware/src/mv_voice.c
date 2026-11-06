@@ -73,6 +73,11 @@ void mv_engine_init(mv_engine_t *e)
     mv_arp_init(&e->arp);
     for (v = 0; v < MV_ARP_N; v++) e->arpb[v] = MV_ARP_DEF[v];   /* arp off (its defaults) until the settings load */
     e->tempo = 120; e->arp_beat = 22050u; e->arp_start = 0; e->arp_live = 0;
+    mv_seq_init(&e->seq);                       /* the sequencer: empty and stopped, its defaults until the settings */
+    for (v = 0; v < MV_SQ_N; v++) e->seqb[v] = MV_SQ_DEF[v];
+    e->seq_run = 0; e->seq_restart = 0; e->seq_arm = 0; e->seq_clear[0] = e->seq_clear[1] = 0;
+    e->seq_ext = 0; e->seq_pulse = 0; e->seq_live = 0; e->seq_armed = 0;
+    e->seq_ln = 0; e->seq_lroot = MV_SEQ_NOROOT; e->seq_load = 0;
     e->lfo1_sync_inc[0] = e->lfo1_sync_inc[1] = 0;   /* free until the main loop says (mv_engine_sync) */
     e->sync_s[0] = e->sync_s[1] = 0;            /* OFF, matching lfo1_sync_inc 0 */
     e->sync_beat[0] = e->sync_beat[1] = 0;
@@ -336,7 +341,20 @@ static void mv_ev_drain(mv_engine_t *e)
         uint32_t ev = e->evq[e->ev_r & (MV_EVQ - 1u)], note = ev >> 7 & 127u, on = ev >> 15 & 1u, to = ev >> 16 & 3u;
         uint32_t t = on ? route(e, note, to) : to, ap = e->arp_live ? arp_parts(e) : 0u, i;
         e->ev_r++;
+        if (on && e->seq_live) {                /* SEQ TRANSPOSE (phase 2, 5a: transpose > arp > voices): a key for a
+                                                   part whose track transposes sets its offset, and goes nowhere else
+                                                   (its key-up, harmless anywhere, still goes everywhere below) */
+            for (i = 0; i < 2u; i++)
+                if ((t >> i & 1u) && mv_seq_xpose_on(&e->seq, e->seqb, i)) {
+                    mv_seq_transpose(&e->seq, i, note);
+                    t &= ~(1u << i);
+                }
+            if (!t) continue;
+        }
         if (t & ap) mv_arp_key(&e->arp, e->arpb, note, (int)on);
+        if (e->seq_live && (t & e->seq_armed))  /* SEQ: an armed track writes the key (it still plays below) */
+            for (i = 0; i < 2u; i++)
+                if (t >> i & e->seq_armed >> i & 1u) mv_seq_key(&e->seq, e->seqb, i, note, on ? (ev & 127u) : 0u);
         for (i = 0; i < 2u; i++)
             if (t >> i & 1u & ~(ap >> i)) ev_play(e, i, note, on);
     }
@@ -364,6 +382,39 @@ static void arp_block(mv_engine_t *e, uint32_t n)
     for (k = 0; k < ne; k++)
         for (i = 0; i < 2u; i++)
             if (on ? ap >> i & 1u : 1u) ev_play(e, i, ev[k] >> 7 & 127u, ev[k] >> 15);   /* (OFF's note-offs: to both) */
+}
+
+/* the sequencer's notes into a part (mv_seq's callback): straight to its voices, not through the arp (5a) */
+static void seq_emit(void *ctx, uint32_t part, uint32_t note, uint32_t vel)
+{
+    ev_play((mv_engine_t *)ctx, part, note, vel != 0u);
+}
+
+/* the sequencer, a block at a time (beside the arp, before the voices render it): the main loop's requests
+ * (start / stop, a restart, CLEAR, a track disarmed), then its notes. Stopped and with nothing asked: nothing done */
+static void seq_block(mv_engine_t *e, uint32_t n)
+{
+    uint32_t run = e->seq_run != 0u, arm = run ? e->seq_arm & 3u : 0u, i;
+    if (run != e->seq_live || (run && e->seq_restart)) {
+        if (e->seq_live) mv_seq_stop(&e->seq, e->seqb, seq_emit, e);   /* its notes end, held recordings close */
+        if (run) mv_seq_start(&e->seq);         /* bar 1 */
+        e->seq_live = (uint8_t)run;
+        e->seq_restart = 0;
+        e->seq_armed = 0;                       /* (stopped: nothing is armed; started: armed again just below) */
+    }
+    if (e->seq_load) {                          /* a clip LOADed (phase 3): into its track, running or not */
+        mv_seq_load(&e->seq, (uint32_t)e->seq_load - 1u, e->seq_lbuf, e->seq_ln, e->seq_lroot, seq_emit, e);
+        e->seq_load = 0;
+    }
+    for (i = 0; i < 2u; i++) {
+        if (e->seq_clear[i]) { mv_seq_clear(&e->seq, i, seq_emit, e); e->seq_clear[i] = 0; }
+        if ((e->seq_armed >> i & 1u) && !(arm >> i & 1u)) mv_seq_disarm(&e->seq, i);   /* held keys: note-offs */
+    }
+    e->seq_armed = (uint8_t)arm;
+    /* After a MIDI START the ticks are held to the clock's pulses: the first clock after START is beat 1 (MIDI's
+     * rule), so bar 1 waits for it, and pulse p is tick (p - 1) x 4. Otherwise free (TEMPO, or the clock's tempo) */
+    if (run && !(e->seq_ext && !e->seq_pulse))
+        mv_seq_tick(&e->seq, e->seqb, n, e->arp_beat, e->seq_ext ? (e->seq_pulse - 1u) * 4u : ~0u, seq_emit, e);
 }
 
 /* PAN placeholder (Kris 1 Nov 2026, option 3: "just put a pan placeholder in"). Byte 58 LFO1 MOD = AUTO pans by
@@ -634,7 +685,8 @@ void mv_engine_render(mv_engine_t *e, int32_t *out, uint32_t n)
         mv_fx_set(&e->fx, b);                   /* the FX bytes (a compare when nothing moved) */
         mv_rv_set(&e->rv, e->rvb);              /* the reverb settings (likewise) */
         arp_block(e, MV_CTL);                   /* the arp's notes for this block (it may start a voice) */
-        if (!any && e->arp_live)                /* (a note it just started) */
+        seq_block(e, MV_CTL);                   /* the sequencer's likewise (and its STOP's note-offs) */
+        if (!any && (e->arp_live || e->seq_live))   /* (a note either just started) */
             for (v = 0; v < MV_NV; v++) any |= mv_env_active(&e->v[v].aenv);
         if (!any && !mv_fx_ringing(&e->fx) && !mv_rv_ringing(&e->rv) && !mv_lim_pending(&e->fxlim)) {   /* silent and no tail: nothing calculated
                                                                              (LFO phases pause) */

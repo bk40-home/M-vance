@@ -117,6 +117,18 @@ WHAT = {
     "SAVE|CURSOR": "the name's character to edit",
     "SAVE|CHAR": "that character",
     "SAVE|MODE": "what SAVE does: p.2",
+    "SEQ|LENGTH": "the track's loop",
+    "SEQ|QUANT": "to the grid",
+    "SEQ|MUTE L": "LOWER silent",
+    "SEQ|MUTE U": "UPPER silent",
+    "SEQ|BAR": "shown (stopped)",
+    "SEQ|PITCH": "scroll the roll",
+    "SEQ|TRANSP": "keys transpose",
+    "SEQ|ROOT": "transpose's 0",
+    "SEQ|CLIP": "1-12 (its name)",
+    "SEQ|CURSOR": "in the name",
+    "SEQ|CHAR": "that character",
+    "SEQ|MODE": "what SAVE does",
 }
 # the two columns of page 1 (the voice on the left, effects and play on the right; about the same height)
 LEFT = ["LFO", "EDIT", "ENV", "ARP"]
@@ -128,7 +140,7 @@ CHOICE_RANGE = {"LFO|SYNC 1": "OFF, 1/16 .. 8 MEAS"}
 PAGE_NOTE = {
     "DEBUG": "CPU (avg, 3 s peak) · voices · octave · MIDI ch · notes in · clock · version",
 }
-PAGE2 = ["SAVE"]                                        # (page 1 is full since PERFORM: SAVE goes with its notes)
+PAGE2 = ["SAVE", "SEQ"]                                 # (page 1 is full since PERFORM: SAVE and SEQ go with their notes)
 CTRL_KNOB = {31: "CTRL1", 32: "CTRL2", 37: "CTRL1", 38: "CTRL2"}   # the labels that follow the wave
 
 # The controls that are not pages (the firmware's mvance.c / mv_ui.c; checked against them by hand)
@@ -141,8 +153,8 @@ GETTING_AROUND = [
     ("HOME", "The home screen: program, home knobs, voices, scope"),
     ("ARP", "Tap: the arp on / off (lit when on). Hold 0.5 s: its pages"),
     ("SAVE", "Tap: the SAVE page. SAVE again: do it. Any other button: leave"),
-    ("OCT - / +", "Keyboard octave, -2 .. +2"),
-    ("PLAY light", "Lit while a MIDI clock runs, blinks on the beat"),
+    ("OCT - / +", "Octave -2 .. +2. Hold one, press the other: PART SELECT (- LOWER, + UPPER, both BOTH)"),
+    ("PLAY / REC", "PLAY: sequencer on / off (blinks on the beat). REC: arm the part's track; hold 1 s: clear it"),
     ("Key lights", "The notes that sound, in this octave"),
     ("* by the name", "The sound is edited and not saved (SAVE lit)"),
 ]
@@ -315,6 +327,7 @@ th {{ font-size: 7.4pt; }}
 .around2 {{ display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0 4mm; }}
 .around2 th {{ width: 30%; }}
 .lists {{ display: grid; grid-template-columns: repeat(7, 1fr); gap: 2mm 3mm; }}
+.seqcard {{ grid-column: span 3; zoom: .78; }}  /* the SEQ card in the lists' free corner, a little smaller (page 2 is full below) */
 td.one > div {{ display: inline; margin-right: 2.5mm; }}   /* a one-knob page: label, value, what on one line */
 td.one .kv.r {{ float: none; margin-left: 1.5mm; }}
 .pwt {{ grid-column: span 1; }} .pwt th, .pwt td {{ padding: .2mm .6mm; border: 0; }}
@@ -325,7 +338,7 @@ h2.p2 {{ font-size: 8.4pt; margin: 2mm 0 1mm; border-bottom: .6pt solid var(--ru
 .cols3 {{ display: grid; grid-template-columns: 1fr 1fr 1.3fr; gap: 0 4mm; }}
 .cc td:first-child {{ width: 9mm; color: var(--amber); font-variant-numeric: tabular-nums; }}
 ul.notes {{ margin: 0; padding-left: 4mm; }}
-ul.notes li {{ margin-bottom: .6mm; }}
+ul.notes li {{ margin-bottom: .35mm; }}
 footer {{ margin-top: 2.5mm; color: var(--mute); font-size: 6.4pt; }}
 @media screen and (max-width: 300mm) {{ .sheet {{ width: auto; margin: 0; box-shadow: none; }}
   .grid, .around2, .cols3 {{ grid-template-columns: 1fr; }} .lists {{ grid-template-columns: repeat(2, 1fr); }} }}
@@ -345,7 +358,7 @@ footer {{ margin-top: 2.5mm; color: var(--mute); font-size: 6.4pt; }}
 <div class="sheet">
 <header><h1><b>M-VANCE</b> LISTS · MIDI</h1><span class="ver">firmware {esc(ver)} · {d["programs"]} programs · {d["voices"]} voices</span></header>
 <h2 class="p2">Choices (the number is the stored value; 0 first)</h2>
-<div class="lists">{lst}{pw_html}</div>
+<div class="lists">{lst}{pw_html}<div class="seqcard">{cards["SEQ"]}</div></div>
 <div class="cols3">
 <div><h2 class="p2">CC map (JP-8080 MODE2), in and out</h2><table class="cc">{cc_a}</table></div>
 <div><h2 class="p2">&nbsp;</h2><table class="cc">{cc_b}</table></div>
@@ -356,10 +369,10 @@ footer {{ margin-top: 2.5mm; color: var(--mute); font-size: 6.4pt; }}
 <li><b>Program change</b> in selects 1-64; PRESETS sends one.</li>
 <li><b>Pitch bend</b> by the program's BEND + / BEND -. <b>CC 1</b> mod wheel brings LFO 2 in.</li>
 <li><b>Every knob with a CC</b> sends it when turned, so a DAW records the panel; incoming CCs edit the sound.</li>
-<li><b>Clock</b> (24 a beat) sets the arp's tempo while it runs; <b>START</b> restarts the arp on step 1.</li>
+<li><b>Clock</b> (24 a beat) sets the arp's and the sequencer's tempo while it runs; <b>START</b> restarts the arp on step 1 and starts the sequencer from bar 1, locked to the clock (CONTINUE: the same); <b>STOP</b> stops it.</li>
 </ul>
 <h2 class="p2">SAVE page</h2>
-{"".join(cards[b] for b in PAGE2)}
+{cards["SAVE"]}
 <ul class="notes">
 <li><b>WRITE</b>: the sound as edited into slot TO (a copy, if TO is another slot). The name: CURSOR and CHAR.</li>
 <li><b>SWAP</b>: the program playing and slot TO trade places (reorder the bank).</li>
@@ -370,7 +383,7 @@ footer {{ margin-top: 2.5mm; color: var(--mute); font-size: 6.4pt; }}
 <ul class="notes">
 <li><b>In the program</b> (64 slots): everything on LFO, EDIT, ENV, SEL, TONE, MULTI-FX, DELAY, PLAY MODE, and PERFORM (except PANEL): a program is a performance, two patches (UPPER, LOWER) and how they play.</li>
 <li><b>Layered</b> (DUAL / SPLIT): the voice pages edit the PANEL part (header U / L / L+U); TONE, MULTI-FX and DELAY are one chain, UPPER's.</li>
-<li><b>On the FM-1</b> (<span class="g">G</span>): REVERB, ARP, MIDI CH, TEMPO, the octave, the program last played. VOICES starts at 8 at power-on.</li>
+<li><b>On the FM-1</b> (<span class="g">G</span>): REVERB, ARP, SEQ and its 12 clips (the notes playing: RAM only), MIDI CH, TEMPO, the octave, the program last played. VOICES starts at 8 at power-on.</li>
 </ul>
 </div>
 </div>

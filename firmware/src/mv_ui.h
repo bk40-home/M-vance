@@ -29,6 +29,22 @@
  *             BOTH; the header shows U / L / L+U); 2/2 VOICES (LOWER + UPPER, 1+7 .. 7+1), ARP (the part(s) the
  *             arp plays: AUTO / UPPER / LOWER / BOTH), CH LO, CH UP (GLOBAL or 1..16). TONE, MULTI-FX and
  *             DELAY are the one chain: they always edit UPPER's bytes
+ *   SEQ       (Kris 6 Nov, phase 1 of fm1-port/mvance-sequencer-proposal-2026-11-06.md; mv_seq.h) SEQ: its page,
+ *             LENGTH (the selected track's: PANEL's part, BOTH both) · QUANT · MUTE L · MUTE U, global settings.
+ *             PLAY: the transport on / off (both tracks, from bar 1). REC: a tap arms / disarms the selected track
+ *             (UPPER, or LOWER when PANEL says LOWER; starts the transport when stopped), held 1 s it asks to
+ *             CLEAR that track (REC again: cleared; any other button, or 3 s: kept)
+ *   ROLL      (Kris 6 Nov, phase 2) SEQ 2/2: the selected track's notes as a piano roll (mv_roll.h), one bar at a
+ *             time; KNOB1 BAR (while stopped: running, it follows the playhead), KNOB2 PITCH (the rows; fitted to
+ *             the notes when the page opens), KNOB3 TRANSPOSE (OFF / LOWER / UPPER / BOTH, global), KNOB4 ROOT (the
+ *             selected track's)
+ *   CLIP      (Kris 6 Nov, phase 3) SEQ 3/3: CLIP (1..12, with its name), CURSOR and CHAR (the name, 6 characters),
+ *             MODE LOAD / SAVE; SAVE does it (as on the SAVE page): LOAD that clip into the selected track, or SAVE
+ *             the selected track as that clip, named (written to flash at the next STOP, when nothing sounds)
+ *   PART      (Kris 6 Nov, 1a / 2a) OCT- or OCT+ steps the octave at once; the other one pressed while the first is
+ *             held undoes that step and opens PART SELECT: OCT- LOWER, OCT+ UPPER, both BOTH. It sets PANEL (so
+ *             every page and the CCs follow) and with it the track REC acts on. Any other button, or 2 s with
+ *             nothing touched, closes it. In SINGLE it shows SINGLE and changes nothing
  *
  * Main loop only (never the ISR). The patch bytes it writes are read by the engine live. It is #included into
  * mvance.c (the unity build): it draws with the platform's gfx.c and sends with platform.c's midi_send. */
@@ -36,6 +52,7 @@
 #include <stdint.h>
 #include "mv_voice.h"
 #include "mv_prog.h"
+#include "mv_clip.h"
 
 typedef struct {
     uint8_t page;                               /* 0 = HOME, else an index into the page table */
@@ -57,7 +74,28 @@ typedef struct {
                                                    the pages and the CCs in edit in a layered program */
     uint32_t drawn_tag;                         /* the header's part tag drawn (U / L / L+U) */
     uint8_t learned;                            /* SPLIT learn: a key was taken since SPLIT was last touched */
+    uint8_t ovl;                                /* an overlay over the page: MV_OV_* (PART SELECT, the CLEAR question) */
+    uint32_t ovl_t;                             /* fm1_ms it opened or was last touched (its time-out) */
+    uint32_t drawn_ovl;                         /* what the overlay shows */
+    uint8_t ovl_track;                          /* CLEAR: the track asked about (MV_PART_*) */
+    uint8_t oct_held;                           /* OCT- (bit 0) / OCT+ (bit 1) held */
+    int8_t oct_undo;                            /* the octave step the first OCT press made (undone by a chord) */
+    uint32_t rec_t;                             /* fm1_ms REC went down */
+    uint8_t rec_down, rec_did;                  /* it is down; its hold (or a CLEAR yes) has acted */
+    uint8_t roll_bar;                           /* ROLL: the bar shown while stopped (0 = bar 1) */
+    uint8_t roll_lo;                            /* ROLL: the lowest note row shown */
+    uint8_t roll_fit;                           /* ROLL: fit roll_lo to the notes at the next draw (the page opened) */
+    const mv_clip_t *clips;                     /* CLIP: the clips' directory (mv_ui_set_clips; names, empty or not) */
+    uint8_t cl_sel, cl_pos, cl_mode;            /* CLIP: the clip, the name's cursor (0..5), LOAD / SAVE */
+    char cl_name[MV_CLIP_NAME];                 /* CLIP: the name being edited (the clip's, when CLIP moves to it) */
+    uint8_t cl_act;                             /* CLIP: asked for (MV_CL_* + 1; 0 none): the caller does it */
+    uint8_t cl_msg;                             /* CLIP: what the last one came to (MV_CLM_*), shown 2 s .. */
+    uint32_t cl_msg_t;                          /* .. from then (fm1_ms) */
 } mv_ui_t;
+enum { MV_CL_LOAD, MV_CL_SAVE };                /* CLIP MODE */
+enum { MV_CLM_NONE, MV_CLM_LOADED, MV_CLM_SAVED, MV_CLM_EMPTY, MV_CLM_BUSY };   /* CLIP: what it came to */
+#define MV_ROLL_ROWS 23u                        /* ROLL: note rows shown (8 px each: about 2 octaves) */
+enum { MV_OV_NONE, MV_OV_PART, MV_OV_CLEAR };   /* overlays */
 enum { MV_SV_NONE, MV_SV_WRITE, MV_SV_SWAP, MV_SV_FACTORY };
 enum { MV_UI_UPPER, MV_UI_LOWER, MV_UI_BOTH };   /* PANEL */
 
@@ -66,6 +104,7 @@ void mv_ui_init(mv_ui_t *u, const mv_prog_t *prog);
 #define MV_UI_PAGE 1u                           /* the page changed (to HOME: the caller redraws its screen) */
 #define MV_UI_SETTING 2u                        /* a setting kept in flash changed (GLOBAL: the MIDI channel) */
 #define MV_UI_PROG 4u                           /* SAVE pressed on its page: do u->act on slot u->act_to */
+#define MV_UI_CLIP 8u                           /* SAVE pressed on the CLIP page: do u->cl_act on clip u->cl_sel */
 /* buttons pressed / released since the last call (bit = BTN_...), the encoders read here; MIDI channel (0 = omni)
  * by pointer (GLOBAL edits it), out_ch for the CCs. Returns MV_UI_... bits. ARP (Kris 1 Nov, 7a): a tap switches
  * the arp on / off, a hold (0.5 s) opens its pages (held again: the next one) */
@@ -79,3 +118,14 @@ void mv_ui_draw(mv_ui_t *u, const mv_engine_t *e, uint32_t midi_ch);   /* a page
  * not play); mv_ui_learned after it: the cell stays lit 3 s, and the keys play again */
 int mv_ui_split_learn(const mv_ui_t *u);
 void mv_ui_learned(mv_ui_t *u);
+/* OCT- / OCT+ and PART SELECT (mv_ui.h, PART): buttons pressed / released since the last call; the octave
+ * (int8 -2..+2 in a byte, the settings') by pointer. Returns MV_UI_SETTING when the octave moved, MV_UI_PAGE when
+ * the overlay opened or closed (the screen to redraw) */
+uint32_t mv_ui_oct(mv_ui_t *u, const mv_engine_t *e, uint32_t pressed, uint32_t released, uint8_t *oct);
+static inline int mv_ui_overlay(const mv_ui_t *u) { return u->ovl != MV_OV_NONE; }
+int mv_ui_roll(const mv_ui_t *u);
+int mv_ui_clip_page(const mv_ui_t *u);          /* 1: the CLIP page shows (SEQ 3/3): SAVE lit */
+void mv_ui_set_clips(mv_ui_t *u, const mv_clip_t *c);   /* the clips' directory (after mv_clip_init) */               /* 1: the ROLL page shows (SEQ 2/2): mvance.c draws it, mv_roll.c */
+void mv_ui_overlay_draw(mv_ui_t *u, const mv_engine_t *e);   /* the overlay shown: drawn when it changed */
+/* the track REC acts on (MV_PART_*): UPPER, or LOWER when PANEL says LOWER in a layered program */
+uint32_t mv_ui_track(const mv_ui_t *u, const mv_engine_t *e);

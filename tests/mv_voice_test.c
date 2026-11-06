@@ -14,6 +14,7 @@
 #include "mv_fx.c"
 #include "mv_reverb.c"
 #include "mv_arp.c"
+#include "mv_seq.c"
 #include "mv_lim.c"
 #include "mv_voice.c"
 
@@ -517,6 +518,68 @@ int main(void)
         CHECK(mv_engine_quiet(&e) && !mv_lim_pending(&e.fxlim), "after the tail: quiet, nothing held in the FX limiter");
         e.patch.b[245] = 0; e.lower.b[245] = 0; e.patch.b[62] = 0; e.perf[MV_PF_MODE] = MV_KEY_SINGLE;
         run(500, 0);
+    }
+    {   /* SEQ in the engine (Kris 6 Nov; mv_seq.c's own logic: tests/mv_seq_test.c): keys through the queue are
+         * written to an armed track, the track plays only its own part, STOP ends its notes, MIDI START waits for
+         * the first clock pulse */
+        uint32_t v, lo_on, up_on, k;
+        mv_engine_init(&e);
+        e.patch.b[41] = 127; e.lower.b[41] = 127;      /* filters open */
+        e.perf[MV_PF_MODE] = MV_KEY_SPLIT; e.perf[MV_PF_SPLIT] = 60;
+        e.arp_beat = 22050u;                            /* 120 BPM: 2 bars = 4 s */
+        e.seqb[MV_SQ_QUANT] = MV_SQQ_OFF;
+        e.seq_arm = MV_TO_LO; e.seq_run = 1;            /* REC on LOWER: armed and running */
+        run(20, 0);
+        CHECK(e.seq_live && e.seq_armed == MV_TO_LO, "running, LOWER armed");
+        mv_engine_note_on(&e, 48, 100); run(300, 0);    /* a low key (LOWER) .. */
+        mv_engine_note_off(&e, 48);
+        mv_engine_note_on(&e, 72, 100); run(300, 0);    /* .. and a high one (UPPER: not armed) */
+        mv_engine_note_off(&e, 72);
+        CHECK(e.seq.t[1].n == 2u && e.seq.t[0].n == 0u, "LOWER's key written, UPPER's not (%u / %u)", e.seq.t[1].n, e.seq.t[0].n);
+        e.seq_arm = 0; run(20, 0);                      /* disarmed */
+        run(4000 - 660, 0);                             /* round to the next pass (2 bars), its note on again */
+        for (k = 0, lo_on = 0, up_on = 0; k < 40u; k++) {   /* 40 buffers (232 ms) round tick 0 of pass 2: what gates */
+            run(10, 0);
+            for (v = 0; v < MV_NV; v++)
+                if (e.v[v].gate) { if (e.v[v].part == MV_PART_LO && e.v[v].note == 48u) lo_on++; if (e.v[v].part == MV_PART_UP) up_on++; }
+        }
+        CHECK(lo_on > 0u && up_on == 0u, "pass 2: the track plays 48 on LOWER only (lo %u, up %u)", lo_on, up_on);
+        e.seq_run = 0; run(20, 0);                      /* STOP .. */
+        for (v = 0, k = 0; v < MV_NV; v++) k += e.v[v].gate;
+        CHECK(!e.seq_live && k == 0u, "STOP: nothing gated (%u)", k);
+        run(3000, 0);
+        CHECK(mv_engine_quiet(&e), "STOP: silent after the release");
+        e.seq_clear[1] = 1; e.seq_run = 1; run(20, 0); e.seq_run = 0; run(20, 0);   /* CLEAR (carried out running) */
+        CHECK(e.seq.t[1].n == 0u && !e.seq_clear[1], "CLEAR: LOWER emptied");
+        /* MIDI START: held at bar 1 until the first clock pulse, then 4 ticks a pulse at most */
+        e.seq_ext = 1; e.seq_pulse = 0; e.seq_run = 1; e.seq_restart = 1;
+        run(200, 0);
+        CHECK(e.seq_live && e.seq.ticks == 0u, "START: waits for the first pulse (%u ticks)", e.seq.ticks);
+        e.seq_pulse = 1; run(200, 0);                   /* one pulse: tick 0 and up to 3 more */
+        CHECK(e.seq.ticks >= 1u && e.seq.ticks <= 4u, "first pulse: %u ticks (1..4)", e.seq.ticks);
+        e.seq_run = 0; e.seq_ext = 0; run(500, 0);
+        /* TRANSPOSE (phase 2): LOWER's line transposed by a low key (which plays nothing itself); UPPER plays on */
+        e.seq_clear[1] = 1; e.seq_arm = MV_TO_LO; e.seq_run = 1; run(20, 0);
+        mv_engine_note_on(&e, 48, 100); run(300, 0); mv_engine_note_off(&e, 48);   /* C3 recorded at the start */
+        e.seq_arm = 0; run(20, 0);
+        CHECK(e.seq.t[1].root == 48u, "ROOT C3 (%u)", e.seq.t[1].root);
+        e.seqb[MV_SQ_XPOSE] = MV_SQX_LO;
+        mv_engine_note_on(&e, 53, 100); run(20, 0);   /* F3 below the split: +5, not played */
+        for (v = 0, k = 0; v < MV_NV; v++) k += e.v[v].gate && e.v[v].note == 53u;
+        CHECK(e.seq.t[1].xpose == 5 && k == 0u, "F3: offset +5 (%d), no voice of its own (%u)", e.seq.t[1].xpose, k);
+        mv_engine_note_off(&e, 53);
+        mv_engine_note_on(&e, 72, 100); run(20, 0);   /* C5: UPPER plays as ever */
+        for (v = 0, k = 0; v < MV_NV; v++) k += e.v[v].gate && e.v[v].note == 72u && e.v[v].part == MV_PART_UP;
+        CHECK(k == 1u, "C5 still plays UPPER (%u)", k);
+        mv_engine_note_off(&e, 72);
+        for (k = 0, lo_on = 0, up_on = 0; k < 400u; k++) {   /* round to the next pass (400 x 2 buffers, 4.6 s):
+                                                               LOWER plays F3, not C3 */
+            run(12, 0);
+            for (v = 0; v < MV_NV; v++)
+                if (e.v[v].gate && e.v[v].part == MV_PART_LO) { if (e.v[v].note == 53u) lo_on++; if (e.v[v].note == 48u) up_on++; }
+        }
+        CHECK(lo_on > 0u && up_on == 0u, "next pass: the line at +5 (F3 %u, C3 %u)", lo_on, up_on);
+        e.seq_run = 0; e.seqb[MV_SQ_XPOSE] = MV_SQX_OFF; e.perf[MV_PF_MODE] = MV_KEY_SINGLE; run(500, 0);
     }
     printf("mv_voice_test: %d checks, %d failed\n", checks, fails);
     return fails != 0;

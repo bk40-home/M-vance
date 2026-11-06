@@ -138,6 +138,11 @@ static int blob_load(uint32_t i, void *p, uint32_t n) { return i < NBLOB ? host_
 static int blob_save(uint32_t i, const void *p, uint32_t n) { return i < NBLOB ? host_save(host_blob[i], SECTOR_MAX, p, n, "blob", i) : -1; }
 static int slot_load(uint32_t i, void *p, uint32_t n) { return i < NSLOT ? host_load(host_slot[i], SLOT_MAX, p, n) : -1; }
 static int slot_save(uint32_t i, const void *p, uint32_t n) { return i < NSLOT ? host_save(host_slot[i], SLOT_MAX, p, n, "slot", i) : -1; }
+/* a slot's sector on its own (platform.c slot_sec_*): kept apart from host_slot here (on the chip they share the
+ * flash; no firmware uses both on one slot) */
+static uint8_t host_ssec[NSLOT][SLOT_SECT][SECTOR_MAX + 4];
+static int slot_sec_load(uint32_t i, uint32_t k, void *p, uint32_t n) { return i < NSLOT && k < SLOT_SECT ? host_load(host_ssec[i][k], SECTOR_MAX, p, n) : -1; }
+static int slot_sec_save(uint32_t i, uint32_t k, const void *p, uint32_t n) { return i < NSLOT && k < SLOT_SECT ? host_save(host_ssec[i][k], SECTOR_MAX, p, n, "slot sector", i * SLOT_SECT + k) : -1; }
 
 static uint8_t mq[64][4];                       /* status, data 1, data 2, source (1 USB, 2 TRS) */
 static uint32_t mq_w, mq_r;

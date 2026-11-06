@@ -47,6 +47,8 @@ enum { ENC_SELECT = 0, ENC_ALGORITHM = 1, ENC_KNOB1 = 2, ENC_KNOB2 = 3, ENC_KNOB
 
 #ifdef DINGHY_HOST
 #include "../../tests/host.c"                  /* on a computer: a fake FM-1 (tests/host.c) */
+#elif defined(DINGHY_WEBSIM)
+#include "../../sim/mv_websim.c"               /* in a browser (WebAssembly): the online simulator */
 #else
 #include <stdint.h>
 #include "fm1_time.h"
@@ -259,6 +261,12 @@ static int blob_save(uint32_t i, const void *p, uint32_t n) { return i < NBLOB ?
 #define SLOT_MAGIC 0x544F4C53u                  /* "SLOT" */
 static int slot_load(uint32_t i, void *p, uint32_t n) { return i < NSLOT ? area_load(SLOTS_AT + i * SLOT_SECT * 0x1000u, SLOT_MAX, SLOT_MAGIC ^ STORE_MAGIC, p, n) : -1; }
 static int slot_save(uint32_t i, const void *p, uint32_t n) { return i < NSLOT ? area_save(SLOTS_AT + i * SLOT_SECT * 0x1000u, SLOT_SECT, SLOT_MAGIC ^ STORE_MAGIC, p, n) : -1; }
+/* one sector k (0..SLOT_SECT-1) of slot i on its own, up to SECTOR_MAX bytes (M-vance's clips, Kris 6 Nov): for
+ * something smaller than a slot that is saved often, one erase (~50 ms) a save, not SLOT_SECT. Its own magic: a
+ * slot saved whole over it (or the other way) reads as nothing, never as the other's data */
+#define SSEC_MAGIC 0x43455353u                  /* "SSEC" */
+static int slot_sec_load(uint32_t i, uint32_t k, void *p, uint32_t n) { return i < NSLOT && k < SLOT_SECT ? area_load(SLOTS_AT + (i * SLOT_SECT + k) * 0x1000u, SECTOR_MAX, SSEC_MAGIC ^ STORE_MAGIC, p, n) : -1; }
+static int slot_sec_save(uint32_t i, uint32_t k, const void *p, uint32_t n) { return i < NSLOT && k < SLOT_SECT ? area_save(SLOTS_AT + (i * SLOT_SECT + k) * 0x1000u, 1u, SSEC_MAGIC ^ STORE_MAGIC, p, n) : -1; }
 #if BOARD_SMK37
 /* the store's owner (the kit's convention, store.h): our tag, load as ever; anything else (the stock settings,
  * another port's data) is cleared once and the tag written, before the audio starts */

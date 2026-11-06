@@ -1,0 +1,52 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: GPL-3.0-only -->
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M-vance bank editor</title>
+<style>
+  :root { --amber:#ff8000; --bg:#111; --card:#1b1b1b; --line:#333; --over:#3a2a00; }
+  body { background:var(--bg); color:#eee; font-family:system-ui,sans-serif; margin:0; padding:16px; }
+  h1 { font-size:1.2rem; margin:0 0 10px; }
+  h2 { font-size:.8rem; letter-spacing:.12em; text-transform:uppercase; color:var(--amber); margin:0 0 8px; }
+  .bar { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:8px; }
+  .btn, button { font-size:.9rem; padding:.4rem .8rem; border:1px solid var(--line); border-radius:6px;
+                 background:#222; color:#eee; cursor:pointer; }
+  #count { margin-left:auto; opacity:.7; font-size:.85rem; }
+  .help { opacity:.65; font-size:.85rem; margin:4px 0 12px; }
+  .help.bad { color:#ff6b6b; opacity:1; }
+  .wrap { display:flex; gap:16px; align-items:flex-start; }
+  .grid { display:grid; grid-template-columns:repeat(8, 1fr); gap:6px; flex:1; }
+  .slot { background:var(--card); border:1px solid var(--line); border-radius:6px; padding:5px 6px; font-size:.72rem;
+          min-height:52px; }
+  .slot.empty { opacity:.4; border-style:dashed; }
+  .slot.over { border-color:var(--amber); background:var(--over); }
+  .hd { display:flex; align-items:center; gap:5px; }
+  .no { color:var(--amber); font-weight:700; min-width:1.4em; }
+  .nm { flex:1; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .ren { padding:0 4px; font-size:.7rem; border:none; background:none; color:#888; }
+  .part { margin-top:3px; padding:2px 4px; border-radius:4px; background:#141414; color:#aaa; white-space:nowrap;
+          overflow:hidden; text-overflow:ellipsis; }
+  .part.over { background:var(--over); color:#fff; }
+  aside { width:220px; flex:none; }
+  #palette { display:flex; flex-direction:column; gap:4px; max-height:72vh; overflow:auto; }
+  .pal { display:flex; align-items:center; gap:6px; background:var(--card); border:1px solid var(--line);
+         border-radius:6px; padding:4px 6px; font-size:.8rem; }
+  .pnm { flex:1; cursor:grab; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .chip { cursor:grab; background:#2a2a2a; border:1px solid var(--line); border-radius:4px; padding:0 6px;
+          font-size:.7rem; color:var(--amber); }
+</style>
+<h1>M-vance bank editor</h1>
+<div class="bar">
+  <label class="btn">Load bank<input type="file" id="loadBank" accept=".syx,.mid,.midi" hidden></label>
+  <label class="btn">Add source parts<input type="file" id="addSrc" accept=".syx,.mid,.midi" hidden></label>
+  <button id="export">Export .syx</button>
+  <button id="clearPal">Clear palette</button>
+  <span id="count"></span>
+</div>
+<p id="status" class="help">Load a bank (.syx/.mid) into the slots. Drag a performance from the palette onto a slot;
+  drag the U / L chips onto a slot's UPPER / LOWER row; drag a slot onto another to reorder; ✎ renames.</p>
+<div class="wrap">
+  <div id="grid" class="grid"></div>
+  <aside><h2>Palette</h2><div id="palette"></div></aside>
+</div>
+<script type="module" src="editor.js"></script>

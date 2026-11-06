@@ -122,9 +122,12 @@ int main(void)
         CHECK(mv_prog_perf_ok(t), "sync 8 MEAS kept");
         t[MV_PF_SYNCLO] = 23;
         CHECK(!mv_prog_perf_ok(t), "sync 23 refused");
-#if !MV_FACTORY_PUBLIC                          /* (the local bank only: the public one is 64 INIT programs) */
-        CHECK(MV_FACTORY_PERF[36][MV_PF_SYNCUP] == 9 && MV_FACTORY_PERF[0][MV_PF_SYNCUP] == 0,
-              "the factory: slot 37 at 1/4D (9), slot 1 OFF");
+#if !MV_FACTORY_PUBLIC                          /* the local bank: every slot's LFO1 SYNC must be a valid value
+                                                   (0..22). Bank-agnostic, so re-curating the factory can't break it. */
+        for (i = 0; i < MV_NPROG; i++)
+            if (MV_FACTORY_PERF[i][MV_PF_SYNCUP] >= MV_LFO1_SYNC_N ||
+                MV_FACTORY_PERF[i][MV_PF_SYNCLO] >= MV_LFO1_SYNC_N) break;
+        CHECK(i == MV_NPROG, "the factory: every slot's LFO1 SYNC is 0..22");
 #endif
     }
     printf("mv_prog_test: %d checks, %d failed\n", checks, fails);

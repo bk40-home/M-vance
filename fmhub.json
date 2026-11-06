@@ -2,5 +2,11 @@
   "what": "A JP-8000/8080-style virtual analog on eight voices: the JT-8000 engine ported to the FM-1, with Super Saw, the JP filter, multi-effects, delay, a plate reverb, an arpeggiator and 64 programs, every knob on the JP-8080's own MIDI CCs.",
   "kinds": [
     "synth"
-  ]
+  ],
+  "author": "Kris (bk40-home)",
+  "image": "docs/img/home.png",
+  "cheat": "https://bk40-home.github.io/M-vance/cheatsheet.html",
+  "play": "https://bk40-home.github.io/M-vance/sim/",
+  "editor": "https://bk40-home.github.io/M-vance/sim/bank/editor.html",
+  "color": "#FF8000"
 }

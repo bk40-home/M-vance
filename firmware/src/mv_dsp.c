@@ -15,5 +15,6 @@
 #include "mv_fx.c"
 #include "mv_reverb.c"
 #include "mv_arp.c"
+#include "mv_seq.c"
 #include "mv_lim.c"
 #include "mv_voice.c"

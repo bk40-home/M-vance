@@ -1,0 +1,122 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: GPL-3.0-only -->
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M-vance simulator</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DotGothic16&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:#6f7174; --panel:#262628; --knob:#141415; --ring:#3a3a3d;
+    --btn:#2d2d30; --btn-line:#3c3c40; --amber:#ff7a1f; --rec:#e23b2e; --ink:#d7d7d7; --dim:#8a8a8e;
+  }
+  * { box-sizing:border-box; }
+  body { background:var(--bg); color:var(--ink); margin:0; padding:18px; font-family:'DotGothic16',monospace;
+         display:flex; flex-direction:column; align-items:center; }
+  .topbar { display:flex; gap:10px; margin-bottom:14px; }
+  .topbar a, .topbar button { font-family:inherit; text-decoration:none; font-size:.82rem; padding:.5rem 1rem;
+         border-radius:8px; border:none; cursor:pointer; color:#111; background:var(--amber); }
+  .topbar .ghost { background:#4a4a4d; color:var(--ink); }
+  .mode { font-size:.72rem; padding:.45rem .8rem; border-radius:8px; background:#333; color:var(--dim);
+          align-self:center; white-space:nowrap; }
+  .mode.on { background:#153a1b; color:#7fe08a; }   /* green: driving a real FM-1 */
+
+  .synth { background:var(--panel); border-radius:18px; padding:20px; width:800px; max-width:100%;
+           box-shadow:0 10px 30px rgba(0,0,0,.4); }
+  .top { display:grid; grid-template-columns:auto 240px 1fr; gap:16px; align-items:start; }
+
+  /* knobs */
+  .kgrid { display:grid; grid-template-columns:1fr 1fr; gap:12px 14px; }
+  .kwrap { display:flex; flex-direction:column; align-items:center; gap:5px; width:60px; }
+  .klabel { font-size:.55rem; letter-spacing:.08em; color:var(--dim); text-transform:uppercase; height:1em; white-space:nowrap; }
+  .knob { width:46px; height:46px; border-radius:50%; position:relative; cursor:ns-resize; touch-action:none;
+          background:radial-gradient(circle at 38% 32%, #2a2a2c, var(--knob) 70%); border:2px solid var(--ring);
+          box-shadow:inset 0 2px 4px rgba(0,0,0,.6); }
+  .knob .ind { position:absolute; left:50%; top:5px; width:3px; height:14px; margin-left:-1.5px; border-radius:2px;
+          background:var(--amber); transform-origin:50% 18px; }
+
+  /* lcd */
+  .lcd { background:#000; border-radius:12px; padding:10px; box-shadow:inset 0 0 0 2px #333; }
+  #screen { width:220px; height:220px; display:block; image-rendering:pixelated; border-radius:4px; background:#001; }
+
+  /* right: knob row + button grid */
+  .right { display:flex; flex-direction:column; gap:12px; }
+  .krow { display:flex; gap:10px; justify-content:space-between; }
+  .btngrid { display:grid; grid-template-columns:repeat(6,1fr); gap:6px; }
+  .btngrid button { font-family:inherit; font-size:.6rem; letter-spacing:.03em; color:var(--ink);
+          background:var(--btn); border:1px solid var(--btn-line); border-radius:7px; padding:.55rem 0; cursor:pointer; }
+  .btngrid button.rec { color:var(--rec); }
+  .btngrid button.on { background:var(--amber); color:#111; border-color:var(--amber); }
+  .octrow { grid-column:1 / span 2; display:flex; gap:10px; margin-top:2px; }
+  .octrow button { flex:1; font-family:inherit; font-size:.6rem; color:var(--ink); background:var(--btn);
+          border:1px solid var(--btn-line); border-radius:7px; padding:.5rem 0; cursor:pointer; }
+  .octrow button.on { background:var(--amber); color:#111; }
+
+  /* keyboard: rounded pill keys in a recessed well */
+  #kbwell { background:#111112; border-radius:14px; padding:14px 16px; margin-top:18px;
+            box-shadow:inset 0 2px 10px rgba(0,0,0,.75); display:flex; justify-content:center; }
+  #keys { position:relative; height:120px; }
+  .key { position:absolute; top:0; cursor:pointer; touch-action:none; border:1px solid #000; }
+  .key.white { width:30px; height:120px; border-radius:8px; z-index:1;
+               background:linear-gradient(#2b2b2e,#1a1a1c); }
+  .key.black { width:20px; height:74px; border-radius:7px; z-index:2;
+               background:linear-gradient(#070708,#131315); }
+  .key.on { background:var(--amber); }
+
+  .help { color:var(--dim); font-size:.62rem; letter-spacing:.03em; margin-top:10px; text-align:center; max-width:800px; }
+</style>
+
+<div class="topbar">
+  <button id="start">&#9654; Start audio</button>
+  <a href="bank/editor.html" target="_blank" rel="noopener" class="ghost">Bank editor &#8594;</a>
+  <span id="mode" class="mode">Emulator</span>
+</div>
+
+<div class="synth">
+  <div class="top">
+    <!-- left cluster: three encoders + octave -->
+    <div class="kgrid">
+      <div class="kwrap"><div class="klabel">Select</div><div class="knob" data-enc="0"><i class="ind"></i></div></div>
+      <div class="kwrap"><div class="klabel">Presets</div><div class="knob" data-enc="6"><i class="ind"></i></div></div>
+      <div class="kwrap"><div class="klabel">Algo</div><div class="knob" data-enc="1"><i class="ind"></i></div></div>
+      <div></div>
+      <div class="octrow"><button data-btn="0">OCT &#8722;</button><button data-btn="1">OCT +</button></div>
+    </div>
+
+    <!-- centre: the LCD -->
+    <div class="lcd"><canvas id="screen" width="240" height="240"></canvas></div>
+
+    <!-- right cluster: four knobs + the button grid -->
+    <div class="right">
+      <div class="krow">
+        <div class="kwrap"><div class="klabel">Knob 1</div><div class="knob" data-enc="2"><i class="ind"></i></div></div>
+        <div class="kwrap"><div class="klabel">Knob 2</div><div class="knob" data-enc="3"><i class="ind"></i></div></div>
+        <div class="kwrap"><div class="klabel">Knob 3</div><div class="knob" data-enc="4"><i class="ind"></i></div></div>
+        <div class="kwrap"><div class="klabel">Knob 4</div><div class="knob" data-enc="5"><i class="ind"></i></div></div>
+      </div>
+      <div class="btngrid">
+        <button data-btn="2">FX</button>
+        <button data-btn="3">SEL</button>
+        <button data-btn="4">ENV</button>
+        <button data-btn="5">LFO</button>
+        <button data-btn="6">EDIT</button>
+        <button data-btn="7">GLO</button>
+        <button data-btn="8">HOME</button>
+        <button data-btn="9">SAVE</button>
+        <button data-btn="10">ARP</button>
+        <button data-btn="11">SEQ</button>
+        <button data-btn="12">PLAY</button>
+        <button data-btn="13" class="rec">REC</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="kbwell"><div id="keys"></div></div>
+</div>
+
+<p class="help">Z&ndash;' Q&ndash;0 keys &nbsp;|&nbsp; turn the knobs: drag, scroll or &larr;&rarr;&uarr;&darr; &nbsp;|&nbsp;
+  [ ] octave &nbsp;|&nbsp; a MIDI keyboard works too &nbsp;|&nbsp; click &#9654; Start audio first</p>
+
+<script src="mvance.js"></script>
+<script type="module" src="sim.js"></script>

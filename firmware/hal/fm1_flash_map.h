@@ -17,7 +17,10 @@
  * ID: 0xeb6014"). The driver uses only generic SPI NOR commands (9F, 05/35, 06, 20, 02, 0B). */
 #define FL_JEDEC_OK(id) ((id) == 0xEB6014u || (id) == 0x856014u)
 #else
-#define FL_JEDEC_OK(id) ((id) == 0x856014u)
+/* FM-1: Puya P25Q80 0x856014; newer units carry the UC25HQ80 0xB36014 (Firmware Hub note). The RAM flash
+ * driver and the update loader use only generic SPI NOR commands (9F, 05/35, 06, 20, 02, 0B), so one more
+ * accepted id is all they need. */
+#define FL_JEDEC_OK(id) ((id) == 0x856014u || (id) == 0xB36014u)
 #endif
 
 #if BOARD_SMK37

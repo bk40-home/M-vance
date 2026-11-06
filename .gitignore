@@ -1,20 +1,8 @@
 build/
 __pycache__/
 .DS_Store
-/docs/presets
 
-# Local factory bank: its programs come from third-party banks (LICENSING.md); mv_factory_public.h is committed
-/firmware/gen/mv_factory.h
-
-# Local working backups, *.bak_* copies and the manual-delete staging area: never published
-# (mv_factory.h.bak_bank holds the third-party bank)
+# Local working backups, *.bak_* copies and the manual-delete staging area
 /_backup_*/
 /_to_delete/
 *.bak_*
-
-# Banks read back from an FM-1 (make_bank.py --from-device) and the lists it retires: they hold
-# programs derived from the third-party banks, so they stay local like mv_factory.h
-/tools/bank/device.syx
-/tools/bank/history/
-# Other scratch copies of the bank list
-*.poop

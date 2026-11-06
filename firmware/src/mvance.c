@@ -7,7 +7,8 @@
  * MIDI (USB, the TRS jack), USB audio, keys, knobs, LEDs, the screen, flash storage; the FM-1 and the SMK-37.
  *
  *   keys       play the engine (MV_NV voices); the notes go out over USB-MIDI too, on the MIDI channel
- *   OCT- OCT+  the octave (kept in flash)
+ *   OCT- OCT+  the octave (kept in flash); the other one pressed while the first is held: PART SELECT (mv_ui.h,
+ *              Kris 6 Nov: OCT- LOWER, OCT+ UPPER, both BOTH; the first press's octave step is undone)
  *   panel      (mv_ui.c, Stage 7) the JP-8080's sections as pages: LFO EDIT ENV SEL FX GLO step through their
  *              section's pages (the button lit), HOME the home screen, ALGORITHM every page in turn; KNOB1..4 edit
  *              the page, SELECT single steps on the last one touched; edits go out as the JP CCs. GLOBAL: the MIDI
@@ -24,6 +25,13 @@
  *              written to flash once nothing sounds
  *   ARP        a tap: the arpeggiator on / off (lit); held 0.5 s: its pages (mv_arp.h, Skiff's arp). TEMPO on GLOBAL;
  *              a MIDI clock, while it comes, sets the tempo instead, and START restarts the pattern
+ *   SEQ        (Kris 6 Nov, mv_seq.h) its page: LENGTH (the selected track's), QUANT, MUTE L / U. PLAY: the
+ *              transport (lit while running, a blink each beat). REC: a tap arms / disarms the selected track (lit
+ *              while one is armed), held 1 s: CLEAR it (REC again: yes). MIDI START / CONTINUE start it from bar 1,
+ *              held to the clock's pulses; STOP stops it. The settings are kept in flash, the notes are not (RAM).
+ *              SEQ 2/2 (phase 2): the piano roll (mv_roll.h) and TRANSPOSE / ROOT: a transposing track's keys set its
+ *              offset (key - ROOT) instead of playing. SEQ 3/3 (phase 3): the clips (mv_clip.h): SAVE does LOAD / SAVE;
+ *              a SAVE is written to flash at the next STOP, once nothing sounds
  *   MV_PROFILE build (DINGHY_DEFS=-DMV_PROFILE=1 ./build.sh): DEBUG adds where the time goes, OSC / FLT / ETC
  *              as % of the buffer (average); off (the default), none of it is compiled in
  *   DEBUG      GLO's last page (mv_debug.h): render time of a 5.8 ms buffer, average of the last 1/4 s (us, %) and
@@ -32,7 +40,7 @@
  *   MASTER     the volume (platform.c)
  *   MIDI in    notes from USB or the TRS jack play the engine; pitch bend (BEND UP / DOWN of the patch), CC1 mod
  *              wheel (brings LFO2 in), the JP MODE2 CCs edit the patch; a MIDI clock shows its tempo and blinks
- *              PLAY on the beat, START / STOP light it
+ *              DEBUG; START / STOP run the sequencer (PLAY shows the sequencer now: Kris 6 Nov, 7a)
  *   SMK-37     the keys, the outer keys too, the pads (white keys F3..G5, lit while they sound), the pitch wheel
  *              bends by the patch's BEND UP / DOWN
  *
@@ -51,9 +59,11 @@ static void app_sysex(const uint8_t *p, uint32_t n);
 #include "mv_voice.h"                          /* the voice engine; its code is mv_dsp.c, built apart at -O2 */
 #include "mv_prog.c"                           /* the programs: in this unit, it saves with platform.c (static) */
 #include "mv_xfer.c"                           /* the program transfer over SysEx (Kris 4 Nov: F1 + F2) */
+#include "mv_clip.c"                           /* the sequencer's clips (Kris 6 Nov, phase 3): saves with platform.c */
 #include "mv_ui.c"                             /* the panel pages: in this unit, it draws with gfx.c (static) */
 #include "mv_home.h"                           /* the home screen (its code: after the colours, below) */
 #include "mv_debug.h"                          /* the DEBUG page (its code: after the colours, below) */
+#include "mv_roll.h"                           /* the piano roll, SEQ 2/2 (its code: after the colours, below) */
 #if BOARD_SMK37
 #include "smk_wheel.h"
 #endif
@@ -115,12 +125,14 @@ static int quiet(void) { return mv_engine_quiet(&eng); }   /* nothing sounds, no
 #define KEY0 53u                                /* key 0 = F3 */
 #include "mv_home.c"                           /* the home screen (Kris 3 Nov, H1): after the colours it draws with */
 
-/* the buttons that light for the page shown (the section buttons and HOME) */
-static const uint8_t UI_LED_BTN[7] = {BTN_HOME, BTN_LFO, BTN_EDIT, BTN_ENV, BTN_SEL, BTN_FX, BTN_GLO};
+/* the buttons that light for the page shown (the section buttons, HOME and SEQ) */
+static const uint8_t UI_LED_BTN[8] = {BTN_HOME, BTN_LFO, BTN_EDIT, BTN_ENV, BTN_SEL, BTN_FX, BTN_GLO, BTN_SEQ};
 
 /* the buffer's length in us: 256 frames at 44.1 kHz = 5.8 ms (the CPU figures are % of it) */
 #define BUF_US (HALF_FRAMES * 1000000u / FS)
 #include "mv_debug.c"                          /* the DEBUG page (GLO): the meter and the status, off the other screens */
+#include "mv_roll.c"                           /* the piano roll (SEQ 2/2, Kris 6 Nov: sequencer phase 2) */
+static mv_roll_t roll;                          /* what it shows (main loop only) */
 
 /* ---- MIDI in: from the main loop, and from app_idle while the screen draws (idle_ok) */
 /* what survives a power-off (up to SECTOR_MAX bytes): the octave, the MIDI channel, the reverb's and the arp's settings
@@ -128,10 +140,16 @@ static const uint8_t UI_LED_BTN[7] = {BTN_HOME, BTN_LFO, BTN_EDIT, BTN_ENV, BTN_
  * field resets everything once: SPARE bytes are kept for the next ones (take one from it, keep the size). This
  * layout (34 bytes) is new with the arp: the first boot after it starts from the defaults, once */
 #define SPARE 14u
-static struct { uint8_t oct, ch, rv[MV_RV_N], arp[MV_ARP_N], tempo, prog, bank[4], spare[SPARE - 4u]; } set;
+static struct { uint8_t oct, ch, rv[MV_RV_N], arp[MV_ARP_N], tempo, prog, bank[4], seq[MV_SQ_N],
+                spare[SPARE - 4u - MV_SQ_N]; } set;
 /* prog: one of the spares (34 bytes still: the record loads as before). bank: 4 more (A1, Kris 3 Nov), the factory
- * bank the saved programs belong to (mv_prog_factory_id, little-endian; 0 = not recorded yet) */
+ * bank the saved programs belong to (mv_prog_factory_id, little-endian; 0 = not recorded yet). seq: 5 more (Kris
+ * 6 Nov, 6a), the sequencer's settings (MV_SQ_*): a record from before has 0 there, which no LENGTH is, so it gets
+ * the defaults */
 static mv_prog_t prog;                          /* the 64 programs (RAM; flash blobs 0..3) */
+static mv_clip_t clips;                         /* the sequencer's 12 clips: their directory, a SAVE waiting (slot 1) */
+static uint32_t clip_req;                       /* a CLIP LOAD / SAVE to do (MV_CL_* + 1; 0 none): kept until it is
+                                                   taken (a LOAD waits for the ISR, a SAVE for a steady copy) */
 static uint32_t idle_ok, midi_src, clk_n, clk_t0, clk_bpm, clk_run, clk_beat_ms;
 /* The MIDI clock's tempo, averaged over its last 4 quarter notes (Kris 5 Nov, fix 2). One quarter is timed on the
  * 1 ms tick, so it reads e.g. 461, 462, 461 .. ms at 130 BPM: taken alone, the arp's beat and every synced LFO1 step
@@ -219,11 +237,17 @@ static void midi_in(void)
                 clk_beat_ms = fm1_ms;
             }
             clk_n++;
+            if (eng.seq_ext) eng.seq_pulse++;   /* the sequencer's lock: pulses since START */
             continue;
         }
-        if (st == 0xFAu) { clk_run = 1; clk_n = 0; eng.arp_start = 1; continue; }   /* START: beat 1, the arp's step 1 */
-        if (st == 0xFBu) { clk_run = 1; continue; }              /* CONTINUE */
-        if (st == 0xFCu) { clk_run = 0; continue; }              /* STOP */
+        if (st == 0xFAu || st == 0xFBu) {       /* START: beat 1, the arp's step 1; both: the sequencer from bar 1,
+                                                   held to the pulses (no song position: CONTINUE as START) */
+            clk_run = 1;
+            if (st == 0xFAu) { clk_n = 0; eng.arp_start = 1; }
+            eng.seq_pulse = 0; eng.seq_ext = 1; eng.seq_run = 1; eng.seq_restart = 1;   /* (the count first) */
+            continue;
+        }
+        if (st == 0xFCu) { clk_run = 0; eng.seq_run = 0; eng.seq_arm = 0; eng.seq_ext = 0; continue; }   /* STOP */
         {   /* the channel gate (the JT's PerfRouter): a part listens on its own channel (CH LO / CH UP), or on the
                global one when that is 0 (OMNI: all); in SINGLE only UPPER listens. Notes then go where the mode and
                the split say, within the parts that heard them */
@@ -252,7 +276,7 @@ static void app_idle(void)
 
 static void app_main(void)
 {
-    uint32_t prev = 0, k, t_change = 0, dirty = 0;
+    uint32_t prev = 0, k, t_change = 0, dirty = 0, r_oct = 0;
     uint32_t cpu_t = 0, cpu_slot[12] = {0}, cpu_i = 0;
     int dbg_all = 0;                            /* the DEBUG page was just entered: all its rows drawn */
     int xfer_shown = 0;                         /* the transfer screen is up (mv_home.c home_xfer) */
@@ -282,6 +306,11 @@ static void app_main(void)
         }
         if (bad || set.tempo < 40u || set.tempo > 240u) set.tempo = 120;
         eng.tempo = set.tempo;
+        for (k = 0; k < MV_SQ_N; k++) {         /* the sequencer's: its defaults (2 bars, 1/16) for a record from
+                                                   before it (no LENGTH there: 0) or out of range */
+            if (bad || !set.seq[MV_SQ_LENUP] || set.seq[k] < MV_SQ_MIN[k] || set.seq[k] > MV_SQ_MAX[k]) set.seq[k] = MV_SQ_DEF[k];
+            eng.seqb[k] = set.seq[k];
+        }
     }
 
     mv_prog_load(&prog);                        /* the programs: flash, or the factory set where none is saved */
@@ -302,6 +331,9 @@ static void app_main(void)
     if (set.prog >= MV_NPROG) set.prog = 0;
     prog_to_engine(set.prog);                   /* the program last played (the ISR reads the bytes live) */
     mv_ui_init(&ui, &prog);
+    mv_clip_init(&clips);                       /* the clips' directory (flash slot 1: 4 sector reads) */
+    mv_ui_set_clips(&ui, &clips);
+    mv_roll_init(&roll);
     ui.cur = set.prog;
 #ifdef DINGHY_HOST
     {   /* host only: MV_DUMP_PAGES=file writes the panel's pages as JSON and stops (tools/gen_cheatsheet.py) */
@@ -358,8 +390,14 @@ static void app_main(void)
 #endif
 
         b = fm1_input_edges(&rel);              /* buttons pressed since the last call (bit = button id) */
-        if (b & (1u << BTN_OCT_DOWN) && oct > -2) { set.oct = (uint8_t)(oct - 1); dirty = 1; t_change = fm1_ms; }
-        if (b & (1u << BTN_OCT_UP) && oct < 2) { set.oct = (uint8_t)(oct + 1); dirty = 1; t_change = fm1_ms; }
+        r_oct = 0;
+        if (bank_ask) {                         /* (the bank question: the octave only, as before) */
+            if (b & (1u << BTN_OCT_DOWN) && oct > -2) { set.oct = (uint8_t)(oct - 1); dirty = 1; t_change = fm1_ms; }
+            if (b & (1u << BTN_OCT_UP) && oct < 2) { set.oct = (uint8_t)(oct + 1); dirty = 1; t_change = fm1_ms; }
+        } else {                                /* the octave, and PART SELECT on the two together (mv_ui.h) */
+            r_oct = mv_ui_oct(&ui, &eng, b, rel, &set.oct);
+            if (r_oct & MV_UI_SETTING) { dirty = 1; t_change = fm1_ms; }
+        }
         if (bank_ask) {                         /* the factory bank question: SAVE loads it, HOME keeps the saved;
                                                    the panel waits (its turns dropped, not kept for later) */
             static const uint8_t ENCS[7] = {ENC_SELECT, ENC_ALGORITHM, ENC_PRESETS, ENC_KNOB1, ENC_KNOB2, ENC_KNOB3,
@@ -380,18 +418,20 @@ static void app_main(void)
         }
         if (bank_dirty) { bank_dirty = 0; dirty = 1; t_change = fm1_ms; }   /* the bank's id: kept in flash */
         if (!bank_ask) {
-            uint32_t r = mv_ui_input(&ui, &eng, b, rel, &set.ch, out_ch);   /* the panel: pages, knobs, CCs out */
+            uint32_t r = mv_ui_input(&ui, &eng, b, rel, &set.ch, out_ch) | (r_oct & MV_UI_PAGE);   /* the panel */
             if (r & MV_UI_PROG) r_prog = 1;     /* (done below, with the programs) */
+            if (r & MV_UI_CLIP) { clip_req = ui.cl_act; ui.cl_act = 0; }   /* (done below) */
             if (r & MV_UI_SETTING) {            /* GLOBAL MIDI CH / TEMPO, REVERB, ARP: kept in flash */
                 for (k = 0; k < MV_RV_N; k++) set.rv[k] = eng.rvb[k];
                 for (k = 0; k < MV_ARP_N; k++) set.arp[k] = eng.arpb[k];
                 set.tempo = eng.tempo;
+                for (k = 0; k < MV_SQ_N; k++) set.seq[k] = eng.seqb[k];
                 dirty = 1; t_change = fm1_ms;
             }
             if (r & MV_UI_PAGE) {
                 lcd_fill(0, 0, 240, 240, C_BLACK);  /* the whole screen (no footer now: it is the DEBUG page) */
                 dbg_all = 1;
-                if (mv_ui_home(&ui)) {          /* back home: everything there drawn again */
+                if (mv_ui_home(&ui) && !mv_ui_overlay(&ui)) {   /* back home: everything there drawn again */
                     home_header();
                     prog_drawn = ~0u; knobs_drawn = ~0u; voices_drawn = ~0u; scope_live = 1;
                 }
@@ -412,6 +452,21 @@ static void app_main(void)
             if (ui.act != MV_SV_FACTORY) { ui.cur = (uint8_t)to; set.prog = (uint8_t)to; dirty = 1; t_change = fm1_ms; }
             ui.act = MV_SV_NONE; r_prog = 0; prog_drawn = ~0u;
         }
+        if (clip_req) {                         /* CLIP: LOAD into / SAVE from the selected track */
+            uint32_t trk = mv_ui_track(&ui, &eng);
+            int rc = clip_req == MV_CL_LOAD + 1u ? mv_clip_load(&clips, &eng, ui.cl_sel, trk)
+                                                 : mv_clip_save(&clips, &eng, trk, ui.cl_sel, ui.cl_name);
+            if (rc != MV_CLIP_AGAIN) {          /* (again: the next pass) */
+                ui.cl_msg = (uint8_t)(rc == MV_CLIP_BUSY ? MV_CLM_BUSY : rc == MV_CLIP_EMPTY ? MV_CLM_EMPTY
+                                      : clip_req == MV_CL_LOAD + 1u ? MV_CLM_LOADED : MV_CLM_SAVED);
+                ui.cl_msg_t = fm1_ms;
+                if (rc == MV_CLIP_OK && clip_req == MV_CL_LOAD + 1u) {   /* its LENGTH: a setting, kept */
+                    for (k = 0; k < MV_SQ_N; k++) set.seq[k] = eng.seqb[k];
+                    dirty = 1; t_change = fm1_ms;
+                }
+                clip_req = 0;
+            }
+        }
         (void)e;
 
         midi_in();
@@ -430,11 +485,17 @@ static void app_main(void)
             fm1_led_key(KEY_LED(k), lit >> k & 1u);
         fm1_led_key(BTN_OCT_DOWN, oct < 0);
         fm1_led_key(BTN_OCT_UP, oct > 0);
-        fm1_led_key(BTN_PLAY, clk_run || (clk_bpm && fm1_ms - clk_beat_ms < 80u));   /* lit: running; a blink a beat */
+        {   /* PLAY: the sequencer running, dark for the first 1/8 of each beat (a blink a beat); REC: a track armed,
+               blinking with it while it records (Kris 6 Nov, 7a: the MIDI clock shows on DEBUG) */
+            uint32_t run = eng.seq_run != 0u, blink = run && eng.seq_live && eng.seq.ticks % MV_SEQ_PPQN < MV_SEQ_PPQN / 8u;
+            fm1_led_key(BTN_PLAY, run && !blink);
+            fm1_led_key(BTN_REC, eng.seq_arm != 0u && !blink);
+        }
         {   /* the program: edited (the patch differs from its slot: a 248-byte compare) -> *, SAVE lit; lit too while
              * a written program waits for silence to go to flash */
             int edited = mv_prog_edited(&prog, ui.cur, &eng.patch, &eng.lower, eng.perf);
-            fm1_led_key(BTN_SAVE, edited || mv_prog_dirty(&prog) || PAGES[ui.page].btn == BTN_SAVE);
+            fm1_led_key(BTN_SAVE, edited || mv_prog_dirty(&prog) || PAGES[ui.page].btn == BTN_SAVE ||
+                                  mv_clip_dirty(&clips) || mv_ui_clip_page(&ui));   /* (CLIP: SAVE does it; one waits) */
             if (mv_ui_home(&ui) && !bank_ask) {
                 const uint8_t *nm = eng.patch.b, *ln = eng.lower.b;
                 uint32_t mode = eng.perf[MV_PF_MODE], key = ui.cur | (uint32_t)edited << 7 | mode << 8, i;
@@ -451,7 +512,7 @@ static void app_main(void)
         eng.arp_beat = clk_bpm && clk_qn ? FS * clk_qsum / (clk_qn * 1000u)
                                          : FS * 60u / (eng.tempo ? eng.tempo : 120u);
         mv_engine_sync(&eng);                   /* LFO1 SYNC: the parts' steps at this beat (a divide only on a change) */
-        for (k = 0; k < 7u; k++)                /* the section shown: its button lit */
+        for (k = 0; k < 8u; k++)                /* the section shown: its button lit */
             fm1_led_key(UI_LED_BTN[k], mv_ui_button(&ui) == UI_LED_BTN[k]);
         if (bank_ask) { fm1_led_key(BTN_SAVE, 1); fm1_led_key(BTN_HOME, 1); }   /* the two answers lit */
 #if BOARD_SMK37
@@ -463,7 +524,7 @@ static void app_main(void)
 #endif
 
         idle_ok = 1;                            /* the drawing below may read MIDI meanwhile (LCD_IDLE) */
-        scope_on = mv_ui_home(&ui);             /* the ISR fills the scope ring only while HOME shows */
+        scope_on = mv_ui_home(&ui) && !mv_ui_overlay(&ui);   /* the scope ring: only while HOME shows */
         if (xfer.dump_n) {                      /* a requested dump: one message a pass (keys and MIDI keep going) */
             static uint8_t msg[MV_XF_MSG_MAX];
             uint32_t len = mv_xfer_next(&xfer, &prog, &eng, msg, sizeof msg);
@@ -484,6 +545,8 @@ static void app_main(void)
                 home_xfer(xfer.tx_n != 0u, xfer.tx_n ? xfer.tx_n : xfer.rx_n, xfer.tx_n ? (uint32_t)xfer.dump_pp : xfer.last_slot, !xfer_shown);
                 xfer_shown = 1; xfer_key = key;
             }
+        } else if (mv_ui_overlay(&ui)) {        /* PART SELECT / the CLEAR question: over the page (mv_ui.c) */
+            mv_ui_overlay_draw(&ui, &eng);
         } else if (mv_ui_home(&ui)) {           /* HOME (mv_home.c): each part redrawn only when it changed */
             int touched = ui.last < 4u && fm1_ms - ui.t_touch < 3000u ? (int)ui.last : -1;   /* white for 3 s */
             if ((st = home_knobs_key(&eng, touched)) != knobs_drawn) { knobs_drawn = st; home_knobs(&eng, touched); }
@@ -493,8 +556,10 @@ static void app_main(void)
                 scope_live = home_scope(scope_ring, scope_w);   /* (silent: drawn flat once, then left) */
             }
             if (!quiet()) scope_live = 1;
-        } else
+        } else {
             mv_ui_draw(&ui, &eng, set.ch);      /* a page: what changed on it */
+            if (mv_ui_roll(&ui)) { mv_roll_draw(&roll, &ui, &eng, dbg_all); dbg_all = 0; }   /* SEQ 2/2: the roll */
+        }
         if (fm1_ms - cpu_t >= 250u && !cpu_clear) {   /* the meter, 4 times a second: the average of the last quarter
                                                          second, and the peak HELD over the last 3 s (12 quarters).
                                                          Run on every page (cheap: it also hands the ISR its reset,
@@ -529,6 +594,9 @@ static void app_main(void)
         if (mv_prog_dirty(&prog) && quiet() && !xfer_busy())   /* a SAVE (or a transfer, once it is over): its blob
                                                    (16 programs) to flash, when silent; one a pass */
             (void)mv_prog_flush(&prog);
+        if (mv_clip_dirty(&clips) && !eng.seq_run && quiet() && !xfer_busy())   /* a clip SAVE: at STOP, when silent
+                                                   (an erase, ~50 ms, would stall the sequencer's time otherwise) */
+            (void)mv_clip_flush(&clips);
         if (dirty && quiet() && !xfer_busy() && fm1_ms - t_change > 2000u) {   /* 2 s after the change, when silent (an erase stalls the sound) */
             settings_save(&set, sizeof set);
             dirty = 0;

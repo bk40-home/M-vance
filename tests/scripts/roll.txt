@@ -1,0 +1,67 @@
+# Sequencer phase 2 (Kris 6 Nov): the piano roll (SEQ 2/2) and TRANSPOSE. FM-1 ids: OCT- 0, OCT+ 1, GLO 7, HOME 8,
+# SEQ 11, PLAY 12, REC 13; KNOB1..4 enc 2..5. SPLIT at C4; LOWER records a bass line, UPPER a line over it (as
+# seq.txt); SEQ twice: the roll of UPPER, running; PART SELECT BOTH: both tracks (LOWER blue); PART SELECT LOWER;
+# KNOB3 TRANSPOSE -> LOWER; key 5 (A#3, 58): LOWER +5 from its ROOT F3, the line a fourth up; PLAY: stop;
+# KNOB1: bar 2 of LOWER, stopped.
+# tests/run_host.sh tests/scripts/roll.txt -> build/host/mvance.wav and the screens
+100 btn 7
+200 btn 7
+300 btn 7
+400 enc 2 2
+500 btn 8
+600 btndown 0
+700 btndown 1
+900 btnup 1
+950 btnup 0
+1000 btn 0
+3400 btn 13
+3500 keys 0x1
+3750 keys 0
+4000 keys 0x1
+4250 keys 0
+4500 keys 0x10
+5000 keys 0
+5500 keys 0x40
+5750 keys 0
+6000 keys 0x20
+6500 keys 0
+7500 btn 13
+8000 btndown 1
+8100 btndown 0
+8200 btnup 0
+8250 btnup 1
+8300 btn 1
+10500 btn 13
+11500 keys 0x4000
+11700 keys 0
+12000 keys 0x10000
+12200 keys 0
+12500 keys 0x800
+13400 keys 0
+15500 btn 13
+15800 btn 11
+15900 btn 11
+16300 shot
+17000 btndown 0
+17100 btndown 1
+17200 btnup 1
+17250 btnup 0
+17300 btndown 0
+17350 btndown 1
+17400 btnup 1
+17450 btnup 0
+19600 shot
+19700 btndown 0
+19800 btndown 1
+19900 btnup 1
+19950 btnup 0
+20000 btn 0
+22200 enc 4 1
+22300 keys 0x20
+22500 keys 0
+23200 shot
+27000 shot
+27100 btn 12
+27500 enc 2 1
+27800 shot
+28500 end

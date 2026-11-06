@@ -1,0 +1,58 @@
+# Sequencer, phase 1 (Kris 6 Nov). FM-1 ids: OCT- 0, OCT+ 1, GLO 7, HOME 8, SEQ 11, PLAY 12, REC 13; KNOB1..4 enc 2..5.
+# SPLIT at C4 (PERFORM: MODE), PART SELECT (OCT- held, OCT+ pressed: the octave step undone) -> LOWER, the SEQ page
+# (LENGTH 2 BAR, L tag), REC arms LOWER and starts the transport (120 BPM: 2 bars = 4 s), a bass line on the low
+# keys, REC off; PART SELECT -> UPPER, REC, a line on the high keys, REC off; both tracks loop; REC held: CLEAR
+# UPPER? -> REC: cleared; LOWER plays on; PLAY: stop.
+# tests/run_host.sh tests/scripts/seq.txt -> build/host/mvance.wav and the screens
+100 btn 7
+200 btn 7
+300 btn 7
+400 enc 2 2
+500 btn 8
+600 btndown 0
+700 btndown 1
+800 shot
+900 btnup 1
+950 btnup 0
+1000 btn 0
+1100 shot
+3300 shot
+3400 btn 11
+3500 shot
+3600 btn 13
+3700 keys 0x1
+3950 keys 0
+4200 keys 0x1
+4450 keys 0
+4700 keys 0x10
+5200 keys 0
+5700 keys 0x40
+5950 keys 0
+6200 keys 0x20
+6700 keys 0
+7700 btn 13
+7800 shot
+8000 btndown 1
+8100 btndown 0
+8200 btnup 0
+8250 btnup 1
+8300 btn 1
+8400 shot
+10500 btn 13
+11700 keys 0x4000
+11900 keys 0
+12200 keys 0x10000
+12400 keys 0
+12700 keys 0x800
+13600 keys 0
+15700 btn 13
+15800 btn 8
+16000 shot
+20000 btndown 13
+21300 shot
+21400 btnup 13
+21500 btn 13
+21600 shot
+25600 btn 12
+25700 shot
+28000 end
