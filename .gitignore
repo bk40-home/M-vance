@@ -6,3 +6,7 @@ __pycache__/
 /_backup_*/
 /_to_delete/
 *.bak_*
+
+# Factory clips made from local MIDI files (tools/mid2clip.py): third-party transcriptions, never published
+/firmware/gen/mv_fclips_local.h
+/tools/clips/clips.txt

@@ -84,9 +84,37 @@ static volatile uint32_t scope_w, scope_on;
 uint32_t mv_prof_ticks(void) { return fm1_ticks(); }   /* the engine's stage timer (mv_voice.c, MV_PROFILE only) */
 #endif
 
+/* ---- MIDI clock out (Kris 7 Nov, DAW use, 3a): 24 F8 a quarter note while CLK OUT is on and the FM-1 runs on its own
+ * tempo, counted on arp_beat (a quarter in samples: the arp's and the LFO sync's own clock), so the computer and the
+ * arp stay locked. Per buffer: the frame each F8 falls on goes to midi_rt_at (platform.c), which sends it at that
+ * moment. PLAY: the F8s still waiting are dropped, and START then beat 1's F8 go at this buffer's frame 0, in order. mco_acc counts frames x 24 since the last F8; one falls every arp_beat of it (exact: no rounding drift).
+ * Cost: a compare per buffer while off; a divide per buffer while on. */
+static volatile uint32_t mco_live;              /* main loop: CLK OUT on and no clock coming in (or CLOCK INT) */
+static volatile uint32_t mco_sync;              /* main loop: PLAY: START and beat 1 at the next buffer's start */
+static uint32_t mco_acc;                        /* ISR only */
+static void mco_block(uint32_t n)               /* audio ISR, once a buffer of n frames */
+{
+    uint32_t beat = eng.arp_beat, f = 0, need;
+    if (!mco_live || !beat) { mco_acc = 0; return; }   /* off (switched on: the first F8 one tick later) */
+    if (mco_sync) {                             /* PLAY: the waiting F8s out of the way, START, beat 1's F8 at frame 0 */
+        mco_sync = 0;
+        midi_rt_flush();
+        midi_rt_at(0, 0xFAu);
+        mco_acc = beat;
+    }
+    for (;;) {                                  /* (at most one F8 a buffer at 240 BPM: the loop ends at once) */
+        need = mco_acc >= beat ? 0u : (beat - mco_acc + 23u) / 24u;   /* frames to the next F8 */
+        if (f + need >= n) { mco_acc += 24u * (n - f); return; }
+        f += need;
+        midi_rt_at(f, 0xF8u);
+        mco_acc = mco_acc + 24u * need - beat;  /* (0..23: the part of a frame past the F8) */
+    }
+}
+
 static void app_audio(int32_t *out, uint32_t n)
 {
     uint32_t t0 = fm1_ticks(), dt;
+    mco_block(n);                               /* the MIDI clock out (nothing while CLK OUT is off) */
     mv_engine_render(&eng, out, n);
     if (scope_on) {                             /* the scope: 1 store per 2 frames (n is even: 256) */
         uint32_t i, w = scope_w;
@@ -110,12 +138,6 @@ static void app_audio(int32_t *out, uint32_t n)
 
 /* ---- notes (main loop) */
 
-static void play(uint32_t note, uint32_t vel)
-{
-    if (note > 127u || !vel) return;
-    mv_engine_note_on(&eng, note, vel);         /* (the JP has no fixed velocity -> amp: it is a morph target) */
-}
-static void stop(uint32_t note) { mv_engine_note_off(&eng, note); }
 static int quiet(void) { return mv_engine_quiet(&eng); }   /* nothing sounds, not even a release */
 
 /* ---- the screen: the home screen (mv_home.c), the DEBUG page (mv_debug.c) */
@@ -140,17 +162,23 @@ static mv_roll_t roll;                          /* what it shows (main loop only
  * field resets everything once: SPARE bytes are kept for the next ones (take one from it, keep the size). This
  * layout (34 bytes) is new with the arp: the first boot after it starts from the defaults, once */
 #define SPARE 14u
-static struct { uint8_t oct, ch, rv[MV_RV_N], arp[MV_ARP_N], tempo, prog, bank[4], seq[MV_SQ_N],
-                spare[SPARE - 4u - MV_SQ_N]; } set;
+static struct { uint8_t oct, ch, rv[MV_RV_N], arp[MV_ARP_N], tempo, prog, bank[4], seq[MV_SQ_N], seqf, midi,
+                spare[SPARE - 6u - MV_SQ_N]; } set;
+/* midi: one more spare (Kris 7 Nov, DAW use, 6a): the MIDI page's MV_MIDI_* bits (mv_ui.h). A record from before has 0
+ * there: LOCAL ON, CLOCK AUTO, CLK OUT OFF, which is how it behaved */
 /* prog: one of the spares (34 bytes still: the record loads as before). bank: 4 more (A1, Kris 3 Nov), the factory
  * bank the saved programs belong to (mv_prog_factory_id, little-endian; 0 = not recorded yet). seq: 5 more (Kris
  * 6 Nov, 6a), the sequencer's settings (MV_SQ_*): a record from before has 0 there, which no LENGTH is, so it gets
- * the defaults */
+ * the defaults. seqf: one more (Kris 7 Nov, 2a): 1 = LENGTH in bars (1..32); 0, a record from before, had the
+ * codes 1..4 for 1 / 2 / 4 / 8 bars, converted once at boot (and saved: converted twice would be wrong) */
+#define SEQF_BARS 1u
 static mv_prog_t prog;                          /* the 64 programs (RAM; flash blobs 0..3) */
 static mv_clip_t clips;                         /* the sequencer's 12 clips: their directory, a SAVE waiting (slot 1) */
 static uint32_t clip_req;                       /* a CLIP LOAD / SAVE to do (MV_CL_* + 1; 0 none): kept until it is
                                                    taken (a LOAD waits for the ISR, a SAVE for a steady copy) */
 static uint32_t idle_ok, midi_src, clk_n, clk_t0, clk_bpm, clk_run, clk_beat_ms;
+static uint32_t clk_last, clk_seen;            /* fm1_ms of the last F8 in, and one has come: CLK OUT stays quiet
+                                                   while a clock arrives (CLOCK AUTO), so it never echoes one back */
 /* The MIDI clock's tempo, averaged over its last 4 quarter notes (Kris 5 Nov, fix 2). One quarter is timed on the
  * 1 ms tick, so it reads e.g. 461, 462, 461 .. ms at 130 BPM: taken alone, the arp's beat and every synced LFO1 step
  * changed on almost every beat (and mv_engine_sync redid its 64-bit divide each time). The sum of 4 has 0.25 ms
@@ -160,6 +188,52 @@ static uint32_t clk_qwin[4], clk_qi, clk_qn, clk_qsum;
 
 static mv_ui_t ui;                              /* the panel pages (mv_ui.c) */
 static uint32_t prog_req = 0xFF;                /* a MIDI program change for the main loop (0xFF none) */
+
+/* ---- the FM-1's own keys (Kris 7 Nov, 1a / 2a): they follow PART SELECT / PANEL in a layered program, and send on
+ * the channel of the part they play. UPPER: every key plays UPPER only; LOWER: LOWER only; BOTH: the mode decides as
+ * before (DUAL both, SPLIT below the split LOWER); SINGLE: UPPER. A part's channel is its CH UP / CH LO, or the
+ * global one where that is GLOBAL (0); MIDI in already listens the same way. A key remembers the channels its
+ * note-on went out on, so its note-off goes there even if the part, the mode or a channel moved meanwhile. */
+static uint32_t key_parts(uint32_t note)
+{
+    uint32_t mode = eng.perf[MV_PF_MODE];
+    if (mode == MV_KEY_SINGLE || ui.panel == MV_UI_UPPER) return MV_TO_UP;
+    if (ui.panel == MV_UI_LOWER) return MV_TO_LO;
+    if (mode == MV_KEY_DUAL) return MV_TO_UP | MV_TO_LO;
+    return note < eng.perf[MV_PF_SPLIT] ? MV_TO_LO : MV_TO_UP;   /* SPLIT, BOTH: the split key and up is UPPER's */
+}
+static uint32_t part_ch(uint32_t part)          /* 0..15: a part's MIDI channel out */
+{
+    uint32_t c = eng.perf[part == MV_PART_LO ? MV_PF_CHLO : MV_PF_CHUP];
+    return c ? c - 1u : set.ch ? set.ch - 1u : 0u;   /* (GLOBAL: the global channel; OMNI sends on 1) */
+}
+/* LOCAL (Kris 7 Nov, DAW use, 1a): with LOCAL OFF the keys only go to MIDI out (the computer sends them back on MIDI in,
+ * where they play, arpeggiate and record as any MIDI note). A key remembers whether it played here (KEY_LOCAL beside
+ * its channels), so turning LOCAL over while it is held neither leaves a note hanging nor cuts an echoed one short */
+#define KEY_LOCAL (1u << 16)
+/* a key down: played on its part(s) (LOCAL ON), sent on their channel(s); returned: the channels (bit per channel) and
+ * KEY_LOCAL if it sounds here; 0 nothing */
+static uint32_t key_on(uint32_t note, uint32_t vel)
+{
+    uint32_t to, chm = 0, c;
+    if (note > 127u || !vel) return 0;
+    to = key_parts(note);
+    if (!(ui.midi & MV_MIDI_LOCALOFF)) {        /* LOCAL ON: the sound plays the key */
+        mv_engine_note_direct(&eng, note, vel, to);   /* (the JP has no fixed velocity -> amp: it is a morph target) */
+        chm = KEY_LOCAL;
+    }
+    if (to & MV_TO_UP) chm |= 1u << part_ch(MV_PART_UP);
+    if (to & MV_TO_LO) chm |= 1u << part_ch(MV_PART_LO);   /* (one channel for both: one note) */
+    for (c = 0; c < 16u; c++) if (chm >> c & 1u) midi_send(0x90u | c, note, vel);
+    return chm;
+}
+static void key_off(uint32_t note, uint32_t chm)   /* a key up: its note ends, on the channels its note-on used */
+{
+    uint32_t c;
+    if (chm & KEY_LOCAL)                        /* it sounded here (LOCAL ON when it went down) */
+        mv_engine_note_off(&eng, note);         /* (a key-up reaches every part: harmless where it did not play) */
+    for (c = 0; c < 16u; c++) if (chm >> c & 1u) midi_send(0x80u | c, note, 0);
+}
 static uint32_t sel_dirty;                      /* a program was selected: the settings (its number) to save */
 
 /* a program into the engine: its two patches and its performance bytes (the ISR reads them live; a new cut of the
@@ -198,6 +272,7 @@ static void app_sysex(const uint8_t *p, uint32_t n)   /* platform_poll: main loo
     if (r & (MV_XF_SLOT | MV_XF_REQ)) xfer_slots = 1;   /* (an audition alone keeps the screen as it is) */
     if ((r & MV_XF_SLOT) && xfer.last_slot == ui.cur) prog_to_engine(ui.cur);   /* the program playing: heard now */
 }
+static uint32_t seqf_dirty;                     /* the settings (LENGTH converted to bars, 7 Nov) to save */
 static uint32_t bank_dirty;                     /* the settings (the bank's id) to save: the main loop's dirty */
 static void bank_record(uint32_t id)
 {
@@ -221,7 +296,10 @@ static void midi_in(void)
     int src;
     while ((src = midi_get(&st, &d1, &d2)) != 0) {   /* 1 USB, 2 the TRS jack */
         uint32_t ty = st & 0xF0u;
+        if (st >= 0xF8u && st <= 0xFCu && st != 0xF9u && (ui.midi & MV_MIDI_CLKINT))
+            continue;                           /* CLOCK INT (Kris 7 Nov, 2a): clock and START / CONT / STOP ignored */
         if (st == 0xF8u) {                      /* clock: 24 a quarter note */
+            clk_last = fm1_ms; clk_seen = 1;
             if (clk_n % 24u == 0u) {
                 if (clk_n) {
                     uint32_t ms = fm1_ms - clk_t0;   /* a quarter's length */
@@ -285,9 +363,11 @@ static void app_main(void)
     uint32_t knobs_drawn = ~0u, voices_drawn = ~0u, scope_t = 0;   /* the home screen's parts: what they show */
     int scope_live = 1;                         /* the scope showed a signal: refresh it (else drawn flat once) */
     uint8_t held[27] = {0};                     /* the note each key plays */
+    uint32_t held_ch[27] = {0};                 /* and the channels it went out on, KEY_LOCAL (key_on) */
 #if BOARD_SMK37
     static const uint8_t WHITE[16] = {0, 2, 4, 6, 7, 9, 11, 12, 14, 16, 18, 19, 21, 23, 24, 26};   /* white key -> key */
     uint8_t pad_note[16] = {0}, ext_note[FM1_NKEY] = {0};
+    uint32_t pad_ch[16] = {0}, ext_ch[FM1_NKEY] = {0};   /* (their channels out, as held_ch) */
     smk_pw_t wheel = {0};
     smk_pad_events = 1;                         /* the pads as events (smk_pad_take): they play here, lit while they sound */
 #endif
@@ -306,6 +386,13 @@ static void app_main(void)
         }
         if (bad || set.tempo < 40u || set.tempo > 240u) set.tempo = 120;
         eng.tempo = set.tempo;
+        set.midi = bad ? 0u : (uint8_t)(set.midi & MV_MIDI_MASK);   /* the MIDI page (unknown bits dropped) */
+        if (!bad && set.seqf != SEQF_BARS && set.seq[MV_SQ_LENUP]) {   /* LENGTH codes 1..4 -> 1 / 2 / 4 / 8 bars */
+            for (k = MV_SQ_LENUP; k <= MV_SQ_LENLO; k++)
+                if (set.seq[k] >= 1u && set.seq[k] <= 4u) set.seq[k] = (uint8_t)(1u << (set.seq[k] - 1u));
+            seqf_dirty = 1;                     /* (saved by the main loop, as the bank's id) */
+        }
+        if (set.seqf != SEQF_BARS) { set.seqf = SEQF_BARS; seqf_dirty = 1; }
         for (k = 0; k < MV_SQ_N; k++) {         /* the sequencer's: its defaults (2 bars, 1/16) for a record from
                                                    before it (no LENGTH there: 0) or out of range */
             if (bad || !set.seq[MV_SQ_LENUP] || set.seq[k] < MV_SQ_MIN[k] || set.seq[k] > MV_SQ_MAX[k]) set.seq[k] = MV_SQ_DEF[k];
@@ -331,6 +418,7 @@ static void app_main(void)
     if (set.prog >= MV_NPROG) set.prog = 0;
     prog_to_engine(set.prog);                   /* the program last played (the ISR reads the bytes live) */
     mv_ui_init(&ui, &prog);
+    ui.midi = set.midi;                         /* the MIDI page's settings (loaded above) */
     mv_clip_init(&clips);                       /* the clips' directory (flash slot 1: 4 sector reads) */
     mv_ui_set_clips(&ui, &clips);
     mv_roll_init(&roll);
@@ -367,21 +455,21 @@ static void app_main(void)
                 held[k] = 0xFF;                     /* (it plays nothing: its key up sends nothing) */
                 continue;
             }
-            if (down >> k & 1u) { held[k] = (uint8_t)(base + k); play(held[k], vel); midi_send(0x90u | out_ch, held[k], vel); }
-            if ((up >> k & 1u) && held[k] < 128u) { stop(held[k]); midi_send(0x80u | out_ch, held[k], 0); }
+            if (down >> k & 1u) { held[k] = (uint8_t)(base + k); held_ch[k] = key_on(held[k], vel); }
+            if ((up >> k & 1u) && held[k] < 128u) key_off(held[k], held_ch[k]);
         }
 #if BOARD_SMK37
         while ((e = smk_extkey_take()) >= 0) {  /* the keys left and right of the FM-1's 27: key << 8 | velocity */
             uint32_t key = (uint32_t)e >> 8, vel = (uint32_t)e & 0x7Fu;
             if (key >= FM1_NKEY) continue;
-            if (vel) { ext_note[key] = (uint8_t)(base + key - SMK_KEY_F3); play(ext_note[key], vel); midi_send(0x90u | out_ch, ext_note[key], vel); }
-            else if (ext_note[key]) { stop(ext_note[key]); midi_send(0x80u | out_ch, ext_note[key], 0); ext_note[key] = 0; }
+            if (vel) { ext_note[key] = (uint8_t)(base + key - SMK_KEY_F3); ext_ch[key] = key_on(ext_note[key], vel); }
+            else if (ext_note[key]) { key_off(ext_note[key], ext_ch[key]); ext_note[key] = 0; }
         }
         while ((e = smk_pad_take()) >= 0) {     /* a pad: hardware pad << 8 | velocity (0 = let go) */
             uint32_t pad = ((uint32_t)e >> 8) & 15u, vel = (uint32_t)e & 0x7Fu;
             uint32_t w = pad < 8u ? pad + 8u : pad - 8u;   /* bottom row = white keys 1-8, top row 9-16 */
-            if (vel) { pad_note[pad] = (uint8_t)(base + WHITE[w]); play(pad_note[pad], vel); midi_send(0x90u | out_ch, pad_note[pad], vel); }
-            else if (pad_note[pad]) { stop(pad_note[pad]); midi_send(0x80u | out_ch, pad_note[pad], 0); pad_note[pad] = 0; }
+            if (vel) { pad_note[pad] = (uint8_t)(base + WHITE[w]); pad_ch[pad] = key_on(pad_note[pad], vel); }
+            else if (pad_note[pad]) { key_off(pad_note[pad], pad_ch[pad]); pad_note[pad] = 0; }
         }
         {
             int32_t bd = smk_pw_bend(&wheel, fm1_in.wheel[0], fm1_ms);   /* 1/4096 semitone over +-2 st */
@@ -416,7 +504,8 @@ static void app_main(void)
             }
             b = 0;                              /* (nothing else reaches the panel this pass) */
         }
-        if (bank_dirty) { bank_dirty = 0; dirty = 1; t_change = fm1_ms; }   /* the bank's id: kept in flash */
+        if (bank_dirty || seqf_dirty) { bank_dirty = 0; seqf_dirty = 0; dirty = 1; t_change = fm1_ms; }   /* the
+                                                   bank's id, LENGTH's conversion: kept in flash */
         if (!bank_ask) {
             uint32_t r = mv_ui_input(&ui, &eng, b, rel, &set.ch, out_ch) | (r_oct & MV_UI_PAGE);   /* the panel */
             if (r & MV_UI_PROG) r_prog = 1;     /* (done below, with the programs) */
@@ -426,6 +515,7 @@ static void app_main(void)
                 for (k = 0; k < MV_ARP_N; k++) set.arp[k] = eng.arpb[k];
                 set.tempo = eng.tempo;
                 for (k = 0; k < MV_SQ_N; k++) set.seq[k] = eng.seqb[k];
+                set.midi = ui.midi;             /* MIDI: LOCAL, CLOCK, CLK OUT */
                 dirty = 1; t_change = fm1_ms;
             }
             if (r & MV_UI_PAGE) {
@@ -458,6 +548,7 @@ static void app_main(void)
                                                  : mv_clip_save(&clips, &eng, trk, ui.cl_sel, ui.cl_name);
             if (rc != MV_CLIP_AGAIN) {          /* (again: the next pass) */
                 ui.cl_msg = (uint8_t)(rc == MV_CLIP_BUSY ? MV_CLM_BUSY : rc == MV_CLIP_EMPTY ? MV_CLM_EMPTY
+                                      : rc == MV_CLIP_RO ? MV_CLM_RO : rc == MV_CLIP_LONG ? MV_CLM_LONG
                                       : clip_req == MV_CL_LOAD + 1u ? MV_CLM_LOADED : MV_CLM_SAVED);
                 ui.cl_msg_t = fm1_ms;
                 if (rc == MV_CLIP_OK && clip_req == MV_CL_LOAD + 1u) {   /* its LENGTH: a setting, kept */
@@ -498,17 +589,42 @@ static void app_main(void)
                                   mv_clip_dirty(&clips) || mv_ui_clip_page(&ui));   /* (CLIP: SAVE does it; one waits) */
             if (mv_ui_home(&ui) && !bank_ask) {
                 const uint8_t *nm = eng.patch.b, *ln = eng.lower.b;
-                uint32_t mode = eng.perf[MV_PF_MODE], key = ui.cur | (uint32_t)edited << 7 | mode << 8, i;
+                uint32_t lo = (ui.midi & MV_MIDI_LOCALOFF) != 0u;   /* LOCAL OFF shows on the program line */
+                uint32_t mode = eng.perf[MV_PF_MODE], key = ui.cur | (uint32_t)edited << 7 | mode << 8 | lo << 10, i;
                 for (i = 0; i < MV_PROG_NAME; i++) key = key * 31u + nm[i];
                 if (mode) for (i = 0; i < MV_PROG_NAME; i++) key = key * 31u + ln[i];
                 if (mode == MV_KEY_SPLIT) key = key * 31u + eng.perf[MV_PF_SPLIT];
-                if (key != prog_drawn) { prog_drawn = key; home_program(ui.cur, nm, edited, mode, ln, eng.perf[MV_PF_SPLIT]); }
+                if (key != prog_drawn) { prog_drawn = key; home_program(ui.cur, nm, edited, mode, ln, eng.perf[MV_PF_SPLIT], (int)lo); }
             }
         }
         fm1_led_key(BTN_ARP, eng.arpb[MV_ARP_ON] != 0u);   /* the arp on */
         /* the arp's quarter note in samples: the MIDI clock's 4-quarter average while it comes (clk_bpm drops 2 s
          * after it stops), else TEMPO. 32-bit: FS * clk_qsum is at most 44100 * 4 * 2000 = 352.8 M (a quarter
          * over 2 s ends the clock). A divide a pass, main loop only; mv_engine_sync divides only on a change. */
+        {   /* the MIDI page (Kris 7 Nov, DAW use): CLOCK INT taken while a clock was being followed lets go of it (the
+             * sequencer stops if the clock was running it: no pulses would come to move it) */
+            static uint32_t midi_was;
+            if ((ui.midi & ~midi_was & MV_MIDI_CLKINT) && (clk_bpm || eng.seq_ext)) {
+                clk_bpm = 0; clk_run = 0; clk_qi = clk_qn = clk_qsum = 0; clk_seen = 0;
+                if (eng.seq_ext) { eng.seq_run = 0; eng.seq_arm = 0; eng.seq_ext = 0; }
+            }
+            midi_was = ui.midi;
+        }
+        {   /* CLK OUT (3a): on, and the FM-1 on its own tempo (CLOCK INT, or no F8 in for 0.5 s): never back to a
+             * clock's source. PLAY (the sequencer started from the panel: seq_ext 0) sends START, then beat 1's F8 at
+             * the next buffer, and restarts the arp's pattern with it, as an incoming START does; stopping sends STOP */
+            static uint32_t mco_run;
+            uint32_t ext = !(ui.midi & MV_MIDI_CLKINT) && clk_seen && fm1_ms - clk_last < 500u;
+            uint32_t live = (ui.midi & MV_MIDI_CLKOUT) && !ext, run = eng.seq_run && !eng.seq_ext;
+            mco_live = live;
+            if (run != mco_run) {
+                mco_run = run;
+                if (live && run) {
+                    mco_sync = 1;               /* START, then beat 1, from the next buffer (mco_block) */
+                    eng.arp_start = 1;
+                } else if (live) midi_send(0xFCu, 0, 0);   /* STOP */
+            }
+        }
         eng.arp_beat = clk_bpm && clk_qn ? FS * clk_qsum / (clk_qn * 1000u)
                                          : FS * 60u / (eng.tempo ? eng.tempo : 120u);
         mv_engine_sync(&eng);                   /* LFO1 SYNC: the parts' steps at this beat (a divide only on a change) */

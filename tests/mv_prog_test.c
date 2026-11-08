@@ -130,6 +130,24 @@ int main(void)
         CHECK(i == MV_NPROG, "the factory: every slot's LFO1 SYNC is 0..22");
 #endif
     }
+    {   /* DELAY SYNC 0..10 and CHORUS SYNC RATE 0..23 (Kris 7 Nov): kept; one past the top refused, each byte */
+        static const uint8_t K[4] = {MV_PF_DSYNUP, MV_PF_DSYNLO, MV_PF_CSYNUP, MV_PF_CSYNLO};
+        uint8_t t[MV_PF_N];
+        uint32_t k;
+        memcpy(t, MV_PERF_DEF, MV_PF_N);
+        t[MV_PF_DSYNUP] = t[MV_PF_DSYNLO] = MV_DSYNC_N - 1u;
+        t[MV_PF_CSYNUP] = t[MV_PF_CSYNLO] = MV_CSYNC_N - 1u;
+        CHECK(mv_prog_perf_ok(t), "DELAY SYNC 1/2, CHORUS SYNC LFO1 kept");
+        for (k = 0; k < 4u; k++) {
+            uint8_t keep = t[K[k]];
+            t[K[k]] = (uint8_t)(k < 2u ? MV_DSYNC_N : MV_CSYNC_N);
+            CHECK(!mv_prog_perf_ok(t), "perf byte %u one past its top: refused", (unsigned)K[k]);
+            t[K[k]] = keep;
+        }
+        for (i = 0; i < MV_NPROG; i++)          /* the factory (either bank): all valid */
+            if (!mv_prog_perf_ok(MV_FACTORY_PERF[i])) break;
+        CHECK(i == MV_NPROG, "the factory: every slot's performance bytes valid");
+    }
     printf("mv_prog_test: %d checks, %d failed\n", checks, fails);
     return fails != 0;
 }

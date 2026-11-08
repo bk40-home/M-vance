@@ -20,6 +20,9 @@
 #   LFO1 SYNC (Kris 5 Nov): a performance's patch (D:P26, D:P26A, LOWER=D:P26B) brings its JP part's LFO1 SYNC with
 #   it; SYNC= (upper) / L.SYNC= (lower) set it: OFF 1/16 1/8T 1/16D 1/8 1/4T 1/8D 1/4 1/2T 1/4D 1/2 1/1T 1/2D 1/1
 #   2/1T 1/1D 2/1 3M 4M 5M 6M 7M 8M (or 0..22; D dotted, nM n measures). Synced, LFO1 RATE is not used.
+#   DELAY SYNC / CHORUS SYNC RATE (Kris 7 Nov): the same, from the JP part's offsets 4 / 6; DSYNC= L.DSYNC= take
+#   OFF .. 1/2 (0..10), CSYNC= L.CSYNC= the LFO1 list or LFO1 (0..23). The FX play UPPER's (DSYNC=, CSYNC=);
+#   synced, the delay's TIME and the Multi-FX type's own rate are not used.
 #
 # The sources are third-party banks: see LICENSING.md before publishing a build with this bank.
 

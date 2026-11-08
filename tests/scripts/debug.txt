@@ -1,4 +1,5 @@
-# the DEBUG page (Kris 3 Nov): GLO x6 (PLAY MODE 1/2 2/2, PERFORM 1/2 2/2, GLOBAL, DEBUG); the footer gone from HOME and
+# the DEBUG page (Kris 3 Nov): GLO x7 (PLAY MODE 1/2 2/2, PERFORM 1/2 2/2, GLOBAL, MIDI, DEBUG; MIDI added 7 Nov, shot
+# at 1290); the footer gone from HOME and
 # the pages (the scope and the columns take the space). FM-1 ids: GLO 7, HOME 8, LFO 5, KNOB2 enc 3.
 # tests/run_host.sh tests/scripts/debug.txt: the screens
 50 keys 0x91
@@ -12,6 +13,8 @@
 1150 btn 7
 1200 btn 7
 1250 btn 7
+1290 shot
+1300 btn 7
 1700 shot
 1800 keys 0
 2300 shot

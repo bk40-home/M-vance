@@ -16,6 +16,7 @@
 2100 btn 2
 2200 shot
 2300 btn 2
+2350 btn 2
 2400 shot
 2500 btndown 10
 3100 btnup 10

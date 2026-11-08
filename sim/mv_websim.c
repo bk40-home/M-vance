@@ -111,6 +111,8 @@ static int midi_get(uint8_t *st, uint8_t *d1, uint8_t *d2)
 }
 EM_JS(void, wsim_midi_out, (int st, int d1, int d2), { if (Module.onMidiOut) Module.onMidiOut(st, d1, d2); });
 static void midi_send(uint32_t st, uint32_t d1, uint32_t d2) { wsim_midi_out((int)st, (int)d1, (int)d2); }
+static void midi_rt_at(uint32_t frame, uint8_t b) { (void)frame; wsim_midi_out(b, 0, 0); }   /* (the sim: at the render) */
+static void midi_rt_flush(void) { }             /* (sent at once: nothing waits) */
 // SysEx out (program/bank dumps etc.): hand the whole F0..F7 message to JS (the bank editor reads these back);
 // return 0 = the host kept reading, so the dump never aborts (a browser never applies back-pressure here)
 EM_JS(void, wsim_sysex_out, (const uint8_t *p, int n), { if (Module.onSysEx) Module.onSysEx(HEAPU8.slice(p, p + n)); });

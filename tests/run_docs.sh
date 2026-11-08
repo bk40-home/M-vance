@@ -14,6 +14,7 @@ mkdir -p docs/img
 # the shots of web.txt, by what they show
 set -- 1000 home 1200 osc1 1400 filter 1700 filter-env 2000 multi-fx 2200 delay 2400 reverb 3200 arp 3400 save
 while [ $# -gt 1 ]; do cp "build/host/mvance-$1.png" "docs/img/$2.png"; shift 2; done
-sh tests/run_host.sh tests/scripts/debug.txt > /dev/null   # the DEBUG page (GLO x6)
+sh tests/run_host.sh tests/scripts/debug.txt > /dev/null   # the DEBUG page (GLO x7), the MIDI page on the way
 cp build/host/mvance-1700.png docs/img/debug.png
+cp build/host/mvance-1290.png docs/img/midi.png
 echo "run_docs: docs/cheatsheet.html, docs/img/ (10 screens)"

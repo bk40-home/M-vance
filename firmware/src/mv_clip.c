@@ -7,10 +7,13 @@ static uint8_t clip_sec[MV_CLIP_SEC];           /* one sector's image: boot, LOA
 /* a record's head into info (0: not a clip) */
 static int clip_head(const uint8_t *r, mv_clip_info_t *d)
 {
-    uint32_t i, n = (uint32_t)r[6] | (uint32_t)r[7] << 8;
+    uint32_t i, n = (uint32_t)r[6] | (uint32_t)r[7] << 8, bars;
     d->used = 0;
-    if (r[0] != 'C' || r[1] != 1u || r[2] < 1u || r[2] > 4u || n > MV_SEQ_NEV) return 0;
-    d->used = 1; d->len = r[2]; d->root = r[3]; d->quant = r[4]; d->n = (uint16_t)n;
+    if (r[0] != 'C' || n > MV_SEQ_NEV) return 0;
+    if (r[1] == 1u && r[2] >= 1u && r[2] <= 4u) bars = 1u << (r[2] - 1u);   /* format 1: the 1 / 2 / 4 / 8 code */
+    else if (r[1] == 2u && r[2] >= 1u && r[2] <= MV_SEQ_MAXBAR) bars = r[2];   /* format 2: bars */
+    else return 0;
+    d->used = 1; d->len = (uint8_t)bars; d->root = r[3]; d->quant = r[4]; d->n = (uint16_t)n;
     for (i = 0; i < MV_CLIP_NAME; i++) d->name[i] = (char)(r[8u + i] >= 32u && r[8u + i] <= 125u ? r[8u + i] : ' ');
     return 1;
 }
@@ -39,18 +42,29 @@ int mv_clip_save(mv_clip_t *c, const mv_engine_t *e, uint32_t part, uint32_t k, 
     const volatile mv_seq_ev_t *src = T->ev;    /* (read through volatile: the ISR owns the events) */
     uint32_t v = e->seq.ver, n = T->n, len = mv_seq_len(e->seqb, part & 1u), i, m = 0;
     uint8_t *r = c->rec, *p;
-    if (k >= MV_CLIP_N) return MV_CLIP_EMPTY;
+    if (k >= MV_CLIP_N) return k < MV_CLIP_ALL ? MV_CLIP_RO : MV_CLIP_EMPTY;   /* (a factory clip: LOAD only) */
     if (c->pend != MV_CLIP_NONE && c->pend != k) return MV_CLIP_BUSY;   /* (the same clip again: replaced) */
     if (n > MV_SEQ_NEV) n = MV_SEQ_NEV;
-    for (i = 0, p = r + MV_CLIP_HEAD; i < n; i++) {   /* the events in the loop (none past a shortened LENGTH) */
-        uint32_t t = src[i].tick;
-        if (t >= len) continue;
-        p[0] = (uint8_t)t; p[1] = (uint8_t)(t >> 8); p[2] = (uint8_t)(src[i].note & 127u); p[3] = src[i].vel;
-        p += 4; m++;
-    }
+    if (T->rom) {                               /* a factory clip playing from flash: decoded, if it fits */
+        mv_seq_rd_t rd;
+        uint32_t t, nn, vv;
+        mv_seq_rd_start(&rd, T->rom, T->rom_bytes);
+        for (p = r + MV_CLIP_HEAD; mv_seq_rd_next(&rd, &t, &nn, &vv); ) {
+            if (t >= len) continue;
+            if (m == MV_SEQ_NEV) return MV_CLIP_LONG;   /* (more than a RAM track holds) */
+            p[0] = (uint8_t)t; p[1] = (uint8_t)(t >> 8); p[2] = (uint8_t)nn; p[3] = (uint8_t)vv;
+            p += 4; m++;
+        }
+    } else
+        for (i = 0, p = r + MV_CLIP_HEAD; i < n; i++) {   /* the events in the loop (none past a shortened LENGTH) */
+            uint32_t t = src[i].tick;
+            if (t >= len) continue;
+            p[0] = (uint8_t)t; p[1] = (uint8_t)(t >> 8); p[2] = (uint8_t)(src[i].note & 127u); p[3] = src[i].vel;
+            p += 4; m++;
+        }
     if (e->seq.ver != v) return MV_CLIP_AGAIN;  /* written meanwhile (a key recorded): the next pass tries again */
     for (i = MV_CLIP_HEAD + 4u * m; i < MV_CLIP_REC; i++) r[i] = 0;
-    r[0] = 'C'; r[1] = 1; r[2] = e->seqb[MV_SQ_LEN(part & 1u)]; r[3] = T->root; r[4] = e->seqb[MV_SQ_QUANT]; r[5] = 0;
+    r[0] = 'C'; r[1] = 2; r[2] = e->seqb[MV_SQ_LEN(part & 1u)]; r[3] = T->root; r[4] = e->seqb[MV_SQ_QUANT]; r[5] = 0;
     r[6] = (uint8_t)m; r[7] = (uint8_t)(m >> 8);
     for (i = 0; i < MV_CLIP_NAME; i++) r[8u + i] = (uint8_t)name[i];
     r[14] = 0; r[15] = 0;
@@ -63,9 +77,18 @@ int mv_clip_load(mv_clip_t *c, mv_engine_t *e, uint32_t k, uint32_t part)
 {
     const uint8_t *r, *p;
     mv_clip_info_t d;
+    const mv_fclip_t *f = mv_clip_factory(k);
     uint32_t i;
-    if (k >= MV_CLIP_N || !c->dir[k].used) return MV_CLIP_EMPTY;
     if (e->seq_load) return MV_CLIP_AGAIN;      /* the ISR has not taken the last one yet */
+    if (f) {                                    /* a factory clip: the track plays it from flash (no copy) */
+        if (!f->n || !f->bytes) return MV_CLIP_EMPTY;
+        e->seq_lrom = f->ev; e->seq_lbytes = f->bytes; e->seq_ln = f->n;
+        e->seq_lroot = f->root;
+        e->seqb[MV_SQ_LEN(part & 1u)] = f->bars >= 1u && f->bars <= MV_SEQ_MAXBAR ? f->bars : 8u;
+        e->seq_load = (uint8_t)((part & 1u) + 1u);
+        return MV_CLIP_OK;
+    }
+    if (k >= MV_CLIP_N || !c->dir[k].used) return MV_CLIP_EMPTY;
     if (c->pend == k) r = c->rec;               /* (a SAVE not yet written: from RAM) */
     else { sec_read(k / MV_CLIP_PER); r = clip_sec + (k % MV_CLIP_PER) * MV_CLIP_REC; }
     if (!clip_head(r, &d)) return MV_CLIP_EMPTY;
@@ -74,7 +97,7 @@ int mv_clip_load(mv_clip_t *c, mv_engine_t *e, uint32_t k, uint32_t part)
         e->seq_lbuf[i].note = (uint8_t)(p[2] & 127u);
         e->seq_lbuf[i].vel = p[3];
     }
-    e->seq_ln = d.n;
+    e->seq_ln = d.n; e->seq_lrom = 0;          /* (from RAM: seq_lbuf) */
     e->seq_lroot = d.root;
     e->seqb[MV_SQ_LEN(part & 1u)] = d.len;      /* its LENGTH (a setting: the caller keeps it) */
     e->seq_load = (uint8_t)((part & 1u) + 1u);  /* last: the ISR takes it at its next block */

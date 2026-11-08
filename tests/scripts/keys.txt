@@ -1,0 +1,49 @@
+# The FM-1's keys follow PART SELECT and send on the part's channel (Kris 7 Nov, 1a 2a 3a). FM-1 ids: OCT- 0, OCT+ 1,
+# GLO 7, HOME 8; KNOB1..4 enc 2..5. PERFORM 1/2 MODE -> DUAL; PERFORM 2/2 CH LO 2, CH UP 3. PANEL BOTH (part select):
+# a key goes out on both (91, 92); UPPER: 92 only; LOWER: 91 only; a key held over a switch to UPPER ends on 91;
+# HOME KNOB1 (CUTOFF) down with LOWER: CC 74 on channel 2 (B1). The log's "MIDI out" lines show it.
+100 btn 7
+200 btn 7
+300 btn 7
+400 enc 2 1
+500 btn 7
+600 enc 4 2
+700 enc 5 3
+800 btn 8
+900 btndown 0
+1000 btndown 1
+1100 btnup 1
+1150 btnup 0
+1200 btndown 0
+1250 btndown 1
+1300 btnup 1
+1350 btnup 0
+1500 keys 0x80
+1700 keys 0
+2000 btndown 0
+2100 btndown 1
+2200 btnup 1
+2250 btnup 0
+2300 btn 1
+2500 keys 0x80
+2700 keys 0
+3000 btndown 0
+3100 btndown 1
+3200 btnup 1
+3250 btnup 0
+3300 btn 0
+3500 keys 0x80
+3600 btndown 0
+3700 btndown 1
+3800 btnup 1
+3850 btnup 0
+3900 btn 1
+4000 keys 0
+6500 btn 8
+6600 btndown 0
+6700 btndown 1
+6800 btnup 1
+6850 btnup 0
+6900 btn 0
+9200 enc 2 -1
+9500 end

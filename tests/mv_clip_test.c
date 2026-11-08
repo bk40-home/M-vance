@@ -26,6 +26,13 @@ static int slot_sec_save(uint32_t i, uint32_t k, const void *p, uint32_t n)
 
 #include "mv_seq.c"
 #include "mv_voice.h"
+/* a factory set of the test's own (not whatever firmware/gen/mv_fclips_local.h holds): two clips */
+#define MV_FCLIPS_TEST
+#include "mv_fclips.h"
+/* coded (mv_seq.h FLASH): C2 on at 0 velocity 90 (a change), off at 24; G2 on at 384 (90 still), off at 408 */
+static const uint8_t FEV0[10] = {1, 36 | 128, 90, 48, 36, 208, 5, 43 | 128, 48, 43};
+#define MV_FCLIP_N 2u
+static const mv_fclip_t MV_FCLIPS[MV_FCLIP_N] = {{"TEST BASS", 2, 36, 4, 10, FEV0}, {"EMPTY", 1, 0xFF, 0, 0, FEV0}};
 #include "mv_clip.c"
 
 static int fails, checks;
@@ -111,6 +118,49 @@ int main(void)
     CHECK(mv_clip_save(&c, &e, 0, 7, "A     ") == MV_CLIP_OK && mv_clip_save(&c, &e, 0, 7, "B     ") == MV_CLIP_OK &&
           c.dir[7].name[0] == 'B', "the waiting clip saved again: replaced");
     CHECK(mv_clip_flush(&c) == 0, "and written");
+
+    /* 7. factory clips (Kris 7 Nov): after the user ones, LOAD only */
+    CHECK(MV_CLIP_ALL == 14u && mv_clip_factory(MV_CLIP_N) == &MV_FCLIPS[0] && !mv_clip_factory(3), "F1 is clip 13");
+    CHECK(mv_clip_save(&c, &e, 0, MV_CLIP_N, "NOPE  ") == MV_CLIP_RO, "SAVE onto a factory clip: read-only");
+    e.seqb[MV_SQ_LENUP] = 4;
+    CHECK(mv_clip_load(&c, &e, MV_CLIP_N, 0) == MV_CLIP_OK && e.seq_load == 1u && e.seq_ln == 4u && e.seq_lroot == 36u &&
+          e.seq_lrom == FEV0 && e.seq_lbytes == 10u && e.seqb[MV_SQ_LENUP] == 2u,
+          "LOAD F1 into UPPER: from flash (no copy), 4 events, ROOT C2, 2 bars");
+    mv_seq_load_rom(&e.seq, 0, e.seq_lrom, e.seq_lbytes, e.seq_ln, e.seq_lroot, emit, 0); e.seq_load = 0;   /* (the ISR) */
+    {   /* its events as coded: C2 90 at 0, off 24, G2 90 at 384, off 408 */
+        mv_seq_rd_t rd; uint32_t t, n, v, ok = 1, k2 = 0;
+        static const uint32_t W[4][3] = {{0, 36, 90}, {24, 36, 0}, {384, 43, 90}, {408, 43, 0}};
+        mv_seq_rd_start(&rd, FEV0, 10);
+        while (mv_seq_rd_next(&rd, &t, &n, &v)) { ok &= k2 < 4u && t == W[k2][0] && n == W[k2][1] && v == W[k2][2]; k2++; }
+        CHECK(ok && k2 == 4u, "its events as coded (%u)", k2);
+    }
+    CHECK(mv_clip_save(&c, &e, 0, 9, "COPY  ") == MV_CLIP_OK && c.dir[9].n == 4u && c.dir[9].len == 2u,
+          "SAVE of a track playing F1: decoded into clip 10 (4 events, 2 bars)");
+    CHECK(mv_clip_flush(&c) == 0, "and written");
+    CHECK(mv_clip_load(&c, &e, MV_CLIP_N + 1u, 1) == MV_CLIP_EMPTY && !e.seq_load, "an empty factory clip: nothing");
+    CHECK(mv_clip_load(&c, &e, MV_CLIP_ALL, 1) == MV_CLIP_EMPTY, "past the last one: nothing");
+
+    /* 8. a record from before 7 Nov (format 1: LENGTH a 1..4 code) reads as its bars: code 4 = 8 bars */
+    {
+        uint8_t old[MV_CLIP_SEC];
+        mv_clip_info_t d;
+        memset(old, 0, sizeof old);
+        old[0] = 'C'; old[1] = 1; old[2] = 4; old[3] = 48; old[6] = 2;
+        CHECK(clip_head(old, &d) && d.len == 8u && d.n == 2u, "format 1, code 4: 8 bars (%u)", d.len);
+        old[1] = 2; old[2] = 11;
+        CHECK(clip_head(old, &d) && d.len == 11u, "format 2: 11 bars");
+        old[2] = 33;
+        CHECK(!clip_head(old, &d), "format 2, 33 bars: not a clip");
+    }
+    /* 9. SAVE of a flash clip longer than a RAM track holds: refused */
+    {
+        static uint8_t big[2000];
+        uint32_t k2, nb = 0;
+        for (k2 = 0; k2 < 300u; k2++) { big[nb++] = 2; big[nb++] = (uint8_t)(60u | 128u); big[nb++] = 2; big[nb++] = 60; }   /* 600 events */
+        e.seqb[MV_SQ_LENUP] = 8;
+        mv_seq_load_rom(&e.seq, 0, big, nb, 600, 60, emit, 0);
+        CHECK(mv_clip_save(&c, &e, 0, 10, "BIG   ") == MV_CLIP_LONG && !mv_clip_dirty(&c), "600 events: too long to save");
+    }
 
     printf("mv_clip_test: %d checks, %d failed\n", checks, fails);
     return fails != 0;

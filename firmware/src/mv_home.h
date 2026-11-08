@@ -23,8 +23,11 @@
 #define MV_SCOPE_N 512u                         /* the scope ring (int16, a power of 2): 23 ms at 2 frames a point */
 
 void home_header(void);
-/* the program: n, its (UPPER) name, edited; layered (mode DUAL / SPLIT): the chip says it, both names in a line each */
-void home_program(uint32_t n, const uint8_t *name, int edited, uint32_t mode, const uint8_t *lower, uint32_t split);
+/* the program: n, its (UPPER) name, edited; layered (mode DUAL / SPLIT): the chip says it, both names in a line each.
+ * local_off (Kris 7 Nov, the MIDI page): "LOCAL OFF" where EDITED goes (the keys are silent here; an edited program
+ * still shows by its name's colour) */
+void home_program(uint32_t n, const uint8_t *name, int edited, uint32_t mode, const uint8_t *lower, uint32_t split,
+                  int local_off);
 /* the four knob cells; touched: the column being edited (0..3) or -1. Returns nothing: the caller keys it */
 void home_knobs(const mv_engine_t *e, int touched);
 uint32_t home_knobs_key(const mv_engine_t *e, int touched);   /* what home_knobs would show (redraw when it moves) */

@@ -28,6 +28,8 @@
 #include "mv_voice.h"
 #include "mv_ui.h"
 
+#define MV_ROLL_NSP 1024u                       /* spans kept: both tracks (RAM 128 each; flash clips more) */
+
 typedef struct {
     uint16_t a, b;                              /* note-on and note-off tick; b past the loop's end: it wraps */
     uint8_t note, trk;                          /* the note (as recorded), the track (MV_PART_*) */
@@ -37,7 +39,7 @@ typedef struct {
     uint32_t ver;                               /* seq.ver the spans were made from */
     uint16_t len[2];                            /* and each track's loop then (LENGTH moves them too) */
     uint8_t valid;                              /* spans made at least once */
-    mv_roll_span_t sp[MV_SEQ_NEV];              /* both tracks' notes: 128 a track at most */
+    mv_roll_span_t sp[MV_ROLL_NSP];             /* both tracks' notes (6 KB: a factory clip may hold 400+) */
     uint32_t nsp;
     uint32_t grid_key, keys_key, foot_key;      /* what the grid, the key strip, the foot line show */
     int32_t ph;                                 /* the playhead's column drawn (-1 none) */

@@ -48,6 +48,14 @@ PERF_KEYS = {"SPLIT": (1, 127), "BAL": (2, 127), "VSPLIT": (3, 6), "CHLO": (4, 1
 SYNC_NAMES = ["OFF", "1/16", "1/8T", "1/16D", "1/8", "1/4T", "1/8D", "1/4", "1/2T", "1/4D", "1/2", "1/1T", "1/2D",
               "1/1", "2/1T", "1/1D", "2/1", "3M", "4M", "5M", "6M", "7M", "8M"]
 PF_SYNCUP, PF_SYNCLO = 7, 8
+# DELAY SYNC and CHORUS SYNC RATE (Kris 7 Nov): the same part block, offsets 4 and 6, kept in MV_PF_DSYNUP / LO (9, 10)
+# and MV_PF_CSYNUP / LO (11, 12). DSYNC= takes the first 11 names (OFF .. 1/2), CSYNC= all 23 and LFO1
+DSYNC_NAMES = SYNC_NAMES[:11]
+CSYNC_NAMES = SYNC_NAMES + ["LFO1"]
+# a part's three syncs, by part-block offset: (offset, the upper's MV_PF_* byte, the names); the lower's is that + 1
+PART_SYNCS = [(4, 9, DSYNC_NAMES), (5, PF_SYNCUP, SYNC_NAMES), (6, 11, CSYNC_NAMES)]
+SYNC_KEYS = {"DSYNC": 9, "SYNC": PF_SYNCUP, "CSYNC": 11}   # the list's keys (L. in front: the lower's, + 1)
+SYNC_KEY_NAMES = {"DSYNC": DSYNC_NAMES, "SYNC": SYNC_NAMES, "CSYNC": CSYNC_NAMES}
 ARPP = ["AUTO", "UPPER", "LOWER", "BOTH"]
 
 
@@ -94,7 +102,7 @@ def bank_patches(path):
     pats = {}
     coms = {}
     exts = {}
-    syncs = {}                                          # 'P26A' / 'P26B': that part's LFO1 SYNC (0..22)
+    syncs = {}                                          # 'P26A' / 'P26B': that part's [DELAY, LFO1, CHORUS] syncs
     for m in msgs:
         if len(m) < 12 or m[1] != 0x41 or m[3:6] != b"\x00\x06\x12":
             continue                                    # not a JP-8000/8080 DT1
@@ -109,10 +117,12 @@ def bank_patches(path):
             c = coms.setdefault(f"P{a[1] + 1}", bytearray(64))
             c[a[3]:a[3] + len(body)] = body[:64 - a[3]]
             continue
-        elif a[0] == 0x03 and a[2] in (0x10, 0x11):     # a part (upper / lower): its LFO1 SYNC at offset 5
-            if a[3] <= 5 < a[3] + len(body):
-                v = body[5 - a[3]]
-                syncs[f"P{a[1] + 1}{'A' if a[2] == 0x10 else 'B'}"] = v if v < len(SYNC_NAMES) else 0
+        elif a[0] == 0x03 and a[2] in (0x10, 0x11):     # a part (upper / lower): its syncs at offsets 4, 5, 6
+            s = syncs.setdefault(f"P{a[1] + 1}{'A' if a[2] == 0x10 else 'B'}", [0, 0, 0])
+            for j, (o, _, names) in enumerate(PART_SYNCS):
+                if a[3] <= o < a[3] + len(body):
+                    v = body[o - a[3]]
+                    s[j] = v if v < len(names) else 0  # (out of range: OFF)
             continue
         elif a[0] == 0x03 and a[2] == 0x70:             # M-vance's own: the 16 performance bytes (mv_xfer.h)
             x = exts.setdefault(f"P{a[1] + 1}", bytearray(PERF_DEF))
@@ -285,14 +295,20 @@ def main():
             return sources[src][key]
 
         def sync_of(ref, part):
-            # the LFO1 SYNC a patch was played with: its JP part's (P26A / P26B; a whole P26: part A or B), else OFF
+            # the syncs a patch was played with, [DELAY, LFO1, CHORUS]: its JP part's (P26A / P26B; a whole P26: part
+            # A or B), else all OFF
             if ref == "INIT":
-                return 0
+                return [0, 0, 0]
             src, _, which = ref.partition(":")
             if not which.startswith("P"):
-                return 0                                # a user patch: the JP keeps no sync with it
+                return [0, 0, 0]                        # a user patch: the JP keeps no sync with it
             key = which if which[-1] in "AB" else which + part
-            return sources[src].get("_sync", {}).get(key, 0)
+            return list(sources[src].get("_sync", {}).get(key, [0, 0, 0]))
+
+        def put_syncs(perf, s, lower):
+            # a part's three syncs into the performance bytes (lower: the LO bytes, one after the UP ones)
+            for (_, up_byte, _), v in zip(PART_SYNCS, s):
+                perf[up_byte + (1 if lower else 0)] = v
         got = patch_of(frm)
         perf = list(PERF_DEF)                           # KEY MODE SINGLE, SPLIT 60, BALANCE 64, 4+4 ..
         if isinstance(got, tuple):                      # a whole performance: its setup and both patches
@@ -301,24 +317,27 @@ def main():
                 perf = list(ext)
             else:
                 perf[0:3] = [c[0x10] if c[0x10] <= 2 else 0, c[0x11], c[0x13]]
-                perf[PF_SYNCUP], perf[PF_SYNCLO] = sync_of(frm, "A"), sync_of(frm, "B")
+                put_syncs(perf, sync_of(frm, "A"), False)
+                put_syncs(perf, sync_of(frm, "B"), True)
             up, lo = bytearray(up), bytearray(lo)
         else:
             up = bytearray(got); lo = None
-            perf[PF_SYNCUP] = sync_of(frm, "A")         # a performance's patch keeps its part's sync
-            perf[PF_SYNCLO] = perf[PF_SYNCUP]           # (its lower: a copy of it, unless LOWER= says)
-        sync_set = {}                                   # SYNC= / L.SYNC=: applied last, over what came with the patches
+            put_syncs(perf, sync_of(frm, "A"), False)   # a performance's patch keeps its part's syncs
+            put_syncs(perf, sync_of(frm, "A"), True)    # (its lower: a copy of them, unless LOWER= says)
+        sync_set = {}                                   # [L.]SYNC= DSYNC= CSYNC=: applied last, over the patches'
         for o in opts:                                  # the performance: LOWER=, MODE=, SPLIT=, BAL=
             k, eq, v = o.partition("=")
             if k == "LOWER" and eq:
                 g2 = patch_of(v)
                 lo = bytearray(g2[1] if isinstance(g2, tuple) else g2)
-                perf[PF_SYNCLO] = sync_of(v, "A")       # (a whole performance as LOWER: its upper patch, as above)
-            elif k in ("SYNC", "L.SYNC") and eq:
-                x = SYNC_NAMES.index(v) if v in SYNC_NAMES else int(v) if v.isdigit() else -1
-                if not 0 <= x < len(SYNC_NAMES):
-                    fail(f"{spec.name}:{n}: {o}: 0..{len(SYNC_NAMES) - 1} or {' '.join(SYNC_NAMES)}")
-                sync_set[PF_SYNCLO if k == "L.SYNC" else PF_SYNCUP] = x
+                put_syncs(perf, sync_of(v, "A"), True)  # (a whole performance as LOWER: its upper patch, as above)
+            elif k.removeprefix("L.") in SYNC_KEYS and eq:
+                base = k.removeprefix("L.")
+                names = SYNC_KEY_NAMES[base]
+                x = names.index(v) if v in names else int(v) if v.isdigit() else -1
+                if not 0 <= x < len(names):
+                    fail(f"{spec.name}:{n}: {o}: 0..{len(names) - 1} or {' '.join(names)}")
+                sync_set[SYNC_KEYS[base] + (1 if k.startswith("L.") else 0)] = x
             elif k == "MODE" and eq:
                 if v not in MODES:
                     fail(f"{spec.name}:{n}: MODE={v}: SINGLE, DUAL or SPLIT")
@@ -335,7 +354,7 @@ def main():
         if lo is None:
             lo = bytearray(up)                          # no lower patch: a copy of the upper (DUAL doubles it)
         for e in opts:
-            if re.match(r"(LOWER|MODE|SPLIT|BAL|VSPLIT|CHLO|CHUP|ARP|SYNC|L\.SYNC)=", e):
+            if re.match(r"(LOWER|MODE|SPLIT|BAL|VSPLIT|CHLO|CHUP|ARP|(L\.)?[DC]?SYNC)=", e):
                 continue
             m = re.fullmatch(r"(L\.)?([A-Z0-9_]+)([=+-])([A-Z0-9]+)", e)
             if not m or m.group(2) not in keys:

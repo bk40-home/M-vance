@@ -23,6 +23,15 @@
  *   127 (at most 0.99), wet = byte / 127 added to the dry at unity: a SEND, as the JP's Multi-FX measured (Kris 2
  *   Nov, 1b; the JT crossfades, dry = 1 - wet). The tap moves to a new time on the JT's slewed glide (X2). Level 0:
  *   the stage is off.
+ * SYNC (Kris 7 Nov: fm1-port/mvance-fx-sync-proposal-2026-11-07.md, 3b 4a 5a): the engine works out, in the main loop,
+ *   UPPER's DELAY SYNC and CHORUS SYNC RATE at the tempo (mv_voice.c mv_engine_sync) and hands mv_fx_set two words:
+ *   minc  the Multi-FX LFO step (Q32 a sample) in place of the type's own rate; depth, centre and shape are the
+ *         type's. FREEZE PHASE 1/2 (static) and DISTORTION ignore it. Free running: a change keeps the phase.
+ *   dtap  the delay's L tap (samples, Q12) in place of TIME: one note value (the JT's applyDelayTime). R = L x the
+ *         type's ratio, with PANNING L->R / R->L at an exact 2 : 1 / 1 : 2 while synced (free: 25 : 12, as before), so
+ *         both echoes sit on the grid. A tap past the line is held at the line (as the JT's setDelayTime), and then
+ *         is no longer the note value. A new tap glides there (the X2 slew), as a TIME change does.
+ *   0 for either: free, exactly as before (the same caches, the same samples).
  * LIMITER: no longer here (Kris 5 Nov, 1a: fm1-port/mvance-azs-crackle-diagnosis-2026-11-05.md). The JT's block-rate
  *   brick wall (ceiling 0.97, a clamp until its 128-frame block ended, then a snap down, release 0.029 a block)
  *   turned a hot bus (PATCH GAIN +12 dB on both DUAL parts) into hard clips and gain steps, the crackle. The engine
@@ -57,6 +66,8 @@ typedef struct {
     /* MULTI-FX */
     uint32_t m_w;                               /* write index */
     uint32_t m_ph, m_inc;                       /* LFO phase / step (Q32 cycles) */
+    uint32_t m_inc0;                            /* the type's own step (its rate_mhz): m_inc when not synced */
+    uint32_t s_minc, s_dtap;                    /* the sync words the caches were built from (mv_fx_set) */
     int32_t m_c, m_d, m_c2, m_cap;              /* centre, depth, 2 x centre, the last readable tap (samples, Q16) */
     int32_t m_g, m_g3, m_fb, m_wet;             /* tap gain, 2c-tap gain, feedback, level^2 (Q16) */
     uint32_t m_hpg;                             /* wet high-pass one-pole G (Q31) */
@@ -72,8 +83,9 @@ typedef struct {
 } mv_fx_t;
 
 void mv_fx_init(mv_fx_t *f);
-/* control rate: the patch's FX bytes (b = the 248-byte patch) into the caches, rebuilt only when they changed */
-void mv_fx_set(mv_fx_t *f, const uint8_t *b);
+/* control rate: the patch's FX bytes (b = the 248-byte patch) and the tempo sync (minc: the Multi-FX LFO step, Q32 a
+ * sample; dtap: the delay's L tap, samples Q12; 0 = not synced) into the caches, rebuilt only when one changed */
+void mv_fx_set(mv_fx_t *f, const uint8_t *b, uint32_t minc, uint32_t dtap);
 /* DISTORTION, in place on the mono bus (Q15), before TONE; nothing when it is off */
 void mv_fx_drive(mv_fx_t *f, int32_t *bus, uint32_t n);
 /* MULTI-FX, DELAY: the mono bus (Q15) added into out (L R L R, Q15, not limited: the engine's FX limiter follows).

@@ -64,7 +64,7 @@ int main(void)
     uint32_t pass = T2S(len2);                  /* 2 bars in samples (176400) */
 
     /* 1. the length codes, and empty tracks */
-    for (i = 1; i <= 4u; i++) { set[MV_SQ_LENUP] = (uint8_t)i; CHECK(mv_seq_len(set, 0) == bar << (i - 1u), "LENGTH %u", i); }
+    for (i = 1; i <= MV_SEQ_MAXBAR; i++) { set[MV_SQ_LENUP] = (uint8_t)i; CHECK(mv_seq_len(set, 0) == bar * i, "LENGTH %u bars", i); }
     start(); run(pass * 2u);
     CHECK(nlog == 0, "empty tracks: nothing out (%u)", nlog);
     CHECK(s.ticks >= 2u * len2 && s.ticks <= 2u * len2 + 1u, "ticks after 4 bars: %u", s.ticks);
@@ -135,7 +135,7 @@ int main(void)
     CHECK(count(0, 1, 0) == 2u && count(0, 0, 0) == 2u, "pass 3: both notes (%u)", nlog);
 
     /* 8. the cap: 200 short notes offered, 128 written, ons = offs, never more than MV_SEQ_NEV */
-    start(); set[MV_SQ_QUANT] = MV_SQQ_OFF; set[MV_SQ_LENUP] = 4;   /* 8 bars: 3072 ticks */
+    start(); set[MV_SQ_QUANT] = MV_SQQ_OFF; set[MV_SQ_LENUP] = 8;   /* 8 bars: 3072 ticks */
     for (i = 0; i < 200u; i++) { note(0, 40u + i % 40u, 3); run_ticks(3); }
     {
         uint32_t on = 0, off = 0;
@@ -234,6 +234,62 @@ int main(void)
     CHECK(s.t[0].root == MV_SEQ_NOROOT && s.t[0].xpose == 0 && s.ver != i, "CLEAR: ROOT and offset forgotten, ver moved");
     i = s.ver; mv_seq_key(&s, set, 0, 60, 100);
     CHECK(s.ver != i && s.t[0].root == 60u, "a write moves ver; the new first note is ROOT");
+
+    /* 16. a factory clip from flash (Kris 7 Nov): the same notes as from RAM, any length, more than MV_SEQ_NEV */
+    {
+        static uint8_t rom[4096];
+        static uint32_t ref_t[512], ref_n[512], ref_v[512];
+        uint32_t nb = 0, nev = 0, last = 0, vel = 100, nref, t, n, v, k, same;
+        mv_seq_rd_t r;
+        /* 11 bars, 200 notes (400 events: past the RAM track's 256), velocities 100 and 70 */
+        for (k = 0; k < 200u; k++) {
+            uint32_t on = k * 21u, off = on + 10u, vv = k % 7u ? 100u : 70u, ev2[2][3] = {{on, 40u + k % 30u, vv}, {off, 40u + k % 30u, 0}};
+            for (j = 0; j < 2u; j++) {
+                uint32_t d = (ev2[j][0] - last) << 1 | (ev2[j][2] && ev2[j][2] != vel);
+                do { rom[nb++] = (uint8_t)((d & 127u) | (d > 127u ? 128u : 0u)); d >>= 7; } while (d);
+                rom[nb++] = (uint8_t)(ev2[j][1] | (ev2[j][2] ? 128u : 0u));
+                if (ev2[j][2] && ev2[j][2] != vel) { rom[nb++] = (uint8_t)ev2[j][2]; vel = ev2[j][2]; }
+                last = ev2[j][0]; nev++;
+            }
+        }
+        CHECK(nb < 1000u, "coded: %u bytes for %u events (about 2 a event)", nb, nev);
+        mv_seq_rd_start(&r, rom, nb);
+        for (k = 0, same = 1; mv_seq_rd_next(&r, &t, &n, &v); k++)
+            same &= t == (k / 2u) * 21u + (k & 1u) * 10u && n == 40u + (k / 2u) % 30u && v == (k & 1u ? 0u : (k / 2u) % 7u ? 100u : 70u);
+        CHECK(same && k == 400u, "the reader gives back every event (%u)", k);
+        start(); set[MV_SQ_LENUP] = 11;
+        mv_seq_load_rom(&s, 0, rom, nb, nev, 40, emit, 0);
+        CHECK(s.t[0].rom && s.t[0].n == 0u && s.t[0].root == 40u, "loaded from flash: no RAM events, ROOT kept");
+        run(16);                                /* (tick 0 played: the load came at the start) */
+        nlog = 0; k = s.ticks + 11u * MV_SEQ_BAR;
+        while (s.ticks < k) run(16);            /* exactly one pass, from tick 1 */
+        nref = nlog < 512u ? nlog : 512u;
+        for (k = 0; k < nref; k++) { ref_t[k] = tick_at(log_[k].t); ref_n[k] = log_[k].note; ref_v[k] = log_[k].vel; }
+        CHECK(nref == 400u, "an 11-bar pass plays all 400 events (%u)", nref);
+        /* pass 2 the same (the reader back at the start) */
+        nlog = 0; k = s.ticks + 11u * MV_SEQ_BAR;
+        while (s.ticks < k) run(16);
+        for (k = 0, same = nlog == 400u; k < 400u && same; k++)
+            same = log_[k].note == ref_n[k] && log_[k].vel == ref_v[k] && (tick_at(log_[k].t) - ref_t[k]) % (11u * MV_SEQ_BAR) <= 1u;
+        CHECK(same, "pass 2 plays the same (%u events)", nlog);
+        /* LENGTH shortened to 2 bars and back: the reader follows */
+        set[MV_SQ_LENUP] = 2; nlog = 0; run(T2S(2u * MV_SEQ_BAR));
+        CHECK(nlog > 60u && nlog < 80u, "2 bars of it: %u events (about 73)", nlog);
+        /* REC over it: into RAM (the first 256 events) */
+        set[MV_SQ_LENUP] = 11;
+        mv_seq_unrom(&s, 0);
+        CHECK(!s.t[0].rom && s.t[0].n == MV_SEQ_NEV, "into RAM: %u events", s.t[0].n);
+        /* CLEAR leaves flash; a RAM LOAD does too */
+        mv_seq_load_rom(&s, 1, rom, nb, nev, 40, emit, 0);
+        mv_seq_clear(&s, 1, emit, 0);
+        CHECK(!s.t[1].rom && !s.t[1].n, "CLEAR: off flash, empty");
+        /* TRANSPOSE applies from flash too */
+        mv_seq_load_rom(&s, 1, rom, nb, nev, 40, emit, 0);
+        set[MV_SQ_LENLO] = 11; mv_seq_transpose(&s, 1, 45);
+        nlog = 0; run(T2S(11u * MV_SEQ_BAR));   /* (a whole pass: the 40s come every 630 ticks) */
+        for (k = 0, same = 0; k < nlog && k < 4096u; k++) same |= log_[k].part == 1u && log_[k].vel && log_[k].note == 45u;
+        CHECK(same, "transposed +5 from flash (40 -> 45)");
+    }
 
     printf("mv_seq_test: %d checks, %d failed\n", checks, fails);
     return fails != 0;

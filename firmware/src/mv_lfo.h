@@ -38,4 +38,7 @@ void mv_lfo_key(mv_lfo_t *l);                   /* key down: restart the fade (L
 /* main loop: the per-block phase step (Q32) of an LFO1 synced to note value sync (1..22, mv_perf.h MV_LFO1_SYNC_N)
  * at a quarter note of beat samples (the engine's arp_beat: TEMPO or the MIDI clock); 0 for OFF or no tempo */
 uint32_t mv_lfo_sync_inc(uint32_t sync, uint32_t beat);
+/* the length of note value sync (1..22, the LFO1 SYNC list; DELAY SYNC and CHORUS SYNC RATE use the same list) in
+ * MIDI clock ticks, 24 a quarter note; 0 for OFF or out of range. The FX sync (mv_voice.c mv_engine_sync) */
+uint32_t mv_sync_ticks(uint32_t sync);
 int32_t mv_lfo_tick(mv_lfo_t *l);               /* advance one control block, returns the unit wave (Q15) */

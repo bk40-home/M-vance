@@ -328,11 +328,43 @@ static void midi_send(uint32_t st, uint32_t d1, uint32_t d2)   /* USB out, from 
 /* ---- the timer: 10 kHz key scan, milliseconds, USB at 2 kHz. It outranks the audio ISR; nested in a
  * render it only scans, counts and feeds the USB audio stream (as sloopDX main.c) */
 static volatile uint8_t in_audio;
+
+/* ---- MIDI clock out (Kris 7 Nov, DAW use: fm1-port/mvance-midi-daw-proposal-2026-11-07.md 3a). The app counts the
+ * F8s in the audio ISR, on the sample count its arp runs on (so the computer and the arp stay locked), and says how
+ * many frames into the buffer each falls: midi_rt_at(). A render computes 5.8 ms of sound in one burst, so each
+ * F8 gets a due time instead (the buffer's start, audio_t0, plus its frames), and the 10 kHz timer releases it then
+ * (usb.c midi_rt_tick), nested in a render too. The jitter is a timer step (0.1 ms) plus the USB poll (0.5 ms) and
+ * frame (1 ms). START (FA) goes the same way, so it is sent in order with the F8s: the app flushes the F8s still
+ * waiting (midi_rt_flush: computed before PLAY, they would land between START and beat 1) and puts FA, then beat 1's
+ * F8, at frame 0. At most one F8 falls in a buffer (240 BPM: one every 10.4 ms, a buffer 5.8 ms); the ring of 8 is
+ * margin. Producer: the audio ISR (mclk_w, mclk_drop); consumer: the timer (mclk_r), which outranks it. */
+static volatile uint32_t audio_t0;              /* fm1_ticks() when the audio ISR began this buffer */
+static uint32_t mclk_at[8];                     /* due times (fm1_ticks) */
+static uint8_t mclk_b[8];                       /* .. and the byte (F8, FA) */
+static volatile uint32_t mclk_w, mclk_r, mclk_drop;   /* entries before mclk_drop are dropped, not sent */
+#define TICKS_PER_FRAME (FM1_TICKS_PER_US * 1000000u / FS)   /* 544 (24 MHz / 44.1 kHz; the 0.04 % is inaudible) */
+static void midi_rt_at(uint32_t frame, uint8_t b)   /* the app, audio ISR: real-time byte b `frame` frames into this
+                                                   buffer */
+{
+    uint32_t w = mclk_w;
+    if (w - mclk_r >= 8u) return;               /* (full: cannot happen; never overwrite) */
+    mclk_at[w & 7u] = audio_t0 + frame * TICKS_PER_FRAME;
+    mclk_b[w & 7u] = b;
+    RING_PUBLISH();                             /* the slot before the index */
+    mclk_w = w + 1u;
+}
+static void midi_rt_flush(void) { mclk_drop = mclk_w; }   /* the app, audio ISR: the waiting ones are not sent */
+
 void fm1_timer5_irq(void)
 {
     static uint32_t sub, owed, last, acc;
     uint32_t t0 = fm1_ticks(), usb_due = sub % 5u == 0u;
     fm1_timer5_ack();
+    while (mclk_r != mclk_w && (int32_t)(t0 - mclk_at[mclk_r & 7u]) >= 0) {   /* one due: to USB (cheap when none) */
+        if ((int32_t)(mclk_r - mclk_drop) >= 0)  /* (flushed before a START: dropped) */
+            midi_rt_tick(mclk_b[mclk_r & 7u]);
+        mclk_r++;
+    }
     fm1_input_tick();
     acc += t0 - last;
     last = t0;
@@ -360,8 +392,10 @@ void fm1_timer5_irq(void)
     return;
 #endif
     if (in_audio) {
-        if (usb_due)
+        if (usb_due) {
             UAC_ONLY(uac_service());
+            midi_rt_send();                     /* a waiting F8 (and the notes queued with it): not held for the render */
+        }
         return;
     }
     if (owed & 1u)
@@ -384,6 +418,7 @@ void fm1_alnk0_irq(void)                       /* via isr_alnk0 (hal/fm1_isr.S) 
 {
     uint8_t p;
     in_audio = 1;
+    audio_t0 = fm1_ticks();                     /* this buffer's start: the MIDI clock's due times count from it */
     p = fm1_audio_pending();
     fm1_audio_ack_aux(p);
     if (p & FM1_AUDIO_HALF) {

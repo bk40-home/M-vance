@@ -1,0 +1,10 @@
+# M-vance factory clip overrides for tools/mid2clip.py. Copy to tools/clips/clips.txt (git-ignored, as the MIDI files
+# and the header made from them) and edit. A line a track:   path | track | start | bars
+#   path   the MIDI file, relative to the folder given to mid2clip.py ('/' between folders)
+#   track  its name as the tool lists it ([Lead]), or its number (1 = the first track with notes); blank: every track
+#   start  the loop's first bar (1-based)
+#   bars   the loop, 1..32. Notes outside it fold in: a pickup spilling past the end comes back to the start
+# Without a line, a track loops on its shortest exact repeat (heard twice at least), else the whole part.
+#
+# Example: Ayla part 2 starts with a pickup half way through bar 1 that runs into bar 17: 16 bars, folded
+ayla - ayla part2.mid |  | 1 | 16

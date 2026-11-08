@@ -46,6 +46,11 @@ uint32_t mv_lfo_sync_inc(uint32_t sync, uint32_t beat)
     return mv_udiv64_32(((uint64_t)MV_CTL * 24u << 32) + d / 2u, d);
 }
 
+uint32_t mv_sync_ticks(uint32_t sync)
+{
+    return sync < 23u ? SYNC_TICKS[sync] : 0u;  /* (SYNC_TICKS[0] = 0: OFF) */
+}
+
 void mv_lfo_key(mv_lfo_t *l)
 {
     if (l->fade_c) { l->gain = 0; l->fading = 1; }

@@ -108,6 +108,9 @@ progress { width: 220px; accent-color: var(--amber); }
 /* ---- constants: the protocol (firmware/src/mv_xfer.h) and the bank format (tools/make_bank.py) */
 const NPROG = 64, PATCH = 248, NPERF = 16;
 const PERF_DEF = [0, 60, 64, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];   // MV_PERF_DEF: SINGLE, split 60, balance 64, 4+4
+// a JP part's syncs (03 pp 10 / 11): [offset, index in an item's sync (= performance byte - 7; + 1 the lower's), count]:
+// DELAY SYNC (MV_PF_DSYNUP 9), LFO1 SYNC (MV_PF_SYNCUP 7), CHORUS SYNC RATE (MV_PF_CSYNUP 11) (Kris 7 Nov)
+const PART_SYNCS = [[4, 2, 11], [5, 0, 23], [6, 4, 24]];
 const MODES = ["SINGLE", "DUAL", "SPLIT"];
 const GAP_MS = 35;            // between two messages sent: the FM-1 holds one received message at a time
 const QUIET_MS = 2500;        // a dump is over when nothing came for this long
@@ -195,7 +198,7 @@ function rawSysex(b) {
 }
 /* the patches and performances in the messages (as tools/make_bank.py bank_patches) */
 function bankOf(msgs) {
-  const pats = new Map(), coms = new Map(), exts = new Map(), syncs = new Map();   // syncs: pp -> [upper, lower]
+  const pats = new Map(), coms = new Map(), exts = new Map(), syncs = new Map();   // syncs: pp -> perf bytes 7..12
   for (const m of msgs) {
     if (m.length < 12 || m[1] !== 0x41 || m[3] !== 0x00 || m[4] !== 0x06 || m[5] !== 0x12) continue;
     const a = m.slice(6, 10), body = m.slice(10, m.length - 2);
@@ -208,11 +211,11 @@ function bankOf(msgs) {
     } else if (a[0] === 0x03 && a[2] === 0x00) {       // its common: name, KEY MODE 0x10, SPLIT 0x11, BALANCE 0x13
       const c = coms.get(a[1]) || new Uint8Array(64);
       c.set(body.slice(0, 64 - a[3]), a[3]); coms.set(a[1], c); continue;
-    } else if (a[0] === 0x03 && (a[2] === 0x10 || a[2] === 0x11)) {   // a part: its LFO1 SYNC at offset 5 (JP)
-      if (a[3] <= 5 && 5 < a[3] + body.length) {
-        const s = syncs.get(a[1]) || [0, 0], v = body[5 - a[3]];
-        s[a[2] & 1] = v < 23 ? v : 0; syncs.set(a[1], s);
-      }
+    } else if (a[0] === 0x03 && (a[2] === 0x10 || a[2] === 0x11)) {   // a part: its syncs at offsets 4, 5, 6 (JP)
+      const s = syncs.get(a[1]) || [0, 0, 0, 0, 0, 0];
+      for (const [o, i, n] of PART_SYNCS)
+        if (a[3] <= o && o < a[3] + body.length) { const v = body[o - a[3]]; s[i + (a[2] & 1)] = v < n ? v : 0; }
+      syncs.set(a[1], s);
       continue;
     } else if (a[0] === 0x03 && a[2] === 0x70) {       // M-vance's own performance bytes
       const x = exts.get(a[1]) || Uint8Array.from(PERF_DEF);
@@ -227,7 +230,7 @@ function bankOf(msgs) {
     const up = pats.get("P" + (pp + 1) + "A");
     if (!up) continue;
     const lo = pats.get("P" + (pp + 1) + "B") || up;
-    items.push({ kind: "P", no: pp + 1, com: c, up, lo, ext: exts.get(pp) || null, sync: syncs.get(pp) || [0, 0],
+    items.push({ kind: "P", no: pp + 1, com: c, up, lo, ext: exts.get(pp) || null, sync: syncs.get(pp) || [0, 0, 0, 0, 0, 0],
                  name: nameOf(c), tick: false });
   }
   for (let n = 1; n <= 128; n++) {
@@ -241,7 +244,7 @@ function perfOf(it) {                                 // the 16 performance byte
   if (it.ext) return Array.from(it.ext);
   const p = PERF_DEF.slice();
   if (it.com) { p[0] = it.com[0x10] <= 2 ? it.com[0x10] : 0; p[1] = it.com[0x11]; p[2] = it.com[0x13]; }
-  if (it.sync) { p[7] = it.sync[0]; p[8] = it.sync[1]; }   // MV_PF_SYNCUP / LO: the parts' LFO1 SYNC
+  if (it.sync) for (let i = 0; i < 6; i++) p[7 + i] = it.sync[i] || 0;   // the parts' LFO1 / DELAY / CHORUS syncs
   return p;
 }
 /* an item as the 4 messages of a performance at base (03 pp = a slot, 01 00 = the temporary area) */

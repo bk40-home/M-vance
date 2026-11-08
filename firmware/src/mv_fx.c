@@ -186,7 +186,8 @@ static void mfx_build(mv_fx_t *f, uint32_t type)   /* prepareJpMod: a type chang
     f->m_d = us_q16(t->d_us);
     f->m_c2 = mv_clamp(2 * f->m_c, 0, f->m_cap);
     f->m_shape = t->shape;
-    f->m_inc = t->shape == MFX_STATIC ? 0u : mv_udiv64_32((uint64_t)t->rate_mhz << 32, 1000u * MV_FX_FS);
+    f->m_inc0 = t->shape == MFX_STATIC ? 0u : mv_udiv64_32((uint64_t)t->rate_mhz << 32, 1000u * MV_FX_FS);
+    f->m_inc = f->m_inc0;                       /* (mv_fx_set puts a synced step over it) */
     f->m_ph = 0;
     f->m_g = t->g; f->m_g3 = t->g3; f->m_fb = t->fb;
     f->m_poles = t->poles;
@@ -260,6 +261,10 @@ static const uint8_t DLY_RATIO[5][2] = {       /* the JT preset's R / L tap rati
     {1, 1},                                     /* MONO SHORT */
     {1, 1},                                     /* MONO LONG */
 };
+static const uint8_t DLY_SRATIO[5][2] = {      /* the same while synced (3b): the pan pair at an exact 2 : 1, so the
+                                                   R echo lands on the grid too (PANNING SHORT and MONO unchanged) */
+    {2, 1}, {1, 2}, {2, 1}, {1, 1}, {1, 1},
+};
 #define DLY_STEP_MAX 819                        /* kTimeSlewMaxStep 0.2 samples a sample, Q12 */
 #define DLY_STEP_MIN 41                         /* kSlewMinStep 0.01, Q12 */
 #define DLY_CAP ((int32_t)((MV_FX_DLEN - 2u) << 12))
@@ -296,10 +301,23 @@ static inline int16_t dly_q13(int32_t v)
     return (int16_t)(v > 32767 ? 32767 : v < -32767 ? -32767 : v);
 }
 
-static void dly_times(mv_fx_t *f, uint32_t type, uint32_t time)   /* setDelayTime with the import law */
+/* a synced tap (Q12, 64-bit: R = 2 L may pass 2^32) held to the line, as the JT's setDelayTime holds it */
+static int32_t dly_cap(uint64_t q12)
+{
+    return q12 < (1u << 12) ? 1 << 12 : q12 > (uint64_t)DLY_CAP ? DLY_CAP : (int32_t)q12;
+}
+
+/* setDelayTime with the import law; dtap (Q12 samples, not 0) = synced: L is the note value, TIME is not used */
+static void dly_times(mv_fx_t *f, uint32_t type, uint32_t time, uint32_t dtap)
 {
     uint32_t num = time * DLY_MAX_MS[type];     /* ms x 127 */
     int32_t l;
+    if (dtap) {                                 /* SYNC (3b): R from L before L is held, so R is held on its own */
+        f->d_tl = dly_cap(dtap);
+        f->d_tr = dly_cap((uint64_t)dtap * DLY_SRATIO[type][0] / DLY_SRATIO[type][1]);
+        if (f->d_cl < 0) { f->d_cl = f->d_tl; f->d_cr = f->d_tr; }
+        return;
+    }
     if (num < 10u * 127u) num = 10u * 127u;     /* kMinDelayMs 10 */
     l = (int32_t)mv_udiv64_32((uint64_t)num * MV_FX_FS * 4096u + 63500u, 127000u);   /* samples, Q12 */
     f->d_tl = mv_clamp(l, 1 << 12, DLY_CAP);
@@ -336,13 +354,13 @@ void mv_fx_init(mv_fx_t *f)
     dr_dc_r = 0x80000000u - mv_udiv64_32(8u * TWO_PI_Q28 * 8u, MV_FX_FS);   /* 1 - 2 pi 8 / fs */
 }
 
-void mv_fx_set(mv_fx_t *f, const uint8_t *b)
+void mv_fx_set(mv_fx_t *f, const uint8_t *b, uint32_t minc, uint32_t dtap)
 {
     uint32_t mtype = b[61] > 12u ? 0u : b[61], mlvl = b[62] & 127u, dtype = b[63] > 4u ? 0u : b[63];
     uint32_t dtime = b[64] & 127u, dfbk = b[65] & 127u, dlvl = b[66] & 127u;
     int was_drive = f->on_drive, was_dly = f->on_dly;
     if (f->key[0] == mtype && f->key[1] == mlvl && f->key[2] == dtype && f->key[3] == dtime && f->key[4] == dfbk &&
-        f->key[5] == dlvl)
+        f->key[5] == dlvl && f->s_minc == minc && f->s_dtap == dtap)
         return;                                 /* nothing moved: no work (the usual case) */
     /* MULTI-FX / DISTORTION (setModEffect / setModMix; the importer's byte 12 = drive 100 %, mod off) */
     f->on_drive = (uint8_t)(mtype == 12u && mlvl);   /* LEVEL = the drive Amount; 0 = bypass (applyDrive) */
@@ -355,17 +373,22 @@ void mv_fx_set(mv_fx_t *f, const uint8_t *b)
     }
     f->dr_pdep = (int32_t)((mlvl * 32768u + 63u) / 127u);   /* 0.5 a */
     f->dr_mix = (int32_t)((mlvl * 65536u + 63u) / 127u);    /* a */
-    if (mtype < 12u && mtype != f->m_type) mfx_build(f, mtype);
+    if (mtype < 12u) {
+        if (mtype != f->m_type) mfx_build(f, mtype);
+        /* CHORUS SYNC RATE: the tempo's step over the type's own (a static type keeps 0); no phase reset (4a) */
+        f->m_inc = minc && f->m_shape != MFX_STATIC ? minc : f->m_inc0;
+    }
     f->m_wet = (int32_t)((mlvl * mlvl * 65536u + 8064u) / 16129u);   /* (level / 127)^2, Q16 (the JP's square law) */
     /* DELAY */
     f->on_dly = (uint8_t)(dlvl != 0u);
-    if (dtype != f->key[2] || dtime != f->key[3]) dly_times(f, dtype, dtime);
+    if (dtype != f->key[2] || dtime != f->key[3] || dtap != f->s_dtap) dly_times(f, dtype, dtime, dtap);
     if (f->on_dly && (!was_dly || dtype != f->key[2])) dly_mute(f);   /* a type change (setDelayEffect) or a start */
     f->d_fb = (int32_t)((dfbk * 65536u + 63u) / 127u);
     if (f->d_fb > 64881) f->d_fb = 64881;       /* 0.99 */
     f->d_wet = (int32_t)((dlvl * 65536u + 63u) / 127u);   /* a send: the dry stays at unity (1b) */
     f->key[0] = (uint8_t)mtype; f->key[1] = (uint8_t)mlvl; f->key[2] = (uint8_t)dtype;
     f->key[3] = (uint8_t)dtime; f->key[4] = (uint8_t)dfbk; f->key[5] = (uint8_t)dlvl;
+    f->s_minc = minc; f->s_dtap = dtap;
 }
 
 int mv_fx_ringing(const mv_fx_t *f)

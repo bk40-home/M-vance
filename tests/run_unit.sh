@@ -19,6 +19,8 @@ for t in mv_fixed_test mv_patch_test mv_pitch_test mv_env_test mv_lfo_test mv_jv
     "$OUT/$t"
 done
 python3 tests/xfer_test.py                     # the program transfer (mv_xfer.h) on the host build
+python3 tests/mid2clip_test.py                 # the factory clips tool (tools/mid2clip.py): loops, coding
+python3 tests/fx_sync_import_test.py           # DELAY / CHORUS SYNC through the three importers (Kris 7 Nov)
 # the USB audio output (firmware/src/uac_out.c: integer port of felucca-bsp's, against its float law) and the USB
 # descriptors with it (firmware/src/usb.c; -Wno-int-to-pointer-cast: hal/'s register addresses on a 64-bit computer)
 cc $CF -D_DEFAULT_SOURCE -Wdouble-promotion -o "$OUT/uac_out_test" tests/uac_out_test.c -lm

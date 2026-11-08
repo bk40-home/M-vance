@@ -71,10 +71,12 @@ WHAT = {
     "TONE|GAIN": "",
     "MULTI-FX|TYPE": "chorus, flanger, phaser .. DIST",
     "MULTI-FX|LEVEL": "effect amount (DIST: drive)",
+    "MULTI-FX|SYNC": "rate to the tempo (UPPER's)",
     "DELAY|TYPE": "",
     "DELAY|TIME": "",
     "DELAY|FEEDBK": "",
     "DELAY|LEVEL": "",
+    "DELAY|SYNC": "TIME to the tempo (UPPER's)",
     "REVERB|LEVEL": "reverb amount (0: off)",
     "REVERB|SIZE": "",
     "REVERB|HI DAMP": "darker tail",
@@ -117,7 +119,7 @@ WHAT = {
     "SAVE|CURSOR": "the name's character to edit",
     "SAVE|CHAR": "that character",
     "SAVE|MODE": "what SAVE does: p.2",
-    "SEQ|LENGTH": "the track's loop",
+    "SEQ|LENGTH": "the track's loop, bars",
     "SEQ|QUANT": "to the grid",
     "SEQ|MUTE L": "LOWER silent",
     "SEQ|MUTE U": "UPPER silent",
@@ -125,7 +127,7 @@ WHAT = {
     "SEQ|PITCH": "scroll the roll",
     "SEQ|TRANSP": "keys transpose",
     "SEQ|ROOT": "transpose's 0",
-    "SEQ|CLIP": "1-12 (its name)",
+    "SEQ|CLIP": "1-12 yours, F1.. factory",
     "SEQ|CURSOR": "in the name",
     "SEQ|CHAR": "that character",
     "SEQ|MODE": "what SAVE does",
@@ -135,7 +137,9 @@ LEFT = ["LFO", "EDIT", "ENV", "ARP"]
 RIGHT = ["SEL", "FX", "GLO"]
 # long choice lists that read as a range: one line in the knob's cell instead of a list on page 2 (the order is the
 # JP's, so a range says it: LFO1 SYNC, Kris 5 Nov)
-CHOICE_RANGE = {"LFO|SYNC 1": "OFF, 1/16 .. 8 MEAS"}
+CHOICE_RANGE = {"LFO|SYNC 1": "OFF, 1/16 .. 8 MEAS",
+                "MULTI-FX|SYNC": "OFF, 1/16 .. 8 MEAS, LFO1",   # (CHORUS SYNC RATE, DELAY SYNC: Kris 7 Nov)
+                "DELAY|SYNC": "OFF, 1/16 .. 1/2"}
 # pages with no knobs: a line on what they show instead of four empty cells
 PAGE_NOTE = {
     "DEBUG": "CPU (avg, 3 s peak) · voices · octave · MIDI ch · notes in · clock · version",
@@ -365,7 +369,7 @@ footer {{ margin-top: 2.5mm; color: var(--mute); font-size: 6.4pt; }}
 <div>
 <h2 class="p2">MIDI</h2>
 <ul class="notes">
-<li><b>Notes</b> in from USB and the TRS jack; the keys send on the GLOBAL MIDI CH (OMNI: out on 1).</li>
+<li><b>Notes</b> in: USB, TRS. Keys and CCs out on PART SELECT's CH (else GLOBAL).</li>
 <li><b>Program change</b> in selects 1-64; PRESETS sends one.</li>
 <li><b>Pitch bend</b> by the program's BEND + / BEND -. <b>CC 1</b> mod wheel brings LFO 2 in.</li>
 <li><b>Every knob with a CC</b> sends it when turned, so a DAW records the panel; incoming CCs edit the sound.</li>

@@ -7,6 +7,10 @@
 #define P_MIDICH 0x100u                         /* GLOBAL: settings, not patch bytes */
 #define P_VOICES 0x101u
 #define P_TEMPO 0x102u                          /* GLOBAL: the arp's tempo (BPM) */
+#define P_LOCAL 0x103u                          /* MIDI (Kris 7 Nov, DAW use): LOCAL ON / OFF (mv_ui_t.midi bits) */
+#define P_CLKSRC 0x104u                         /* MIDI: CLOCK AUTO / INT */
+#define P_CLKOUT 0x105u                         /* MIDI: CLK OUT OFF / ON */
+#define IS_MIDI(p) ((p) >= P_LOCAL && (p) <= P_CLKOUT)
 #define P_RV 0x110u                             /* REVERB: P_RV + MV_RV_* (global settings, mv_reverb.h) */
 #define P_ARP 0x120u                            /* ARP: P_ARP + MV_ARP_* (global settings, mv_arp.h) */
 #define P_SV 0x130u                             /* SAVE: P_SV + 0 TO, 1 CURSOR, 2 CHAR, 3 MODE */
@@ -15,6 +19,9 @@
 #define P_DEBUG 0x160u                          /* DEBUG: marks the page (KNOB1: nothing; mvance.c draws it, mv_debug.c) */
 #define P_LSYNC 0x170u                          /* LFO 3/3: LFO1 SYNC of the part PANEL edits (a performance byte,
                                                    MV_PF_SYNCUP / LO: Kris 5 Nov, on the LFO page) */
+#define P_CSYNC 0x171u                          /* MULTI-FX: CHORUS SYNC RATE, UPPER's (MV_PF_CSYNUP: the FX are UPPER's,
+                                                   like the FX bytes beside it; Kris 7 Nov, 6a) */
+#define P_DSYNC 0x172u                          /* DELAY 2/2: DELAY SYNC, UPPER's (MV_PF_DSYNUP); TIME shows it while on */
 #define P_SQ 0x180u                             /* SEQ: P_SQ + MV_SQ_* (global settings, mv_seq.h) */
 #define P_SQLEN 0x190u                          /* SEQ: LENGTH of the selected track (PANEL's part; BOTH both) */
 #define P_SQBAR 0x191u                          /* ROLL: the bar shown (marks the page: mvance.c draws it, mv_roll.c) */
@@ -49,8 +56,9 @@ static const ui_page_t PAGES[] = {
     {"AMP", BTN_SEL, 0, 1, {51, 52, 53, 58}},                  /* LEVEL, LFO1 (pan), LFO2, LFO1 MOD (pan mode) */
     {"AMP ENV", BTN_ENV, 0, 1, {54, 55, 56, 57}},              /* A D S R */
     {"TONE", BTN_FX, 0, 1, {59, 60, 245, P_NONE}},             /* BASS TREBLE, PATCH GAIN */
-    {"MULTI-FX", BTN_FX, 0, 1, {61, 62, P_NONE, P_NONE}},      /* TYPE (12 = DISTORTION), LEVEL */
-    {"DELAY", BTN_FX, 0, 1, {63, 64, 65, 66}},                 /* TYPE TIME FEEDBACK LEVEL */
+    {"MULTI-FX", BTN_FX, 0, 1, {61, 62, P_CSYNC, P_NONE}},     /* TYPE (12 = DISTORTION), LEVEL, CHORUS SYNC RATE */
+    {"DELAY", BTN_FX, 0, 2, {63, 64, 65, 66}},                 /* TYPE TIME FEEDBACK LEVEL */
+    {"DELAY", BTN_FX, 1, 2, {P_DSYNC, P_NONE, P_NONE, P_NONE}}, /* DELAY SYNC (Kris 7 Nov) */
     {"REVERB", BTN_FX, 0, 2, {P_RV + MV_RV_LEVEL, P_RV + MV_RV_SIZE, P_RV + MV_RV_HIDAMP, P_RV + MV_RV_LODAMP}},
     {"REVERB", BTN_FX, 1, 2, {P_RV + MV_RV_LOWPASS, P_RV + MV_RV_HIPASS, P_RV + MV_RV_FREEZE, P_NONE}},
     {"PLAY MODE", BTN_GLO, 0, 2, {71, 72, 69, 70}},            /* MONO LEGATO PORTA, PORTA TIME */
@@ -58,6 +66,7 @@ static const ui_page_t PAGES[] = {
     {"PERFORM", BTN_GLO, 0, 2, {P_PF + MV_PF_MODE, P_PF + MV_PF_SPLIT, P_PF + MV_PF_BAL, P_PANEL}},   /* (Kris 3 Nov) */
     {"PERFORM", BTN_GLO, 1, 2, {P_PF + MV_PF_VSPLIT, P_PF + MV_PF_ARP, P_PF + MV_PF_CHLO, P_PF + MV_PF_CHUP}},
     {"GLOBAL", BTN_GLO, 0, 1, {P_MIDICH, P_VOICES, P_TEMPO, P_NONE}},
+    {"MIDI", BTN_GLO, 0, 1, {P_LOCAL, P_CLKSRC, P_CLKOUT, P_NONE}},   /* DAW use (Kris 7 Nov): LOCAL, CLOCK, CLK OUT */
     {"DEBUG", BTN_GLO, 0, 1, {P_DEBUG, P_NONE, P_NONE, P_NONE}},   /* the meter and the status (Kris 3 Nov): the knobs
                                                                    do nothing here */
     {"ARP", BTN_ARP, 0, 2, {P_ARP + MV_ARP_MODE, P_ARP + MV_ARP_RATE, P_ARP + MV_ARP_OCT, P_ARP + MV_ARP_GATE}},
@@ -91,6 +100,7 @@ static uint32_t ui_part(const mv_engine_t *e, uint32_t p, int *both)
 static void clip_name_from(mv_ui_t *u)
 {
     uint32_t i, k = u->cl_sel;
+    if (k >= MV_CLIP_N) return;                 /* (a factory clip: its own name shows; the edited one is kept) */
     if (u->clips && u->clips->dir[k].used) {
         for (i = 0; i < MV_CLIP_NAME; i++) u->cl_name[i] = u->clips->dir[k].name[i];
         return;
@@ -141,6 +151,7 @@ static const char *col_label(const mv_engine_t *e, uint32_t p)
     case P_PF + MV_PF_CHUP: return "CH UP";
     case P_PANEL: return "PANEL";
     case P_LSYNC: return "SYNC 1";
+    case P_CSYNC: case P_DSYNC: return "SYNC";
     case P_MIDICH: return "MIDI CH";
     case P_VOICES: return "VOICES";
     case P_RV + MV_RV_LEVEL: return "LEVEL";
@@ -151,6 +162,9 @@ static const char *col_label(const mv_engine_t *e, uint32_t p)
     case P_RV + MV_RV_HIPASS: return "HIPASS";
     case P_RV + MV_RV_FREEZE: return "FREEZE";
     case P_TEMPO: return "TEMPO";
+    case P_LOCAL: return "LOCAL";
+    case P_CLKSRC: return "CLOCK";
+    case P_CLKOUT: return "CLK OUT";
     case P_SV + 0: return "TO";
     case P_SV + 1: return "CURSOR";
     case P_SV + 2: return "CHAR";
@@ -224,14 +238,16 @@ static const char *choice_name(uint32_t p, uint32_t v)
     static const char *const PANEL[3] = {"UPPER", "LOWER", "BOTH"};
     static const char *const VSPL[7] = {"1+7", "2+6", "3+5", "4+4", "5+3", "6+2", "7+1"};   /* LOWER + UPPER */
     static const char *const ARPP[4] = {"AUTO", "UPPER", "LOWER", "BOTH"};
-    static const char *const SQLEN[4] = {"1 BAR", "2 BAR", "4 BAR", "8 BAR"};   /* LENGTH codes 1..4 */
     static const char *const SQQ[MV_SQQ_N] = {"OFF", "1/16", "1/8", "1/16T", "1/8T"};
     static const char *const SQX[MV_SQX_N] = {"OFF", "LOWER", "UPPER", "BOTH"};   /* TRANSPOSE: its tracks */
     static const char *const CLM[2] = {"LOAD", "SAVE"};
-    static const char *const SYNC[MV_LFO1_SYNC_N] = {"OFF", "1/16", "1/8T", "1/16.", "1/8", "1/4T", "1/8.", "1/4",
-                                                     "1/2T", "1/4.", "1/2", "1/1T", "1/2.", "1/1", "2/1T", "1/1.",
-                                                     "2/1", "3 MEAS", "4 MEAS", "5 MEAS", "6 MEAS", "7 MEAS",
-                                                     "8 MEAS"};   /* (the JE's lFO1Sync, short: . = dotted) */
+    static const char *const LOCAL[2] = {"ON", "OFF"};   /* (the bit is LOCAL OFF: 0 = ON, today's) */
+    static const char *const CSRC[2] = {"AUTO", "INT"};
+    static const char *const SYNC[MV_CSYNC_N] = {"OFF", "1/16", "1/8T", "1/16.", "1/8", "1/4T", "1/8.", "1/4",
+                                                 "1/2T", "1/4.", "1/2", "1/1T", "1/2.", "1/1", "2/1T", "1/1.",
+                                                 "2/1", "3 MEAS", "4 MEAS", "5 MEAS", "6 MEAS", "7 MEAS",
+                                                 "8 MEAS", "LFO1"};   /* (the JE's lFO1Sync, short: . = dotted; DELAY
+                                                   SYNC is its first MV_DSYNC_N, CHORUS SYNC RATE all of it) */
     switch (p) {
     case 16: return LW[v & 3u];
     case 20: return DSEL[v < 3u ? v : 0u];
@@ -247,10 +263,12 @@ static const char *choice_name(uint32_t p, uint32_t v)
     case 21: case 34: case 69: case 71: case 72: case 243: case P_RV + MV_RV_FREEZE: case P_ARP + MV_ARP_HOLD:
     case P_SQ + MV_SQ_MUTELO: case P_SQ + MV_SQ_MUTEUP:
         return OFFON[v & 1u];
-    case P_SQLEN: return SQLEN[v >= 1u && v <= 4u ? v - 1u : 1u];
     case P_SQ + MV_SQ_QUANT: return SQQ[v < MV_SQQ_N ? v : MV_SQQ_16];
     case P_SQ + MV_SQ_XPOSE: return SQX[v < MV_SQX_N ? v : 0u];
     case P_CL + 3: return CLM[v & 1u];
+    case P_LOCAL: return LOCAL[v & 1u];
+    case P_CLKSRC: return CSRC[v & 1u];
+    case P_CLKOUT: return OFFON[v & 1u];
     case P_ARP + MV_ARP_MODE: return AMODE[v < MV_AM_N ? v : 0u];
     case P_ARP + MV_ARP_RATE: return ARATE[v < MV_ARP_NRATE ? v : 2u];
     case P_ARP + MV_ARP_ORDER: return AORDER[v & 1u];
@@ -260,6 +278,8 @@ static const char *choice_name(uint32_t p, uint32_t v)
     case P_PF + MV_PF_ARP: return ARPP[v & 3u];
     case P_PANEL: return PANEL[v < 3u ? v : 0u];
     case P_LSYNC: return SYNC[v < MV_LFO1_SYNC_N ? v : 0u];
+    case P_DSYNC: return SYNC[v < MV_DSYNC_N ? v : 0u];
+    case P_CSYNC: return SYNC[v < MV_CSYNC_N ? v : 0u];
     default: return 0;
     }
 }
@@ -287,6 +307,13 @@ static void num(char *s, int32_t v, int sign)
     s[i] = 0;
 }
 
+/* the MIDI page: a parameter's bit in mv_ui_t.midi, and its value 0 / 1 */
+static uint32_t midi_mask(uint32_t p)
+{
+    return p == P_LOCAL ? MV_MIDI_LOCALOFF : p == P_CLKSRC ? MV_MIDI_CLKINT : MV_MIDI_CLKOUT;
+}
+static uint32_t midi_bit(uint32_t midi, uint32_t p) { return midi & midi_mask(p) ? 1u : 0u; }
+
 /* the value as text (s: 8 chars), *mode BAR_..., *fill 0..1000 (BAR_UP) or -1000..1000 (BAR_MID) */
 static void col_value(const mv_engine_t *e, uint32_t p, uint32_t midi_ch, char *s, uint32_t *mode, int32_t *fill)
 {
@@ -304,11 +331,17 @@ static void col_value(const mv_engine_t *e, uint32_t p, uint32_t midi_ch, char *
         return;
     }
     if (p == P_PANEL) { copy7(s, choice_name(p, ui_self ? ui_self->panel : 0u)); return; }
+    if (IS_MIDI(p)) { copy7(s, choice_name(p, midi_bit(ui_self ? ui_self->midi : 0u, p))); return; }   /* MIDI page */
     if (p == P_LSYNC || p == 17u) {             /* LFO1 SYNC of the part edited; RATE 1 shows it in place of the
                                                    number while that part is synced (the JP ignores RATE then) */
         int both;
         uint32_t sy = e->perf[MV_PF_SYNC(ui_part(e, p, &both))];
         if (p == P_LSYNC || sy) { copy7(s, choice_name(P_LSYNC, sy)); return; }
+    }
+    if (p == P_CSYNC) { copy7(s, choice_name(p, e->perf[MV_PF_CSYNUP])); return; }
+    if (p == P_DSYNC || p == 64u) {             /* DELAY SYNC; TIME shows it in place of its number while synced */
+        uint32_t sy = e->perf[MV_PF_DSYNUP];
+        if (p == P_DSYNC || sy) { copy7(s, choice_name(P_DSYNC, sy)); return; }
     }
     if (p >= P_PF && p < P_PF + MV_PF_N) {      /* PERFORM: the program's performance bytes */
         static const char *const NN[12] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
@@ -340,14 +373,20 @@ static void col_value(const mv_engine_t *e, uint32_t p, uint32_t midi_ch, char *
     }
     if (p == P_SQLEN) {                         /* SEQ LENGTH: the selected track's (BOTH: UPPER's shown) */
         int both;
-        copy7(s, choice_name(p, e->seqb[MV_SQ_LEN(ui_part(e, 0u, &both))]));
+        uint32_t v = e->seqb[MV_SQ_LEN(ui_part(e, 0u, &both))], i = 0;   /* (Kris 7 Nov, 2a) 1..32 bars: "12 BAR" */
+        if (v >= 10u) s[i++] = (char)('0' + v / 10u);
+        s[i++] = (char)('0' + v % 10u);
+        s[i++] = ' '; s[i++] = 'B'; s[i++] = 'A'; s[i++] = 'R'; s[i] = 0;
         return;
     }
     if (p >= P_SQ && p < P_SQ + MV_SQ_N) { copy7(s, choice_name(p, e->seqb[p - P_SQ])); return; }   /* (all choices) */
     if (p >= P_CL && p < P_CL + 4u) {           /* CLIP: values only (the page's two lines show the names) */
         const mv_ui_t *u = ui_self;
         if (!u) { s[0] = 0; return; }
-        if (p == P_CL + 0u) num(s, u->cl_sel + 1, 0);
+        if (p == P_CL + 0u) {                   /* 1..12, then the factory clips F1, F2 .. */
+            if (u->cl_sel < MV_CLIP_N) num(s, u->cl_sel + 1, 0);
+            else { s[0] = 'F'; num(s + 1, (int32_t)(u->cl_sel - MV_CLIP_N) + 1, 0); }
+        }
         else if (p == P_CL + 1u) num(s, u->cl_pos + 1, 0);
         else if (p == P_CL + 2u) {              /* the character under the cursor; a space shown as SPC */
             char ch = u->cl_name[u->cl_pos % MV_CLIP_NAME];
@@ -426,8 +465,16 @@ void mv_ui_init(mv_ui_t *u, const mv_prog_t *prog)
     u->roll_bar = 0; u->roll_lo = 48; u->roll_fit = 1;
     u->clips = 0; u->cl_sel = 0; u->cl_pos = 0; u->cl_mode = MV_CL_LOAD; u->cl_act = 0; u->cl_msg = MV_CLM_NONE;
     u->cl_msg_t = 0;
+    u->midi = 0;                                /* MIDI page: today's behaviour until the settings load it */
     for (k = 0; k < MV_CLIP_NAME; k++) u->cl_name[k] = "CLIP01"[k];
     for (k = 0; k < 4u; k++) { u->t_knob[k] = 0; u->drawn[k] = ~0u; }
+}
+
+/* a part's MIDI channel out (0..15): its CH UP / CH LO, or out_ch (the global one) where that is GLOBAL (0) */
+static uint32_t part_out_ch(const mv_engine_t *e, uint32_t part, uint32_t out_ch)
+{
+    uint32_t c = e->perf[part == MV_PART_LO ? MV_PF_CHLO : MV_PF_CHUP];
+    return c ? c - 1u : out_ch;
 }
 
 /* a column's value moved by step (detents, signed): clamp, store, send the CC (decision 5). Returns
@@ -444,6 +491,11 @@ static uint32_t edit(mv_ui_t *u, mv_engine_t *e, uint32_t col, int32_t step, uin
         return MV_UI_SETTING;
     }
     if (p == P_VOICES) { e->nv = (uint32_t)mv_clamp((int32_t)e->nv + step, 1, (int32_t)MV_NV); return 0; }
+    if (IS_MIDI(p)) {                           /* MIDI page: a turn right sets the bit, left clears it; kept in flash */
+        uint32_t m = midi_mask(p), was = u->midi;
+        u->midi = (uint8_t)(step > 0 ? u->midi | m : u->midi & ~m);
+        return u->midi != was ? MV_UI_SETTING : 0u;
+    }
     if (p == P_PANEL) { u->panel = (uint8_t)mv_clamp((int32_t)u->panel + step, 0, MV_UI_BOTH); return 0; }
     if (p == P_LSYNC) {                         /* into the program, the part PANEL says (BOTH: each by the step) */
         int both;
@@ -453,8 +505,15 @@ static uint32_t edit(mv_ui_t *u, mv_engine_t *e, uint32_t col, int32_t step, uin
             e->perf[MV_PF_SYNCLO] = (uint8_t)mv_clamp((int32_t)e->perf[MV_PF_SYNCLO] + step, 0, (int32_t)MV_LFO1_SYNC_N - 1);
         return 0;
     }
+    if (p == P_CSYNC || p == P_DSYNC) {         /* into the program, UPPER's (the FX are UPPER's) */
+        uint32_t k = p == P_CSYNC ? MV_PF_CSYNUP : MV_PF_DSYNUP;
+        int32_t top = (int32_t)(p == P_CSYNC ? MV_CSYNC_N : MV_DSYNC_N) - 1;
+        e->perf[k] = (uint8_t)mv_clamp((int32_t)e->perf[k] + step, 0, top);
+        return 0;
+    }
     if (p >= P_PF && p < P_PF + MV_PF_N) {      /* PERFORM: into the program (SAVE keeps it; not sent: no JP CC) */
-        static const uint8_t TOP[MV_PF_N] = {2, 127, 127, 6, 16, 16, 3, MV_LFO1_SYNC_N - 1u, MV_LFO1_SYNC_N - 1u};
+        static const uint8_t TOP[MV_PF_N] = {2, 127, 127, 6, 16, 16, 3, MV_LFO1_SYNC_N - 1u, MV_LFO1_SYNC_N - 1u,
+                                             MV_DSYNC_N - 1u, MV_DSYNC_N - 1u, MV_CSYNC_N - 1u, MV_CSYNC_N - 1u};
         uint32_t k = p - P_PF;
         e->perf[k] = (uint8_t)mv_clamp((int32_t)e->perf[k] + step, 0, TOP[k]);
         return 0;
@@ -480,7 +539,7 @@ static uint32_t edit(mv_ui_t *u, mv_engine_t *e, uint32_t col, int32_t step, uin
                                                    the mode */
         if (p == P_CL + 0u) {
             uint32_t was = u->cl_sel;
-            u->cl_sel = (uint8_t)mv_clamp((int32_t)u->cl_sel + step, 0, MV_CLIP_N - 1);
+            u->cl_sel = (uint8_t)mv_clamp((int32_t)u->cl_sel + step, 0, (int32_t)MV_CLIP_ALL - 1);
             if (u->cl_sel != was) clip_name_from(u);
         } else if (p == P_CL + 1u) u->cl_pos = (uint8_t)mv_clamp((int32_t)u->cl_pos + step, 0, MV_CLIP_NAME - 1u);
         else if (p == P_CL + 2u) {              /* ASCII 32..125, as the program names */
@@ -541,7 +600,16 @@ static uint32_t edit(mv_ui_t *u, mv_engine_t *e, uint32_t col, int32_t step, uin
         if (both) mv_param_set(&e->lower, id, mv_clamp(mv_param_get(&e->lower, id) + step, d->min, d->max));
         if (v == v0) return 0;                  /* at an end: nothing to send */
         mv_param_set(t, id, v);
-        if (d->cc != MV_NONE) midi_send(0xB0u | out_ch, d->cc, mv_cc_value(id, v));
+        if (d->cc != MV_NONE) {                 /* out on the edited part's channel (Kris 7 Nov, 3a: CH UP / CH LO,
+                                                   or out_ch where it is GLOBAL); BOTH: LOWER's too, on its own
+                                                   channel when that differs (one channel: once) */
+            uint32_t cu = part_out_ch(e, t == &e->lower ? MV_PART_LO : MV_PART_UP, out_ch);
+            midi_send(0xB0u | cu, d->cc, mv_cc_value(id, v));
+            if (both) {
+                uint32_t cl = part_out_ch(e, MV_PART_LO, out_ch);
+                if (cl != cu) midi_send(0xB0u | cl, d->cc, mv_cc_value(id, mv_param_get(&e->lower, id)));
+            }
+        }
     }
     return 0;
 }
@@ -612,6 +680,8 @@ uint32_t mv_ui_input(mv_ui_t *u, mv_engine_t *e, uint32_t pressed, uint32_t rele
     int32_t d;
     if (u->ovl == MV_OV_CLEAR && ((pressed & ~(1u << BTN_REC)) || fm1_ms - u->ovl_t >= 3000u))
         r |= ovl_close(u);                      /* the CLEAR question: another button, or 3 s: kept */
+    if (u->ovl == MV_OV_LONG && (pressed || fm1_ms - u->ovl_t >= 2000u))
+        r |= ovl_close(u);                      /* REC refused: any button, or 2 s */
     /* PLAY (Kris 6 Nov): the transport, both tracks from bar 1; stopping disarms (the ISR ends the notes) */
     if (pressed >> BTN_PLAY & 1u) {
         e->seq_ext = 0;                         /* (the panel's start: free, on TEMPO or the clock's tempo) */
@@ -633,8 +703,14 @@ uint32_t mv_ui_input(mv_ui_t *u, mv_engine_t *e, uint32_t pressed, uint32_t rele
         r |= MV_UI_PAGE;
     }
     if (released >> BTN_REC & 1u) {
-        if (u->rec_down && !u->rec_did) {
-            uint32_t bit = 1u << mv_ui_track(u, e);
+        uint32_t t = mv_ui_track(u, e);
+        if (u->rec_down && !u->rec_did && !(e->seq_arm >> t & 1u) && e->seq.t[t].rom &&
+            e->seq.t[t].rom_n > MV_SEQ_NEV) {   /* (Kris 7 Nov, 1a) a factory clip over MV_SEQ_NEV events plays from
+                                                   flash but cannot be copied to RAM to record over: refused, said */
+            u->ovl = MV_OV_LONG; u->ovl_t = fm1_ms; u->drawn_ovl = ~0u; u->ovl_track = (uint8_t)t;
+            r |= MV_UI_PAGE;
+        } else if (u->rec_down && !u->rec_did) {
+            uint32_t bit = 1u << t;
             e->seq_arm = (uint8_t)(e->seq_arm ^ bit);
             if ((e->seq_arm & bit) && !e->seq_run) { e->seq_ext = 0; e->seq_run = 1; }   /* armed: running */
         }
@@ -834,27 +910,42 @@ void mv_ui_draw(mv_ui_t *u, const mv_engine_t *e, uint32_t midi_ch)
                                                    (or what the last one came to, for 2 s) */
         static const char TRK[2] = {'U', 'L'};   /* the track letters */
         char a[32], b[40];
-        const mv_clip_info_t *d = u->clips ? &u->clips->dir[u->cl_sel] : 0;
+        const mv_clip_info_t *d = u->clips && u->cl_sel < MV_CLIP_N ? &u->clips->dir[u->cl_sel] : 0;
+        const mv_fclip_t *f = mv_clip_factory(u->cl_sel);
         uint32_t i, j = 0, k = u->cl_sel + 1u, t = mv_ui_track(u, e), msg = fm1_ms - u->cl_msg_t < 2000u ? u->cl_msg : 0u;
         const char *w;
-        for (i = 0; i < 5u; i++) a[j++] = "NAME "[i];   /* the name as edited, the cursor's character in [ ] */
-        for (i = 0; i < MV_CLIP_NAME; i++) {
-            if (i == u->cl_pos) a[j++] = '[';
-            a[j++] = u->cl_name[i];
-            if (i == u->cl_pos) a[j++] = ']';
+        if (f) {                                /* a factory clip: its name (not editable) */
+            for (i = 0; f->name[i] && i < 16u; i++) a[j++] = f->name[i];
+        } else {
+            for (i = 0; i < 5u; i++) a[j++] = "NAME "[i];   /* the name as edited, the cursor's character in [ ] */
+            for (i = 0; i < MV_CLIP_NAME; i++) {
+                if (i == u->cl_pos) a[j++] = '[';
+                a[j++] = u->cl_name[i];
+                if (i == u->cl_pos) a[j++] = ']';
+            }
         }
         a[j] = 0;
         j = 0;
         if (msg == MV_CLM_BUSY) w = "ANOTHER SAVE WAITS";
+        else if (msg == MV_CLM_RO || (f && u->cl_mode == MV_CL_SAVE)) w = "FACTORY: LOAD ONLY";
+        else if (f && !msg) w = "LOAD F";
         else if (u->clips && u->clips->err) w = "WRITE FAILED";
         else if (u->clips && u->clips->pend == u->cl_sel) w = "WRITTEN AT STOP";
         else if (msg == MV_CLM_LOADED) w = "LOADED > ";
         else if (msg == MV_CLM_EMPTY) w = "EMPTY: NOTHING";
+        else if (msg == MV_CLM_LONG) w = "TOO LONG TO SAVE";
         else if (u->cl_mode == MV_CL_LOAD) w = d && d->used ? "LOAD " : "EMPTY ";
         else w = "SAVE ";
         for (; *w; w++) b[j++] = *w;
         if (msg == MV_CLM_LOADED) b[j++] = TRK[t];
-        else if (!msg && !(u->clips && (u->clips->err || u->clips->pend == u->cl_sel))) {
+        else if (f) {                           /* LOAD F5 > L (SAVE: the line above says it cannot) */
+            if (!msg && u->cl_mode == MV_CL_LOAD) {
+                uint32_t fk = u->cl_sel - MV_CLIP_N + 1u;
+                if (fk >= 10u) b[j++] = (char)('0' + fk / 10u);
+                b[j++] = (char)('0' + fk % 10u);
+                b[j++] = ' '; b[j++] = '>'; b[j++] = ' '; b[j++] = TRK[t];
+            }
+        } else if (!msg && !(u->clips && (u->clips->err || u->clips->pend == u->cl_sel))) {
             if (u->cl_mode == MV_CL_SAVE) { b[j++] = TRK[t]; b[j++] = ' '; b[j++] = '>'; b[j++] = ' '; }
             b[j++] = (char)('0' + k / 10u); b[j++] = (char)('0' + k % 10u);
             if (d && d->used) {                 /* its name (SAVE: the one it replaces) */
@@ -898,6 +989,10 @@ void mv_ui_overlay_draw(mv_ui_t *u, const mv_engine_t *e)
         title = "PART SELECT";
         val = single ? "SINGLE" : PART[u->panel % 3u];
         hint = single ? "ONE PART ONLY" : "OCT- L  OCT+ U  BOTH L+U";
+    } else if (u->ovl == MV_OV_LONG) {
+        title = "TOO LONG TO RECORD";
+        val = u->ovl_track == MV_PART_LO ? "LOWER" : "UPPER";
+        hint = "OVER 128 NOTES: PLAY ONLY";
     } else {
         title = "CLEAR TRACK?";
         val = u->ovl_track == MV_PART_LO ? "LOWER" : "UPPER";
@@ -979,12 +1074,14 @@ static void mv_ui_dump(const char *path, mv_engine_t *e)
                     e->patch.b[wb] = keep;
                 }
             } else {
-                fprintf(f, ", \"global\": %s", (p >= P_PF && p < P_PF + MV_PF_N) || p == P_LSYNC ||
+                fprintf(f, ", \"global\": %s", (p >= P_PF && p < P_PF + MV_PF_N) || p == P_LSYNC || p == P_CSYNC ||
+                        p == P_DSYNC ||
                         (p >= P_SQBAR && p <= P_SQROOT) || (p >= P_CL && p < P_CL + 4u) ? "false" : "true");   /* (PERFORM, SYNC: the program's; ROLL's
                                                    view and ROOT: neither the program's nor kept) */
                 if (p == P_MIDICH) { lo = 0; hi = 16; }
                 else if (p == P_VOICES) { lo = 1; hi = (int32_t)MV_NV; }
                 else if (p == P_TEMPO) { lo = TEMPO_MIN; hi = TEMPO_MAX; }
+                else if (IS_MIDI(p)) { lo = 0; hi = 1; }
                 else if (p >= P_ARP && p < P_ARP + MV_ARP_N) { lo = MV_ARP_MIN[p - P_ARP]; hi = MV_ARP_MAX[p - P_ARP]; }
                 else if (p == P_RV + MV_RV_FREEZE) { lo = 0; hi = 1; }
                 else if (p == P_SV + 0u) { lo = 1; hi = MV_NPROG; }
@@ -993,17 +1090,22 @@ static void mv_ui_dump(const char *path, mv_engine_t *e)
                 else if (p == P_SV + 3u) { lo = 0; hi = 2; }
                 else if (p == P_PANEL) { lo = 0; hi = 2; }
                 else if (p == P_LSYNC) { lo = 0; hi = (int32_t)MV_LFO1_SYNC_N - 1; }
-                else if (p == P_SQLEN) { lo = 1; hi = 4; }
-                else if (p == P_SQBAR) { lo = 1; hi = 8; }
+                else if (p == P_CSYNC) { lo = 0; hi = (int32_t)MV_CSYNC_N - 1; }
+                else if (p == P_DSYNC) { lo = 0; hi = (int32_t)MV_DSYNC_N - 1; }
+                else if (p == P_SQLEN) { lo = 1; hi = (int32_t)MV_SEQ_MAXBAR; }
+                else if (p == P_SQBAR) { lo = 1; hi = (int32_t)MV_SEQ_MAXBAR; }
                 else if (p == P_SQPITCH) { lo = 0; hi = 128 - (int32_t)MV_ROLL_ROWS; }
                 else if (p == P_SQROOT) { lo = 0; hi = 127; }
-                else if (p == P_CL + 0u) { lo = 1; hi = MV_CLIP_N; }
+                else if (p == P_CL + 0u) { lo = 1; hi = MV_CLIP_N; }   /* (the user clips: the factory ones
+                                                   are local to a build, not the public sheet's) */
                 else if (p == P_CL + 1u) { lo = 1; hi = MV_CLIP_NAME; }
                 else if (p == P_CL + 2u) { lo = 32; hi = 125; kind = "char"; }
                 else if (p == P_CL + 3u) { lo = 0; hi = 1; }
                 else if (p >= P_SQ && p < P_SQ + MV_SQ_N) { lo = MV_SQ_MIN[p - P_SQ]; hi = MV_SQ_MAX[p - P_SQ]; }
                 else if (p >= P_PF && p < P_PF + MV_PF_N) {
-                    static const uint8_t TOP[MV_PF_N] = {2, 127, 127, 6, 16, 16, 3, MV_LFO1_SYNC_N - 1u, MV_LFO1_SYNC_N - 1u};
+                    static const uint8_t TOP[MV_PF_N] = {2, 127, 127, 6, 16, 16, 3, MV_LFO1_SYNC_N - 1u,
+                                                         MV_LFO1_SYNC_N - 1u, MV_DSYNC_N - 1u, MV_DSYNC_N - 1u,
+                                                         MV_CSYNC_N - 1u, MV_CSYNC_N - 1u};
                     lo = 0; hi = TOP[p - P_PF];
                 }
             }

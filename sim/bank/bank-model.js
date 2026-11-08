@@ -12,6 +12,10 @@ export const PATCH = 248;                 // a JP patch, as the synth stores it
 export const NPERF = 16;                  // M-vance's performance bytes (mv_perf.h MV_PF_N)
 // MV_PERF_DEF: SINGLE, split 60 (C4), balance 64, 4+4 voices, global channels, ARP AUTO, the rest spare (0)
 export const PERF_DEF = [0, 60, 64, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+// a JP part's syncs (03 pp 10 / 11): [offset, index in an item's sync (= performance byte - 7; + 1 the lower's), count]:
+// DELAY SYNC (MV_PF_DSYNUP 9), LFO1 SYNC (MV_PF_SYNCUP 7), CHORUS SYNC RATE (MV_PF_CSYNUP 11) (Kris 7 Nov)
+const PART_SYNCS = [[4, 2, 11], [5, 0, 23], [6, 4, 24]];
+const SYNC_UP = [7, 9, 11];                             // the UPPER sync bytes (LOWER's: + 1)
 
 // ---- Roland DT1 (device id 10h, model 00 06 = JP-8000/8080) ----
 function rsum(bytes) { let s = 0; for (const b of bytes) s += b; return (128 - (s % 128)) % 128; }
@@ -75,11 +79,11 @@ function bankOf(msgs) {
     } else if (a[0] === 0x03 && a[2] === 0x00) {        // its common: name, KEY MODE 0x10, SPLIT 0x11, BALANCE 0x13
       const c = coms.get(a[1]) || new Uint8Array(64);
       c.set(body.slice(0, 64 - a[3]), a[3]); coms.set(a[1], c); continue;
-    } else if (a[0] === 0x03 && (a[2] === 0x10 || a[2] === 0x11)) {   // a part: its LFO1 SYNC at offset 5 (JP)
-      if (a[3] <= 5 && 5 < a[3] + body.length) {
-        const sy = syncs.get(a[1]) || [0, 0], v = body[5 - a[3]];
-        sy[a[2] & 1] = v < 23 ? v : 0; syncs.set(a[1], sy);
-      }
+    } else if (a[0] === 0x03 && (a[2] === 0x10 || a[2] === 0x11)) {   // a part: its syncs at offsets 4, 5, 6 (JP)
+      const sy = syncs.get(a[1]) || [0, 0, 0, 0, 0, 0];
+      for (const [o, i, n] of PART_SYNCS)
+        if (a[3] <= o && o < a[3] + body.length) { const v = body[o - a[3]]; sy[i + (a[2] & 1)] = v < n ? v : 0; }
+      syncs.set(a[1], sy);
       continue;
     } else if (a[0] === 0x03 && a[2] === 0x70) {        // M-vance's own performance bytes
       const x = exts.get(a[1]) || Uint8Array.from(PERF_DEF);
@@ -95,11 +99,11 @@ function bankOf(msgs) {
     if (!up) continue;
     const lo = pats.get("P" + (pp + 1) + "B") || up;
     items.push({ kind: "P", no: pp + 1, com: c, up, lo, ext: exts.get(pp) || null,
-                 sync: syncs.get(pp) || [0, 0], name: nameOf(c), tick: false });
+                 sync: syncs.get(pp) || [0, 0, 0, 0, 0, 0], name: nameOf(c), tick: false });
   }
   for (let n = 1; n <= 128; n++) {
     const up = pats.get("U" + n);
-    if (up) items.push({ kind: "U", no: n, com: null, up, lo: up, ext: null, sync: [0, 0], name: nameOf(up), tick: false });
+    if (up) items.push({ kind: "U", no: n, com: null, up, lo: up, ext: null, sync: [0, 0, 0, 0, 0, 0], name: nameOf(up), tick: false });
   }
   return items;
 }
@@ -107,7 +111,7 @@ function perfOf(it) {                                    // the 16 performance b
   if (it.ext) return Array.from(it.ext);
   const p = PERF_DEF.slice();
   if (it.com) { p[0] = it.com[0x10] <= 2 ? it.com[0x10] : 0; p[1] = it.com[0x11]; p[2] = it.com[0x13]; }
-  if (it.sync) { p[7] = it.sync[0]; p[8] = it.sync[1]; }   // MV_PF_SYNCUP / LO: the parts' LFO1 SYNC
+  if (it.sync) for (let i = 0; i < 6; i++) p[7 + i] = it.sync[i] || 0;   // the parts' LFO1 / DELAY / CHORUS syncs
   return p;
 }
 // an item -> its 4 DT1 messages at base a3 a2 (03 pp = slot pp, 01 00 = the temporary area)
@@ -149,20 +153,21 @@ export function makeBankSyx(slots) {
 export function cloneItem(it) {
   return { kind: "P", no: it.no, name: it.name,
            up: Uint8Array.from(it.up), lo: Uint8Array.from(it.lo),
-           ext: Uint8Array.from(it.ext || perfOf(it)), sync: it.sync ? [...it.sync] : [0, 0],
+           ext: Uint8Array.from(it.ext || perfOf(it)), sync: it.sync ? [...it.sync] : [0, 0, 0, 0, 0, 0],
            com: it.com ? Uint8Array.from(it.com) : null };
 }
 // reorder: take the item at `from` and drop it at `to` (classic drag-drop list move)
 export function moveSlot(bank, from, to) {
   const [it] = bank.splice(from, 1); bank.splice(to, 0, it); return bank;
 }
-// drop one patch (srcPart of srcItem) into a slot's UPPER or LOWER, carrying that part's LFO1 SYNC with it
+// drop one patch (srcPart of srcItem) into a slot's UPPER or LOWER, carrying that part's syncs (LFO1, DELAY, CHORUS)
 export function dropPart(bank, srcItem, srcPart, destIdx, destPart) {
   const d = bank[destIdx];
   const src = cloneItem(srcItem), sp = Array.from(src.ext);
   const pf = Uint8Array.from(d.ext || perfOf(d));
-  if (destPart === 0) { d.up = srcPart === 0 ? src.up : src.lo; d.name = nameOf(d.up); pf[7] = sp[7 + srcPart]; }
-  else { d.lo = srcPart === 0 ? src.up : src.lo; pf[8] = sp[7 + srcPart]; }
+  if (destPart === 0) { d.up = srcPart === 0 ? src.up : src.lo; d.name = nameOf(d.up); }
+  else d.lo = srcPart === 0 ? src.up : src.lo;
+  for (const k of SYNC_UP) pf[k + destPart] = sp[k + srcPart];
   d.ext = pf; return bank;
 }
 // rename a slot (its name lives in the upper patch's first 16 bytes, ASCII 32..125)

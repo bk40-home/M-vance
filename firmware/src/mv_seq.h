@@ -17,12 +17,19 @@
  *            on, running and not empty, takes its part's keys: a key sets the track's offset (key - ROOT, -24..+24),
  *            which stays after the key goes up (latched). It applies from the next note-on: a note sounding keeps its
  *            pitch, and its note-off ends the pitch it started at (played[]). ROOT: the first note-on written to an
- *            empty track; the panel may set it; CLEAR forgets it (and the offset)
+ *            empty track; the panel may set it; CLEAR forgets it (and the offset). A track armed for REC is never
+ *            transposed: its keys record and play (Kris 7 Nov), so TRANSPOSE left on cannot swallow a recording
  *   CLIPS    (phase 3, mv_clip.h) a track's events saved to flash and loaded back: mv_seq_load replaces a track's
  *            events (the ISR, at a block's start: what it started ends first), its ROOT with them, the offset 0
  *   VIEW     ver counts every change to a track's events (a write, a CLEAR): the main loop (the piano roll) copies
  *            the events and keeps the copy only if ver did not move meanwhile (the ISR is never interrupted by it)
- *   LENGTH   per track, 1 / 2 / 4 / 8 bars of 4/4 (codes 1..4), so a 1-bar bass can run under a 4-bar line
+ *   LENGTH   per track, 1..32 bars of 4/4 (Kris 7 Nov, 2a: any whole number; it was 1 / 2 / 4 / 8), so a 1-bar
+ *            bass can run under an 11-bar line
+ *   FLASH    (Kris 7 Nov, 1a / 4a) a factory clip plays straight from flash: the track points at its events (delta-
+ *            coded, below) and reads the next one as it plays, so neither its length nor its notes are held to the
+ *            RAM track's MV_SEQ_NEV. Arming REC on it copies it into RAM first (the caller checks it fits); a LOAD or
+ *            CLEAR leaves flash. The coding: each event a varint of (ticks since the last event << 1 | v), then
+ *            note | on << 7, then the velocity when v is 1 (it changed: note-ons only; 100 at the loop's start)
  *   CLOCK    the tick comes from the quarter note in samples (TEMPO, or the MIDI clock's average: the arp's beat).
  *            After a MIDI START it is also held to the clock's pulses (4 ticks a pulse): never more than a pulse
  *            ahead, and caught up when behind (64 ticks a block at most), so it cannot drift from the DAW
@@ -50,10 +57,12 @@ enum { MV_SQQ_OFF, MV_SQQ_16, MV_SQQ_8, MV_SQQ_16T, MV_SQQ_8T, MV_SQQ_N };   /* 
 enum { MV_SQX_OFF, MV_SQX_LO, MV_SQX_UP, MV_SQX_BOTH, MV_SQX_N };              /* TRANSPOSE: the tracks it is on for */
 #define MV_SEQ_XMAX 24                          /* the offset's range: -24 .. +24 semitones */
 #define MV_SEQ_NOROOT 0xFFu                     /* root: none yet (an empty track) */
-/* ranges and defaults (the panel and the settings load). LENGTH 1..4 = 1, 2, 4, 8 bars: 0 is never valid, so a
- * settings record from before the sequencer (its spare bytes 0) is seen and given the defaults */
+/* ranges and defaults (the panel and the settings load). LENGTH in bars, 1..32: 0 is never valid, so a settings
+ * record from before the sequencer (its spare bytes 0) is seen and given the defaults (mvance.c converts the 1 / 2 /
+ * 4 / 8 codes of a record from before 7 Nov) */
+#define MV_SEQ_MAXBAR 32u                       /* LENGTH: 1..32 bars (12288 ticks: a 16-bit tick holds it) */
 static const uint8_t MV_SQ_MIN[MV_SQ_N] = {1, 1, 0, 0, 0, 0};
-static const uint8_t MV_SQ_MAX[MV_SQ_N] = {4, 4, MV_SQQ_N - 1u, 1, 1, MV_SQX_N - 1u};
+static const uint8_t MV_SQ_MAX[MV_SQ_N] = {MV_SEQ_MAXBAR, MV_SEQ_MAXBAR, MV_SQQ_N - 1u, 1, 1, MV_SQX_N - 1u};
 static const uint8_t MV_SQ_DEF[MV_SQ_N] = {2, 2, MV_SQQ_16, 0, 0, MV_SQX_OFF};   /* 2 bars each, 1/16, none muted,
                                                    TRANSPOSE off (0: a record from phase 1 reads as off) */
 
@@ -62,6 +71,17 @@ typedef struct {
     uint8_t note;                               /* the note (bit 7: MV_SEQ_SKIP) */
     uint8_t vel;                                /* 1..127 a note-on, 0 its note-off */
 } mv_seq_ev_t;
+
+/* a reader of flash events (the coding above) */
+typedef struct {
+    const uint8_t *p;                           /* the events */
+    uint16_t bytes, pos;                        /* their size; the next byte */
+    uint16_t tick;                              /* the last event's tick */
+    uint8_t vel;                                /* the velocity now (100 at the start) */
+} mv_seq_rd_t;
+void mv_seq_rd_start(mv_seq_rd_t *r, const uint8_t *p, uint32_t bytes);
+/* the next event: 1 and its tick, note, velocity (0 = note-off); 0 at the end */
+int mv_seq_rd_next(mv_seq_rd_t *r, uint32_t *tick, uint32_t *note, uint32_t *vel);
 
 typedef struct {
     mv_seq_ev_t ev[MV_SEQ_NEV];
@@ -80,6 +100,11 @@ typedef struct {
     uint16_t rec_on[MV_SEQ_NHELD];              /* .. and the tick it was written at */
     uint8_t nrec;
     uint8_t muted;                              /* MUTE as last seen (a change ends its notes) */
+    const uint8_t *rom;                         /* a factory clip it plays from flash (0: its RAM events) .. */
+    uint16_t rom_bytes, rom_n;                  /* .. its size and events .. */
+    mv_seq_rd_t rd;                             /* .. the reader at the next event .. */
+    uint16_t rt;                                /* .. which is at tick rt, note rn, velocity rv (0 off) .. */
+    uint8_t rn, rv, rhave;                      /* .. (rhave 0: none left this pass) */
 } mv_seq_track_t;
 
 typedef struct {
@@ -113,9 +138,14 @@ void mv_seq_clear(mv_seq_t *s, uint32_t part, mv_seq_emit_t emit, void *ctx);
 int mv_seq_xpose_on(const mv_seq_t *s, const volatile uint8_t *set, uint32_t part);
 /* a key for a transposing track: its offset (key - ROOT, held to +-MV_SEQ_XMAX), from the next note-on */
 void mv_seq_transpose(mv_seq_t *s, uint32_t part, uint32_t key);
+/* a factory clip into part's track, played from flash (bytes of coded events, n of them): its notes end first */
+void mv_seq_load_rom(mv_seq_t *s, uint32_t part, const uint8_t *rom, uint32_t bytes, uint32_t n, uint32_t root,
+                     mv_seq_emit_t emit, void *ctx);
+/* the track's flash clip into its RAM events (REC armed on it): at most MV_SEQ_NEV (the caller checks rom_n) */
+void mv_seq_unrom(mv_seq_t *s, uint32_t part);
 /* a clip into part's track (phase 3): its notes end, then n events (sorted by tick) and the clip's ROOT replace
  * the track's; the playhead runs on (the next event from where it is); nothing being recorded is kept */
 void mv_seq_load(mv_seq_t *s, uint32_t part, const mv_seq_ev_t *ev, uint32_t n, uint32_t root, mv_seq_emit_t emit,
                  void *ctx);
-/* the track's loop in ticks, from its LENGTH code (1..4: 1, 2, 4, 8 bars) */
+/* the track's loop in ticks, from its LENGTH (1..32 bars) */
 uint32_t mv_seq_len(const volatile uint8_t *set, uint32_t part);

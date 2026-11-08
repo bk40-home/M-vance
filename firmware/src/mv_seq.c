@@ -10,8 +10,39 @@ static const uint8_t SQ_GRID[MV_SQQ_N] = {0, MV_SEQ_PPQN / 4u, MV_SEQ_PPQN / 2u,
 uint32_t mv_seq_len(const volatile uint8_t *set, uint32_t part)
 {
     uint32_t c = set[MV_SQ_LEN(part)];
-    if (c < 1u || c > 4u) c = MV_SQ_DEF[MV_SQ_LEN(part)];   /* (never out of range from the panel; safe anyway) */
-    return MV_SEQ_BAR << (c - 1u);              /* 1, 2, 4, 8 bars */
+    if (c < 1u || c > MV_SEQ_MAXBAR) c = MV_SQ_DEF[MV_SQ_LEN(part)];   /* (never out of range from the panel) */
+    return MV_SEQ_BAR * c;                      /* bars x 384 ticks (a multiply: no table) */
+}
+
+void mv_seq_rd_start(mv_seq_rd_t *r, const uint8_t *p, uint32_t bytes)
+{
+    r->p = p; r->bytes = (uint16_t)bytes; r->pos = 0; r->tick = 0; r->vel = 100;
+}
+
+int mv_seq_rd_next(mv_seq_rd_t *r, uint32_t *tick, uint32_t *note, uint32_t *vel)
+{
+    uint32_t d = 0, sh = 0, b;
+    if (!r->p || r->pos >= r->bytes) return 0;
+    do {                                        /* the varint: (delta << 1 | velocity follows) */
+        b = r->p[r->pos++];
+        d |= (b & 127u) << sh;
+        sh += 7u;
+    } while ((b & 128u) && r->pos < r->bytes && sh < 28u);
+    if (r->pos >= r->bytes) return 0;           /* (cut short: the end) */
+    r->tick = (uint16_t)(r->tick + (d >> 1));
+    b = r->p[r->pos++];                         /* note | on << 7 */
+    if ((d & 1u) && r->pos < r->bytes) r->vel = r->p[r->pos++];
+    *tick = r->tick; *note = b & 127u; *vel = b & 128u ? (r->vel ? r->vel : 1u) : 0u;
+    return 1;
+}
+
+/* a flash track's reader to the first event at or after tick (a LOAD, LENGTH moved, the loop's start) */
+static void rom_seek(mv_seq_track_t *T, uint32_t tick)
+{
+    uint32_t t = 0, n = 0, v = 0;
+    mv_seq_rd_start(&T->rd, T->rom, T->rom_bytes);
+    while ((T->rhave = (uint8_t)mv_seq_rd_next(&T->rd, &t, &n, &v)) != 0 && t < tick) {}
+    T->rt = (uint16_t)t; T->rn = (uint8_t)n; T->rv = (uint8_t)v;
 }
 
 /* the first event at or after tick (events are sorted by tick) */
@@ -55,6 +86,7 @@ void mv_seq_init(mv_seq_t *s)
         mv_seq_track_t *T = &s->t[i];
         T->n = 0; T->next = 0; T->tick = 0; T->len = 0; T->nrec = 0; T->muted = 0;
         T->root = MV_SEQ_NOROOT; T->xpose = 0;
+        T->rom = 0; T->rom_bytes = 0; T->rom_n = 0; T->rhave = 0;
         for (k = 0; k < 16u; k++) T->sound[k] = 0;
         for (k = 0; k < 128u; k++) T->played[k] = 0xFFu;
     }
@@ -68,6 +100,23 @@ void mv_seq_start(mv_seq_t *s)
     s->acc = 0; s->ticks = 0; s->first = 1;
 }
 
+/* an event played (RAM or flash alike): the note's last start ends (at the pitch it started at), then a note-on
+ * starts at the offset now (TRANSPOSE), held to 0..127 */
+static void play_ev(mv_seq_track_t *T, uint32_t part, uint32_t note, uint32_t vel, mv_seq_emit_t emit, void *ctx)
+{
+    uint32_t p = T->played[note];
+    if (p != 0xFFu) {
+        T->played[note] = 0xFFu;
+        sound_off(T, part, p, emit, ctx);
+    }
+    if (vel) {
+        int32_t q = (int32_t)note + T->xpose;
+        q = q < 0 ? 0 : q > 127 ? 127 : q;
+        T->played[note] = (uint8_t)q;
+        sound_on(T, part, (uint32_t)q, vel, emit, ctx);
+    }
+}
+
 /* one tick: each track's events at its tick, then on */
 static void step(mv_seq_t *s, const volatile uint8_t *set, mv_seq_emit_t emit, void *ctx)
 {
@@ -78,30 +127,31 @@ static void step(mv_seq_t *s, const volatile uint8_t *set, mv_seq_emit_t emit, v
         if (len != T->len) {                    /* LENGTH moved (or the start): past the new end, from bar 1 */
             T->len = (uint16_t)len;
             if (T->tick >= len) T->tick = 0;
-            T->next = (uint16_t)at_or_after(T, T->tick);
+            if (T->rom) rom_seek(T, T->tick);
+            else T->next = (uint16_t)at_or_after(T, T->tick);
         }
         if (muted != T->muted) {                /* MUTE on: what it started ends now */
             T->muted = (uint8_t)muted;
             if (muted) flush(T, i, emit, ctx);
         }
-        while (T->next < T->n && T->ev[T->next].tick == T->tick) {
-            mv_seq_ev_t *ev = &T->ev[T->next++];
-            uint32_t note = ev->note & 127u, p = T->played[note];
-            if (ev->note & MV_SEQ_SKIP) { ev->note = (uint8_t)note; continue; }   /* written ahead this pass */
-            if (muted) continue;
-            if (p != 0xFFu) {                   /* its last start still sounds (a note-on, or this note-off): it
-                                                   ends, at the pitch it started at */
-                T->played[note] = 0xFFu;
-                sound_off(T, i, p, emit, ctx);
+        if (T->rom) {                           /* a factory clip, from flash: the events at this tick */
+            while (T->rhave && T->rt == T->tick) {
+                uint32_t t, n, v;
+                if (!muted) play_ev(T, i, T->rn, T->rv, emit, ctx);
+                T->rhave = (uint8_t)mv_seq_rd_next(&T->rd, &t, &n, &v);
+                T->rt = (uint16_t)t; T->rn = (uint8_t)n; T->rv = (uint8_t)v;
             }
-            if (ev->vel) {                      /* a note-on: at the offset now (TRANSPOSE), held to 0..127 */
-                int32_t q = (int32_t)note + T->xpose;
-                q = q < 0 ? 0 : q > 127 ? 127 : q;
-                T->played[note] = (uint8_t)q;
-                sound_on(T, i, (uint32_t)q, ev->vel, emit, ctx);
+        } else
+            while (T->next < T->n && T->ev[T->next].tick == T->tick) {
+                mv_seq_ev_t *ev = &T->ev[T->next++];
+                uint32_t note = ev->note & 127u;
+                if (ev->note & MV_SEQ_SKIP) { ev->note = (uint8_t)note; continue; }   /* written ahead this pass */
+                if (!muted) play_ev(T, i, note, ev->vel, emit, ctx);
             }
+        if (++T->tick >= len) {                 /* the loop's end: round again */
+            T->tick = 0; T->next = 0;
+            if (T->rom) rom_seek(T, 0);
         }
-        if (++T->tick >= len) { T->tick = 0; T->next = 0; }   /* the loop's end: round again */
     }
     s->ticks++;
 }
@@ -213,6 +263,7 @@ void mv_seq_clear(mv_seq_t *s, uint32_t part, mv_seq_emit_t emit, void *ctx)
     mv_seq_track_t *T = &s->t[part & 1u];
     flush(T, part & 1u, emit, ctx);
     T->n = 0; T->next = 0; T->nrec = 0;         /* (the playhead runs on: an armed track records afresh) */
+    T->rom = 0;                                 /* (a factory clip: left) */
     T->root = MV_SEQ_NOROOT; T->xpose = 0;      /* (TRANSPOSE: back to none) */
     s->ver++;
 }
@@ -229,9 +280,37 @@ void mv_seq_load(mv_seq_t *s, uint32_t part, const mv_seq_ev_t *ev, uint32_t n, 
         T->ev[i].note = (uint8_t)(ev[i].note & 127u);   /* (no skip marks: nothing was played live) */
         T->ev[i].vel = ev[i].vel;
     }
-    T->n = (uint16_t)n; T->nrec = 0;
+    T->n = (uint16_t)n; T->nrec = 0; T->rom = 0;
     T->next = (uint16_t)at_or_after(T, T->tick);   /* (the playhead runs on, from where it is) */
     T->root = (uint8_t)(root <= 127u ? root : MV_SEQ_NOROOT); T->xpose = 0;
+    s->ver++;
+}
+
+void mv_seq_load_rom(mv_seq_t *s, uint32_t part, const uint8_t *rom, uint32_t bytes, uint32_t n, uint32_t root,
+                     mv_seq_emit_t emit, void *ctx)
+{
+    mv_seq_track_t *T = &s->t[part & 1u];
+    flush(T, part & 1u, emit, ctx);             /* what it was playing ends */
+    T->n = 0; T->next = 0; T->nrec = 0;         /* (its RAM events: none) */
+    T->rom = rom; T->rom_bytes = (uint16_t)bytes; T->rom_n = (uint16_t)n;
+    rom_seek(T, T->tick);                       /* (the playhead runs on, from where it is) */
+    T->root = (uint8_t)(root <= 127u ? root : MV_SEQ_NOROOT); T->xpose = 0;
+    s->ver++;
+}
+
+void mv_seq_unrom(mv_seq_t *s, uint32_t part)
+{
+    mv_seq_track_t *T = &s->t[part & 1u];
+    mv_seq_rd_t r;
+    uint32_t t, n, v, k = 0;
+    if (!T->rom) return;
+    mv_seq_rd_start(&r, T->rom, T->rom_bytes);
+    while (k < MV_SEQ_NEV && mv_seq_rd_next(&r, &t, &n, &v)) {   /* (sorted already: as coded) */
+        T->ev[k].tick = (uint16_t)t; T->ev[k].note = (uint8_t)n; T->ev[k].vel = (uint8_t)v;
+        k++;
+    }
+    T->n = (uint16_t)k; T->rom = 0;
+    T->next = (uint16_t)at_or_after(T, T->tick);   /* (what sounds keeps sounding: played[] is the same notes') */
     s->ver++;
 }
 

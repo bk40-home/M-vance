@@ -9,7 +9,8 @@
  * Performances (03 pp xx, Kris 3 Nov: layer / split) land at program pp too: the common block's name, KEY MODE
  * (0x10), SPLIT POINT (0x11) and BALANCE (0x13), the upper patch (03 pp 40/41) and the lower one (03 pp 42/43),
  * each parsed by the same mv_sysex_parse (the address moved to the temporary patch's, the checksum made again).
- * Their parts' LFO1 SYNC (03 pp 10 / 11, offset 5: the JP's part parameter, Kris 5 Nov) goes to MV_PF_SYNCUP / LO.
+ * Their parts' LFO1 SYNC (03 pp 10 / 11, offset 5: the JP's part parameter, Kris 5 Nov) goes to MV_PF_SYNCUP / LO,
+ * their DELAY SYNC (offset 4) to MV_PF_DSYNUP / LO and CHORUS SYNC RATE (offset 6) to MV_PF_CSYNUP / LO (Kris 7 Nov).
  * A program's name is its upper patch's bytes 0..15: a performance's name goes there. A program with no lower
  * patch gets a copy of its upper one (a single switched to DUAL then doubles its own sound).
  * An optional second argument names the list the file was made from (tools/make_bank.py passes its list), for the
@@ -59,9 +60,13 @@ static void take_perf(const uint8_t *msg, uint32_t n)
         if (com[pp][0] > 2u) com[pp][0] = 0;
         return;
     }
-    if (area == 0x10u || area == 0x11u) {       /* a part (upper / lower): only its LFO1 SYNC (offset 5) is ours */
+    if (area == 0x10u || area == 0x11u) {       /* a part (upper / lower): its syncs are ours (offsets 4, 5, 6) */
+        static const uint8_t TO[3] = {9u, 7u, 11u}, TOP[3] = {11u, 23u, 24u};   /* DELAY, LFO1, CHORUS: byte, count */
         for (i = 0; i < len; i++)
-            if (off + i == 5u) { uint32_t v = msg[10u + i] & 127u; com[pp][7u + (area & 1u)] = (uint8_t)(v < 23u ? v : 0u); }
+            if (off + i >= 4u && off + i <= 6u) {
+                uint32_t k = off + i - 4u, v = msg[10u + i] & 127u;
+                com[pp][TO[k] + (area & 1u)] = (uint8_t)(v < TOP[k] ? v : 0u);   /* (out of range: OFF) */
+            }
         return;
     }
     if (area < 0x40u || area > 0x43u || n > sizeof m) { not_ours++; return; }   /* (08: not ours) */

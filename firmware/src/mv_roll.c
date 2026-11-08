@@ -43,54 +43,72 @@ void mv_roll_init(mv_roll_t *r)
     r->grid_key = r->keys_key = r->foot_key = ~0u; r->ph = -1; r->shown = 0xFF;
 }
 
-/* the spans from a copy of the tracks' events, if they changed since the last (1: made anew). The copy is read
- * through a volatile pointer and kept only if seq.ver is the same after it as before: the ISR may write in between
- * (a key recorded), never half way under it (the ISR runs to the end before the main loop goes on) */
+/* one event into the spans (k: its track; pass 0 opens and closes, pass 1 only closes: a note-off before its note-on
+ * in the list ends a note held over the loop's end, its end then in the second pass: b = tick + len). Events past
+ * the loop (LENGTH shortened): not shown */
+static void snap_ev(mv_roll_t *r, uint16_t *open, uint32_t k, uint32_t pass, uint32_t len, uint32_t t, uint32_t note,
+                    uint32_t vel)
+{
+    note &= 127u;
+    if (t >= len) return;
+    if (vel) {
+        if (pass) return;                       /* (the second pass only closes) */
+        if (open[note] != 0xFFFFu && r->nsp < MV_ROLL_NSP) {   /* the same note again: the last one ends */
+            mv_roll_span_t *s = &r->sp[r->nsp++];
+            s->a = open[note]; s->b = (uint16_t)(t > open[note] ? t : open[note] + 1u);
+            s->note = (uint8_t)note; s->trk = (uint8_t)k;
+        }
+        open[note] = (uint16_t)t;
+    } else if (open[note] != 0xFFFFu) {
+        uint32_t b = t + pass * len;
+        if (b <= open[note]) b = open[note] + 1u;   /* (a tick long at least) */
+        if (r->nsp < MV_ROLL_NSP) {
+            mv_roll_span_t *s = &r->sp[r->nsp++];
+            s->a = open[note]; s->b = (uint16_t)b; s->note = (uint8_t)note; s->trk = (uint8_t)k;
+        }
+        open[note] = 0xFFFFu;
+    }
+}
+
+/* the spans from the tracks' events, if they changed since the last (1: made anew). RAM events are copied through
+ * a volatile pointer and kept only if seq.ver is the same after it as before: the ISR may write in between (a key
+ * recorded), never half way under it (the ISR runs to the end before the main loop goes on). A factory clip (Kris
+ * 7 Nov, 1a: played from flash) is read where it is: flash never changes, only which clip, and that moves ver */
 static int roll_snap(mv_roll_t *r, const mv_engine_t *e)
 {
     static mv_seq_ev_t ev[MV_SEQ_NEV];          /* (1 KB: the copy, one track at a time) */
     static uint16_t open[128];                  /* a note-on not yet ended: its tick (0xFFFF none) */
-    uint32_t v = e->seq.ver, k, i, pass, ns = 0;
+    uint32_t v = e->seq.ver, k, i, pass;
     uint32_t L0 = mv_seq_len(e->seqb, 0), L1 = mv_seq_len(e->seqb, 1);
     if (r->valid && v == r->ver && L0 == r->len[0] && L1 == r->len[1]) return 0;
+    r->nsp = 0;
     for (k = 0; k < 2u; k++) {
         const volatile mv_seq_ev_t *src = e->seq.t[k].ev;
-        uint32_t n = e->seq.t[k].n, len = k ? L1 : L0, now = e->seq.t[k].tick;
-        if (n > MV_SEQ_NEV) return 0;           /* (never: the ISR caps it) */
-        for (i = 0; i < n; i++) { ev[i].tick = src[i].tick; ev[i].note = src[i].note; ev[i].vel = src[i].vel; }
-        if (e->seq.ver != v) return 0;          /* written meanwhile: the next pass tries again */
+        const uint8_t *rom = e->seq.t[k].rom;
+        uint32_t n = e->seq.t[k].n, len = k ? L1 : L0, now = e->seq.t[k].tick, bytes = e->seq.t[k].rom_bytes;
+        if (n > MV_SEQ_NEV) { r->valid = 0; return 0; }   /* (never: the ISR caps it) */
+        if (!rom) for (i = 0; i < n; i++) { ev[i].tick = src[i].tick; ev[i].note = src[i].note; ev[i].vel = src[i].vel; }
+        if (e->seq.ver != v) { r->valid = 0; return 0; }   /* written meanwhile: the next pass tries again (the
+                                                   spans half made: made again then) */
         for (i = 0; i < 128u; i++) open[i] = 0xFFFFu;
-        /* two passes round the loop: a note-off before its note-on in the list ends a note held over the loop's end
-         * (its end then lies in the second pass: b = tick + len). Events past the loop (LENGTH shortened): not shown */
-        for (pass = 0; pass < 2u; pass++)
-            for (i = 0; i < n; i++) {
-                uint32_t note = ev[i].note & 127u, t = ev[i].tick;
-                if (t >= len) continue;
-                if (ev[i].vel) {
-                    if (pass) continue;         /* (the second pass only closes) */
-                    if (open[note] != 0xFFFFu && ns < MV_SEQ_NEV) {   /* the same note again: the last one ends */
-                        r->sp[ns].a = open[note]; r->sp[ns].b = (uint16_t)(t > open[note] ? t : open[note] + 1u);
-                        r->sp[ns].note = (uint8_t)note; r->sp[ns].trk = (uint8_t)k; ns++;
-                    }
-                    open[note] = (uint16_t)t;
-                } else if (open[note] != 0xFFFFu) {
-                    uint32_t b = t + pass * len;
-                    if (b <= open[note]) b = open[note] + 1u;   /* (a tick long at least) */
-                    if (ns < MV_SEQ_NEV) {
-                        r->sp[ns].a = open[note]; r->sp[ns].b = (uint16_t)b;
-                        r->sp[ns].note = (uint8_t)note; r->sp[ns].trk = (uint8_t)k; ns++;
-                    }
-                    open[note] = 0xFFFFu;
-                }
-            }
+        for (pass = 0; pass < 2u; pass++) {
+            if (rom) {                          /* (from flash: decoded as the ISR plays it, mv_seq.h FLASH) */
+                mv_seq_rd_t rd;
+                uint32_t t, nt, vl;
+                mv_seq_rd_start(&rd, rom, bytes);
+                while (mv_seq_rd_next(&rd, &t, &nt, &vl)) snap_ev(r, open, k, pass, len, t, nt, vl);
+            } else
+                for (i = 0; i < n; i++) snap_ev(r, open, k, pass, len, ev[i].tick, ev[i].note, ev[i].vel);
+        }
         for (i = 0; i < 128u; i++)              /* a key still held while recording: up to the playhead */
-            if (open[i] != 0xFFFFu && ns < MV_SEQ_NEV) {
+            if (open[i] != 0xFFFFu && r->nsp < MV_ROLL_NSP) {
                 uint32_t b = now >= open[i] ? now : now + len;
-                r->sp[ns].a = open[i]; r->sp[ns].b = (uint16_t)(b > open[i] ? b : open[i] + 1u);
-                r->sp[ns].note = (uint8_t)i; r->sp[ns].trk = (uint8_t)k; ns++;
+                mv_roll_span_t *s = &r->sp[r->nsp++];
+                s->a = open[i]; s->b = (uint16_t)(b > open[i] ? b : open[i] + 1u);
+                s->note = (uint8_t)i; s->trk = (uint8_t)k;
             }
     }
-    r->nsp = ns; r->ver = v; r->len[0] = (uint16_t)L0; r->len[1] = (uint16_t)L1; r->valid = 1;
+    r->ver = v; r->len[0] = (uint16_t)L0; r->len[1] = (uint16_t)L1; r->valid = 1;
     return 1;
 }
 
@@ -252,21 +270,26 @@ void mv_roll_draw(mv_roll_t *r, mv_ui_t *u, const mv_engine_t *e, int all)
         const char *a;
         uint32_t i = 0, x = e->seqb[MV_SQ_XPOSE] < MV_SQX_N ? e->seqb[MV_SQ_XPOSE] : 0u, root = T->root;
         int32_t off = T->xpose, m;
+        const char *gap = w.nbar >= 10u ? " " : "  ";   /* (a loop of 10+ bars: 2 digits more, a space less a gap) */
         for (a = "BAR "; *a; a++) s[i++] = *a;
-        if (w.bar + 1u >= 10u) s[i++] = '1';
-        s[i++] = (char)('0' + (w.bar + 1u) % 10u); s[i++] = '/'; s[i++] = (char)('0' + w.nbar % 10u);
-        for (a = "  ROOT "; *a; a++) s[i++] = *a;
+        if (w.bar + 1u >= 10u) s[i++] = (char)('0' + (w.bar + 1u) / 10u);   /* (1..32 bars, Kris 7 Nov 2a) */
+        s[i++] = (char)('0' + (w.bar + 1u) % 10u); s[i++] = '/';
+        if (w.nbar >= 10u) s[i++] = (char)('0' + w.nbar / 10u);
+        s[i++] = (char)('0' + w.nbar % 10u);
+        for (a = gap; *a; a++) s[i++] = *a;
+        for (a = "ROOT "; *a; a++) s[i++] = *a;
         if (root == MV_SEQ_NOROOT) s[i++] = '-';
         else { note_txt(nb, root); for (a = nb; *a; a++) s[i++] = *a; }
-        s[i++] = ' '; s[i++] = ' ';
+        for (a = gap; *a; a++) s[i++] = *a;
         s[i++] = off < 0 ? '-' : '+';
         m = off < 0 ? -off : off;
         if (m >= 10) s[i++] = (char)('0' + m / 10);
         s[i++] = (char)('0' + m % 10);
-        for (a = "  TR "; *a; a++) s[i++] = *a;
+        for (a = gap; *a; a++) s[i++] = *a;
+        for (a = "TR "; *a; a++) s[i++] = *a;
         for (a = TR[x]; *a; a++) s[i++] = *a;
-        s[i] = 0;                               /* (at most 4+3+7+3+2+3+5+3 = 30, as "BAR 1/8  ROOT C#-1  -24  TR
-                                                   L+U": in practice 27) */
+        s[i] = 0;                               /* (at most 30, as "BAR 1/8  ROOT C#-1  -24  TR L+U" or "BAR 12/32
+                                                   ROOT C#-1 -24 TR L+U": in practice 27) */
         key = 2166136261u;
         for (a = s; *a; a++) key = (key ^ (uint8_t)*a) * 16777619u;
         if (key != r->foot_key) { r->foot_key = key; draw_text_box(0, RL_FOOT_Y, 240, &FONT_S, s, C_AMB, 1); }

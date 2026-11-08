@@ -38,7 +38,8 @@
  *             time; KNOB1 BAR (while stopped: running, it follows the playhead), KNOB2 PITCH (the rows; fitted to
  *             the notes when the page opens), KNOB3 TRANSPOSE (OFF / LOWER / UPPER / BOTH, global), KNOB4 ROOT (the
  *             selected track's)
- *   CLIP      (Kris 6 Nov, phase 3) SEQ 3/3: CLIP (1..12, with its name), CURSOR and CHAR (the name, 6 characters),
+ *   CLIP      (Kris 6 Nov, phase 3) SEQ 3/3: CLIP (1..12, with its name; then the factory clips F1, F2 .., LOAD
+ *             only: Kris 7 Nov), CURSOR and CHAR (the name, 6 characters),
  *             MODE LOAD / SAVE; SAVE does it (as on the SAVE page): LOAD that clip into the selected track, or SAVE
  *             the selected track as that clip, named (written to flash at the next STOP, when nothing sounds)
  *   PART      (Kris 6 Nov, 1a / 2a) OCT- or OCT+ steps the octave at once; the other one pressed while the first is
@@ -91,11 +92,22 @@ typedef struct {
     uint8_t cl_act;                             /* CLIP: asked for (MV_CL_* + 1; 0 none): the caller does it */
     uint8_t cl_msg;                             /* CLIP: what the last one came to (MV_CLM_*), shown 2 s .. */
     uint32_t cl_msg_t;                          /* .. from then (fm1_ms) */
+    uint8_t midi;                               /* MIDI page (Kris 7 Nov, DAW use): MV_MIDI_* bits, kept in flash (the
+                                                   caller loads it from the settings and saves it on MV_UI_SETTING) */
 } mv_ui_t;
+/* the MIDI page's settings, one byte (fm1-port/mvance-midi-daw-proposal-2026-11-07.md, 1a 2a 3a 6a). 0 is today's
+ * behaviour, so a settings record from before (0 in its spare) changes nothing:
+ *   MV_MIDI_LOCALOFF  LOCAL OFF: the FM-1's keys go to MIDI out only; the sound plays what comes back on MIDI in
+ *   MV_MIDI_CLKINT    CLOCK INT: incoming F8 / FA / FB / FC are ignored (0 = AUTO: followed while they come)
+ *   MV_MIDI_CLKOUT    CLK OUT ON: F8 at TEMPO to USB MIDI while the FM-1 is on its own tempo; PLAY sends FA / FC */
+#define MV_MIDI_LOCALOFF 0x01u
+#define MV_MIDI_CLKINT 0x02u                    /* (bits 1..2 reserved for the source: 0 AUTO, 1 INT) */
+#define MV_MIDI_CLKOUT 0x08u
+#define MV_MIDI_MASK (MV_MIDI_LOCALOFF | MV_MIDI_CLKINT | MV_MIDI_CLKOUT)   /* a loaded byte is cleaned with it */
 enum { MV_CL_LOAD, MV_CL_SAVE };                /* CLIP MODE */
-enum { MV_CLM_NONE, MV_CLM_LOADED, MV_CLM_SAVED, MV_CLM_EMPTY, MV_CLM_BUSY };   /* CLIP: what it came to */
+enum { MV_CLM_NONE, MV_CLM_LOADED, MV_CLM_SAVED, MV_CLM_EMPTY, MV_CLM_BUSY, MV_CLM_RO, MV_CLM_LONG };   /* CLIP: what it came to */
 #define MV_ROLL_ROWS 23u                        /* ROLL: note rows shown (8 px each: about 2 octaves) */
-enum { MV_OV_NONE, MV_OV_PART, MV_OV_CLEAR };   /* overlays */
+enum { MV_OV_NONE, MV_OV_PART, MV_OV_CLEAR, MV_OV_LONG };   /* overlays (LONG: REC refused, a flash clip too long) */
 enum { MV_SV_NONE, MV_SV_WRITE, MV_SV_SWAP, MV_SV_FACTORY };
 enum { MV_UI_UPPER, MV_UI_LOWER, MV_UI_BOTH };   /* PANEL */
 

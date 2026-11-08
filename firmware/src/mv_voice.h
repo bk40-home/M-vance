@@ -133,7 +133,8 @@ typedef struct {
     mv_voice_t v[MV_NV];
     volatile int32_t bend14;                    /* pitch bend, -8192..+8191 */
     volatile uint32_t wheel;                    /* mod wheel CC1, 0..127 */
-    volatile uint32_t evq[MV_EVQ];              /* note events: to << 16 | on << 15 | note << 7 | velocity */
+    volatile uint32_t evq[MV_EVQ];              /* note events: direct << 18 | to << 16 | on << 15 | note << 7 |
+                                                   velocity (direct: to as given, not routed by the mode / split) */
     volatile uint32_t ev_w, ev_r;
     uint32_t ages;
     volatile uint32_t nv;                       /* voices that take new notes, 1..MV_NV (set by the main loop: a
@@ -152,6 +153,11 @@ typedef struct {
     volatile uint32_t lfo1_sync_inc[2];         /* a part's synced LFO1 step (mv_lfo_sync_inc), 0 free: main loop sets */
     uint8_t sync_s[2];                          /* main loop: the LFO1 SYNC byte each part's step was made for */
     uint32_t sync_beat[2];                      /* main loop: and the beat (samples) it was made for */
+    volatile uint32_t fx_minc;                  /* UPPER's CHORUS SYNC RATE as a Multi-FX LFO step (Q32 a sample), 0 the
+                                                   type's own rate, MV_FX_MINC_LFO1 follow LFO1: main loop sets */
+    volatile uint32_t fx_dtap;                  /* UPPER's DELAY SYNC as the L tap (samples, Q12), 0 TIME: main loop */
+    uint8_t fx_ds, fx_cs;                       /* main loop: the DELAY SYNC / CHORUS SYNC RATE bytes those were made for */
+    uint32_t fx_beat;                           /* main loop: and the beat */
     volatile uint8_t arp_start;                 /* MIDI START seen (main loop sets, the ISR clears) */
     uint8_t arp_live;                           /* the arp the ISR is running (follows arpb[ON] at a block's start) */
     mv_seq_t seq;                               /* the sequencer (mv_seq.c): runs on the ISR, beside the arp */
@@ -166,6 +172,9 @@ typedef struct {
     mv_seq_ev_t seq_lbuf[MV_SEQ_NEV];           /* a clip to load (phase 3): the main loop fills it, then asks .. */
     uint16_t seq_ln;                            /* .. its events, .. */
     uint8_t seq_lroot;                          /* .. its ROOT, .. */
+    const uint8_t *seq_lrom;                    /* .. or a factory clip's flash events (then seq_lbuf unused) and
+                                                   their bytes (seq_ln: their events), .. */
+    uint16_t seq_lbytes;
     volatile uint8_t seq_load;                  /* .. the track + 1 (0: none); the ISR loads it and clears this. The
                                                    main loop touches seq_lbuf only while this is 0 */
 #if MV_PROFILE
@@ -180,11 +189,17 @@ void mv_engine_note_on(mv_engine_t *e, uint32_t note, uint32_t vel);   /* main l
 void mv_engine_note_off(mv_engine_t *e, uint32_t note);                 /* main loop */
 /* the same with a destination: MV_TO_UP / MV_TO_LO / MV_TO_ROUTE (MIDI in, gated by the parts' channels) */
 void mv_engine_note_to(mv_engine_t *e, uint32_t note, uint32_t vel, uint32_t to);   /* vel 0: off */
+/* a key straight to the part(s) to (MV_TO_* bits), past the mode and the split: the FM-1's own keys, which follow
+ * PART SELECT / PANEL (Kris 7 Nov, 1a: the caller picks the parts). vel 0: off (to every part, as ever) */
+void mv_engine_note_direct(mv_engine_t *e, uint32_t note, uint32_t vel, uint32_t to);
 void mv_engine_render(mv_engine_t *e, int32_t *out, uint32_t n);        /* ISR: n stereo frames, adds Q15 */
 /* main loop, after arp_beat or a program / perf byte may have moved: each part's synced LFO1 step from its LFO1 SYNC
  * byte and arp_beat. A divide only when the byte changes or the beat moves more than 1/512 (0.2 %) from the one the
  * step was made for: MIDI clock jitter leaves the step alone (Kris 5 Nov, fix 2) */
 void mv_engine_sync(mv_engine_t *e);
+/* fx_minc's "follow UPPER's LFO1" (CHORUS SYNC RATE 23): the ISR takes LFO1's block step / MV_CTL. A real step is
+ * never this (at most 2^32 x 24 / (6 x a 240 BPM beat), about 1.6 M) */
+#define MV_FX_MINC_LFO1 0xFFFFFFFFu
 int mv_engine_sounding(const mv_engine_t *e, uint32_t note);            /* a key held for this note */
 int mv_engine_quiet(const mv_engine_t *e);                              /* nothing sounds, not even a release */
 uint32_t mv_engine_active(const mv_engine_t *e);                        /* voices sounding now (for the meter) */

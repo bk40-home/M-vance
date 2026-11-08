@@ -75,30 +75,38 @@ static struct {
 /* USB audio input. The I2S clock is not locked to USB (about 44,117.6 Hz against the host's 44,100):
  * the endpoint is asynchronous, so each 1 ms packet carries what the ring holds, 44 or 45 frames
  * (the 44.1 pattern) and one more or one fewer while the ring's fill drifts out of its band.
- * The render writes HALF_FRAMES (128) frames every 2.9 ms; the fill measured when a render starts is
- * the low point of that saw tooth, and is kept in UA_LO..UA_HI. A frame waits in the ring for that fill
- * plus its place in the render: 80..256 frames, ~3.8 ms on average (256-frame halves and a 96..160
- * band: ~5.8 ms). Measured under load (65 % CPU): a 64..112 band started renders at
- * 48..119 with no glitch; one render was once seen 29 frames under the floor: a packet (46) must
- * still be in hand then. */
-#define UA_N 512u                /* ring, frames (16-bit L | R << 16); a power of two */
-#define UA_PRIME 104u            /* silence ahead of the first rendered frame */
-#define UA_LO 80u                /* a render may start late: keep a packet and more in hand */
-#define UA_HI 128u
+ * The render writes HALF_FRAMES frames every HALF_FRAMES / 44.1 ms; the fill measured when a render starts
+ * is the low point of that saw tooth, and is kept in UA_LO..UA_HI.
+ * M-vance 7 Nov 2026 (fm1-port/mvance-usb-record-glitch-diagnosis-2026-11-07.md): uac_tap writes the block
+ * only when the whole render has finished, while uac_service (nested in the render) keeps sending a packet
+ * each ms. The fill at the render's start must therefore last the whole render. The old band (80..128 in a
+ * 512 ring) was sized for 128-frame halves (2.9 ms); with M-vance's 256-frame halves (5.8 ms) any render over
+ * ~2.3 ms (~40 % CPU) emptied the ring, and uac_packet repeated the last frame: the recording glitched on
+ * every render with a big patch. The band now starts above one full render (a render at ~100 % CPU) plus
+ * margin, same width as before, in a 1024 ring (+2 KiB). A frame waits ~ UA_LO..UA_HI + its place in the
+ * render: ~300..580 frames, ~10 ms on average (was ~5 ms). */
+#define UA_N 1024u               /* ring, frames (16-bit L | R << 16); a power of two (was 512) */
+#define UA_PRIME 304u            /* silence ahead of the first rendered frame: mid-band (was 104) */
+#define UA_LO 280u               /* > one whole render (256) + margin: the ring lasts the render (was 80) */
+#define UA_HI 328u               /* band width 48, as before (was 128) */
 #define UAC_RATE 44100u
 #if FELUCCA_UAC_48K
-/* 48 kHz: the same times in 48 kHz frames (x 160 / 147); a render of HALF_FRAMES gives 139..140 frames */
-#define UA_PRIME48 113u
-#define UA_LO48 87u
-#define UA_HI48 139u
+/* 48 kHz: the same times in 48 kHz frames (x 160 / 147); a render of HALF_FRAMES gives 278..279 frames */
+#define UA_PRIME48 326u          /* mid-band (was 113) */
+#define UA_LO48 300u             /* > one whole render (279) + margin (was 87) */
+#define UA_HI48 352u             /* band width 52, as before (was 139) */
 #define UA_REND48 ((HALF_FRAMES * 160u + 146u) / 147u)
 #define UA_MAXF 49u              /* frames in the largest packet: 48 + 1 */
 _Static_assert(UA_HI48 + UA_REND48 + UA_MAXF < UA_N, "the ring holds the band, a render and a packet (48 kHz)");
+_Static_assert(UA_LO48 > UA_REND48, "the fill at a render's start lasts a whole render (48 kHz)");
+_Static_assert(UA_LO48 < UA_PRIME48 && UA_PRIME48 < UA_HI48, "priming starts inside the band (48 kHz)");
 #else
 #define UA_MAXF 46u              /* frames in the largest packet */
 #endif
 #define UAC_MAXP (UA_MAXF * 4u)
 _Static_assert(UA_HI + HALF_FRAMES + UA_MAXF < UA_N, "the ring holds the band, a render and a packet");
+_Static_assert(UA_LO > HALF_FRAMES, "the fill at a render's start lasts a whole render (44.1 kHz)");
+_Static_assert(UA_LO < UA_PRIME && UA_PRIME < UA_HI, "priming starts inside the band (44.1 kHz)");
 static uint32_t ua_ring[UA_N];
 static volatile uint32_t ua_w, ua_r;
 static uint32_t ep4tx[UA_MAXF] __attribute__((aligned(32)));
@@ -173,7 +181,19 @@ static volatile uint32_t so_w, so_r;
 #define MQ 64u
 static uint32_t midi_in_q[MQ], midi_out_q[MQ];
 static volatile uint32_t mi_w, mi_r, mo_w, mo_r;
-static void midi_out_event(uint32_t pkt)            /* from the audio ISR */
+/* MIDI clock out (Kris 7 Nov, platform.c midi_rt_at): the real-time bytes (F8, FA) due, in order, in their own small
+ * queue, so the note queue keeps the main loop as its only producer. Both ends run in the TIMER5 ISR (rt_w:
+ * midi_rt_tick when one falls due; rt_r: ep1_tx), so no race. ep1_tx sends them first: real time goes ahead of notes
+ * and SysEx (the USB-MIDI packet is whole, so an F8 between SysEx packets is legal, as on a DIN cable). */
+#define RTQ 16u                                     /* (a stall's backlog stays short) */
+static uint8_t rt_q[RTQ];
+static uint32_t rt_w, rt_r;
+static void midi_rt_tick(uint8_t b)                 /* TIMER5: a real-time byte due (dropped with no host configured) */
+{
+    if (usb.config && rt_w - rt_r < RTQ)
+        rt_q[rt_w++ % RTQ] = b;
+}
+static void midi_out_event(uint32_t pkt)            /* from the main loop (platform.c midi_send) */
 {
     if (usb.config && mo_w - mo_r < MQ) {
         midi_out_q[mo_w % MQ] = pkt;
@@ -937,10 +957,10 @@ static void ep1_tx(void)
 {
     uint32_t csr, n = 0;
 #if FELUCCA_OTA
-    if (mo_w == mo_r && so_w == so_r)
+    if (mo_w == mo_r && so_w == so_r && rt_w == rt_r)
         return;
 #else
-    if (mo_w == mo_r)
+    if (mo_w == mo_r && rt_w == rt_r)
         return;
 #endif
     sie_wr(S_INDEX, 1);
@@ -949,6 +969,14 @@ static void ep1_tx(void)
         return;                                         /* previous packet still pending */
     if (csr & 0x80u)
         sie_wr(S_TXCSR1, csr & ~0x80u);
+    while (rt_r != rt_w && n < 64u) {                   /* the MIDI clock, START: CIN 0xF (single byte) */
+        ep1tx[n] = 0x0Fu;
+        ep1tx[n + 1] = rt_q[rt_r % RTQ];
+        ep1tx[n + 2] = 0;
+        ep1tx[n + 3] = 0;
+        n += 4u;
+        rt_r++;
+    }
 #if FELUCCA_OTA
     while (so_r != so_w && n < 64u) {                   /* SysEx first, never split by notes */
         uint32_t pkt = sx_out_q[so_r % SXQ];
@@ -979,6 +1007,14 @@ static void ep1_tx(void)
     fm1_usb_ep_send(1, ep1tx, n);
     sie_wr(S_TXCSR1, sie_rd(S_TXCSR1) | 0x01u);
     usb.tx_pkts++;
+}
+
+/* TIMER5 nested in a render (platform.c): an F8 waiting goes out now, not after the render (up to ~4 ms). ep1_tx is
+ * otherwise only called from usb_poll, in the same ISR, so the two never overlap. Nothing waiting: one compare. */
+static void midi_rt_send(void)
+{
+    if (rt_w != rt_r && usb.up && usb.config)
+        ep1_tx();
 }
 
 #if FELUCCA_CDC
@@ -1290,6 +1326,7 @@ static void usb_poll(void)                              /* TIMER5 ISR, 2 kHz */
         usb.config = 0;
         usb.suspended = 0;
         mo_r = mo_w;                                    /* nothing stale for the next host */
+        rt_r = rt_w;                                    /* (nor an F8 or START owed to the last one) */
         usb.sx_on = 0;
 #if FELUCCA_OTA
         so_r = so_w;

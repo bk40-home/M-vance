@@ -62,7 +62,9 @@ int mv_prog_perf_ok(const uint8_t *pf)
         if (pf[i] > 127u) return 0;             /* the spares: 7-bit like the rest (SysEx carries them) */
     return pf[MV_PF_MODE] <= MV_KEY_SPLIT && pf[MV_PF_SPLIT] <= 127u && pf[MV_PF_BAL] <= 127u && pf[MV_PF_VSPLIT] <= 6u &&
            pf[MV_PF_CHLO] <= 16u && pf[MV_PF_CHUP] <= 16u && pf[MV_PF_ARP] <= MV_ARPP_BOTH &&
-           pf[MV_PF_SYNCUP] < MV_LFO1_SYNC_N && pf[MV_PF_SYNCLO] < MV_LFO1_SYNC_N;   /* (older programs: 0, OFF) */
+           pf[MV_PF_SYNCUP] < MV_LFO1_SYNC_N && pf[MV_PF_SYNCLO] < MV_LFO1_SYNC_N &&   /* (older programs: 0, OFF) */
+           pf[MV_PF_DSYNUP] < MV_DSYNC_N && pf[MV_PF_DSYNLO] < MV_DSYNC_N &&           /* DELAY / CHORUS SYNC (Kris 7 */
+           pf[MV_PF_CSYNUP] < MV_CSYNC_N && pf[MV_PF_CSYNLO] < MV_CSYNC_N;             /* Nov): likewise 0 = OFF */
 }
 
 const mv_patch_t *mv_prog_get(const mv_prog_t *g, uint32_t n) { return &g->bank[n % MV_NPROG]; }

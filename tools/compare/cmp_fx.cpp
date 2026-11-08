@@ -76,7 +76,7 @@ static double run(const uint8_t *b, const std::vector<int32_t> &in, const char *
     mv_fx_init(&f);
     for (auto &l : dline) for (auto &s : l) s = 0;
     for (auto &s : mline) s = 0;
-    mv_fx_set(&f, b);
+    mv_fx_set(&f, b, 0, 0);                     /* (no tempo sync: the JT's free FX, Kris 7 Nov) */
     g_fph = 0.0f;                               // prepareJpMod: phase 0, inc = rate / fs in float
     g_finc = b[61] < 12 ? (float)(MFX_TYPES[b[61]].rate_mhz / 1000.0f) / JT::kSampleRate : 0.0f;
 

@@ -579,7 +579,153 @@ int main(void)
                 if (e.v[v].gate && e.v[v].part == MV_PART_LO) { if (e.v[v].note == 53u) lo_on++; if (e.v[v].note == 48u) up_on++; }
         }
         CHECK(lo_on > 0u && up_on == 0u, "next pass: the line at +5 (F3 %u, C3 %u)", lo_on, up_on);
+        /* armed, TRANSPOSE on: the keys record and sound (Kris 7 Nov: only the first did) */
+        e.seq_arm = MV_TO_LO; run(20, 0);
+        k = e.seq.t[1].n;
+        mv_engine_note_on(&e, 50, 100); run(20, 0);
+        for (v = 0, lo_on = 0; v < MV_NV; v++) lo_on += e.v[v].gate && e.v[v].note == 50u;
+        mv_engine_note_off(&e, 50); run(20, 0);
+        CHECK(lo_on == 1u && e.seq.t[1].n == k + 2u && e.seq.t[1].xpose == 5,
+              "armed with TRANSPOSE on: D3 sounds (%u) and is written (%u events), the offset kept (%d)", lo_on, e.seq.t[1].n - k, e.seq.t[1].xpose);
+        e.seq_arm = 0;
         e.seq_run = 0; e.seqb[MV_SQ_XPOSE] = MV_SQX_OFF; e.perf[MV_PF_MODE] = MV_KEY_SINGLE; run(500, 0);
+    }
+    {   /* the FM-1's keys straight to a part (Kris 7 Nov, 1a): past the split and the DUAL layer */
+        uint32_t v, lo, up;
+        mv_engine_init(&e);
+        e.perf[MV_PF_MODE] = MV_KEY_SPLIT; e.perf[MV_PF_SPLIT] = 60;
+        mv_engine_note_direct(&e, 72, 100, MV_TO_LO); run(20, 0);   /* above the split, but to LOWER */
+        for (v = 0, lo = 0, up = 0; v < MV_NV; v++) if (e.v[v].gate && e.v[v].note == 72u) { lo += e.v[v].part == MV_PART_LO; up += e.v[v].part == MV_PART_UP; }
+        CHECK(lo == 1u && up == 0u, "SPLIT, a high key direct to LOWER: LOWER plays it (lo %u up %u)", lo, up);
+        mv_engine_note_off(&e, 72); run(20, 0);
+        e.perf[MV_PF_MODE] = MV_KEY_DUAL;
+        mv_engine_note_direct(&e, 64, 100, MV_TO_UP); run(20, 0);   /* DUAL, to UPPER only */
+        for (v = 0, lo = 0, up = 0; v < MV_NV; v++) if (e.v[v].gate && e.v[v].note == 64u) { lo += e.v[v].part == MV_PART_LO; up += e.v[v].part == MV_PART_UP; }
+        CHECK(lo == 0u && up == 1u, "DUAL, a key direct to UPPER: UPPER alone (lo %u up %u)", lo, up);
+        mv_engine_note_off(&e, 64); run(500, 0);
+        for (v = 0, lo = 0; v < MV_NV; v++) lo += e.v[v].gate;
+        CHECK(lo == 0u, "its key-up ends it");
+        e.perf[MV_PF_MODE] = MV_KEY_SINGLE; run(500, 0);
+    }
+    {   /* DELAY SYNC and CHORUS SYNC RATE (Kris 7 Nov: fm1-port/mvance-fx-sync-proposal-2026-11-07.md, 3b 4a 5a): the
+         * main loop's words for every value at 60 / 120 / 240 BPM, the jitter rule, LFO1, and the range guard */
+        static const uint16_t TK[23] = {0, 6, 8, 9, 12, 16, 18, 24, 32, 36, 48, 64, 72, 96, 128, 144, 192,
+                                        288, 384, 480, 576, 672, 768};   /* the JE's list, in 1/24 quarter notes */
+        static const uint32_t BEAT[3] = {44100, 22050, 11025};
+        uint32_t s, k;
+        double worst_d = 0, worst_c = 0;
+        mv_engine_init(&e);
+        for (k = 0; k < 3u; k++)
+            for (s = 1; s < MV_LFO1_SYNC_N; s++) {
+                double want = TK[s] * (double)BEAT[k] / 24.0, err;
+                e.arp_beat = BEAT[k];
+                e.perf[MV_PF_DSYNUP] = (uint8_t)(s < MV_DSYNC_N ? s : 0u);
+                e.perf[MV_PF_CSYNUP] = (uint8_t)s;
+                mv_engine_sync(&e);
+                if (s < MV_DSYNC_N) {           /* the delay tap, samples */
+                    err = fabs(e.fx_dtap / 4096.0 - want);
+                    if (err > worst_d) worst_d = err;
+                }
+                err = fabs(4294967296.0 / e.fx_minc - want) / want;   /* the chorus period, relative */
+                if (err > worst_c) worst_c = err;
+            }
+        CHECK(worst_d < 1.0 / 4096.0, "DELAY SYNC: 10 values x 3 tempos, the tap within 1/4096 sample (%.2e)", worst_d);
+        CHECK(worst_c < 2e-4, "CHORUS SYNC: 22 values x 3 tempos, the period within 0.02 %% (%.2e)", worst_c);
+        printf("FX SYNC: delay tap error %.1e samples, chorus period error %.1e of the cycle\n", worst_d, worst_c);
+        e.arp_beat = 22050; e.perf[MV_PF_DSYNUP] = 7; e.perf[MV_PF_CSYNUP] = 13; mv_engine_sync(&e);
+        CHECK(e.fx_dtap == 22050u << 12, "1/4 at 120 BPM: the tap is 22050 samples exactly");
+        CHECK(e.fx_beat == 22050u, "the beat it was made for");
+        e.arp_beat = 22050u + 43u; mv_engine_sync(&e);
+        CHECK(e.fx_beat == 22050u && e.fx_dtap == 22050u << 12, "beat +43 (jitter): the tap held");
+        e.arp_beat = 22050u + 44u; mv_engine_sync(&e);
+        CHECK(e.fx_beat == 22094u && e.fx_dtap == (uint32_t)((24ull * 22094u * 512u + 1u) / 3u),
+              "beat +44: the tap follows (22094 samples)");
+        e.arp_beat = 22050; e.perf[MV_PF_DSYNUP] = 0; e.perf[MV_PF_CSYNUP] = MV_CSYNC_LFO1; mv_engine_sync(&e);
+        CHECK(e.fx_dtap == 0 && e.fx_minc == MV_FX_MINC_LFO1, "OFF: no tap; CHORUS 23: follow LFO1");
+        e.arp_beat = 44100; mv_engine_sync(&e);
+        CHECK(e.fx_beat == 22050u, "only LFO1 and OFF: a tempo change costs nothing (no recompute)");
+        e.perf[MV_PF_DSYNUP] = MV_DSYNC_N; e.perf[MV_PF_CSYNUP] = MV_CSYNC_N; mv_engine_sync(&e);
+        CHECK(e.fx_dtap == 0 && e.fx_minc == 0, "out of range bytes: OFF");
+        /* in the render: CHORUS = LFO1 takes UPPER's LFO1 step a block / MV_CTL */
+        e.arp_beat = 22050; e.perf[MV_PF_CSYNUP] = MV_CSYNC_LFO1; e.perf[MV_PF_DSYNUP] = 0; mv_engine_sync(&e);
+        e.patch.b[61] = 0; e.patch.b[62] = 100; e.patch.b[17] = 90;   /* SC SLW at 100, LFO1 RATE 90 */
+        mv_engine_note_on(&e, 60, 100); run(50, 0);
+        CHECK(e.fx.m_inc == ((e.part[0].lfo1.inc / MV_CTL) | 1u) && e.fx.m_inc != e.fx.m_inc0,
+              "CHORUS = LFO1: the chorus at LFO1's rate (%u vs the type's %u)", e.fx.m_inc, e.fx.m_inc0);
+        e.perf[MV_PF_SYNCUP] = 7; mv_engine_sync(&e); run(50, 0);   /* LFO1 synced: the chorus follows it */
+        CHECK(e.fx.m_inc == ((mv_lfo_sync_inc(7, 22050) / MV_CTL) | 1u), "CHORUS = LFO1, LFO1 synced at 1/4: so is the chorus");
+        mv_engine_note_off(&e, 60); run(1500, 0);
+        e.perf[MV_PF_SYNCUP] = 0; e.perf[MV_PF_CSYNUP] = 0; mv_engine_sync(&e); run(20, 0);
+        CHECK(e.fx.m_inc == e.fx.m_inc0, "CHORUS OFF: the type's own rate again");
+    }
+    {   /* the FX stage itself (mv_fx.c): synced taps and their ratios, the line limit, TIME ignored, the echo heard
+         * where the note value says; the chorus step, no phase reset, static types untouched */
+        static mv_fx_t fx, ref;
+        static int32_t bus[64], o[128];
+        uint8_t pb[248];
+        uint32_t n, i, at = 0, atr = 0, t4 = 22050u << 12;
+        memset(pb, 0, sizeof pb);
+        pb[63] = 3; pb[64] = 40; pb[66] = 127;   /* MONO SHORT, TIME 40, no feedback, LEVEL 127 */
+        mv_fx_init(&fx); mv_fx_set(&fx, pb, 0, t4);
+        CHECK(fx.d_tl == (int32_t)t4 && fx.d_tr == (int32_t)t4, "MONO synced 1/4: both taps 22050 (past TIME's 156 ms top)");
+        pb[64] = 127; mv_fx_set(&fx, pb, 0, t4);
+        CHECK(fx.d_tl == (int32_t)t4, "synced: TIME ignored");
+        pb[63] = 0; mv_fx_set(&fx, pb, 0, t4 / 4u);
+        CHECK(fx.d_tl == (int32_t)(t4 / 4u) && fx.d_tr == (int32_t)(t4 / 2u), "PAN L->R synced: R = 2 L exactly");
+        pb[63] = 1; mv_fx_set(&fx, pb, 0, t4 / 4u);
+        CHECK(fx.d_tl == (int32_t)(t4 / 4u) && fx.d_tr == (int32_t)(t4 / 8u), "PAN R->L synced: R = L / 2");
+        pb[63] = 2; mv_fx_set(&fx, pb, 0, t4 / 4u);
+        CHECK(fx.d_tr == (int32_t)(t4 / 2u), "PAN SHORT synced: R = 2 L");
+        pb[63] = 0; mv_fx_set(&fx, pb, 0, t4);   /* 1/4 at 120 on PAN L->R: R = 1000 ms fits, 2 x 1/2 would not */
+        CHECK(fx.d_tr == (int32_t)(2u * t4), "PAN L->R 1/4 at 120: R at 1000 ms, in the line");
+        mv_fx_set(&fx, pb, 0, 2u * t4);
+        CHECK(fx.d_tl == (int32_t)(2u * t4) && fx.d_tr == DLY_CAP, "PAN L->R 1/2 at 120: R held at the line");
+        mv_fx_set(&fx, pb, 0, 0xFFFFFFFEu);
+        CHECK(fx.d_tl == DLY_CAP && fx.d_tr == DLY_CAP, "the longest word: both held at the line");
+        pb[64] = 77; mv_fx_set(&fx, pb, 0, 0);   /* back to free: TIME's law, as a fresh stage builds it */
+        mv_fx_init(&ref); mv_fx_set(&ref, pb, 0, 0);
+        CHECK(fx.d_tl == ref.d_tl && fx.d_tr == ref.d_tr, "sync OFF: TIME's taps again (as never synced)");
+        /* the echo: MONO LONG, 1/4 at 120 = 22050 samples after the click (after the start's mute has run out) */
+        pb[63] = 4; pb[64] = 0;
+        mv_fx_init(&fx); mv_fx_set(&fx, pb, 0, t4);
+        for (n = 0; n < 60000u + 64u * 1000u; n += 64u) {
+            for (i = 0; i < 64u; i++) bus[i] = n + i == 60000u ? 16384 : 0;
+            memset(o, 0, sizeof o);
+            mv_fx_out(&fx, bus, o, 64);
+            for (i = 0; i < 64u; i++)
+                if (n + i > 60000u && !at && (o[2u * i] > 1000 || o[2u * i] < -1000)) at = n + i - 60000u;
+        }
+        CHECK(at == 22050u, "MONO LONG 1/4 at 120: the echo 22050 samples after the click (%u)", at);
+        pb[63] = 0;                              /* PAN L->R 1/8: L at 11025, R at 22050 */
+        mv_fx_init(&fx); mv_fx_set(&fx, pb, 0, t4 / 2u);
+        at = 0;
+        for (n = 0; n < 60000u + 64u * 600u; n += 64u) {
+            for (i = 0; i < 64u; i++) bus[i] = n + i == 60000u ? 16384 : 0;
+            memset(o, 0, sizeof o);
+            mv_fx_out(&fx, bus, o, 64);
+            for (i = 0; i < 64u; i++) {
+                if (n + i > 60000u && !at && (o[2u * i] > 1000 || o[2u * i] < -1000)) at = n + i - 60000u;
+                if (n + i > 60000u && !atr && (o[2u * i + 1u] > 1000 || o[2u * i + 1u] < -1000)) atr = n + i - 60000u;
+            }
+        }
+        CHECK(at == 11025u && atr == 22050u, "PAN L->R 1/8 at 120: L at 1/8, R at 1/4, on the grid (%u, %u)", at, atr);
+        /* the chorus */
+        memset(pb, 0, sizeof pb);
+        pb[61] = 0; pb[62] = 100;                /* SC SLW */
+        mv_fx_init(&fx); mv_fx_set(&fx, pb, 0, 0);
+        CHECK(fx.m_inc == fx.m_inc0 && fx.m_inc0 != 0, "SC SLW free: its own rate");
+        mv_fx_set(&fx, pb, 12345u, 0);
+        CHECK(fx.m_inc == 12345u, "synced: the tempo's step");
+        for (i = 0; i < 64u; i++) bus[i] = 1000;
+        memset(o, 0, sizeof o); mv_fx_out(&fx, bus, o, 64);
+        n = fx.m_ph; mv_fx_set(&fx, pb, 23456u, 0);
+        CHECK(fx.m_ph == n && fx.m_inc == 23456u, "a new synced step: the phase goes on (no reset)");
+        mv_fx_set(&fx, pb, 0, 0);
+        CHECK(fx.m_inc == fx.m_inc0, "OFF: the type's rate back");
+        pb[61] = 10; mv_fx_set(&fx, pb, 12345u, 0);   /* FREEZE PHASE 1: static */
+        CHECK(fx.m_inc == 0, "FREEZE PHASE (static): sync ignored");
+        pb[61] = 0; mv_fx_set(&fx, pb, 12345u, 0);
+        CHECK(fx.m_inc == 12345u, "back to SC SLW still synced: the tempo's step");
     }
     printf("mv_voice_test: %d checks, %d failed\n", checks, fails);
     return fails != 0;

@@ -77,10 +77,12 @@ void mv_engine_init(mv_engine_t *e)
     for (v = 0; v < MV_SQ_N; v++) e->seqb[v] = MV_SQ_DEF[v];
     e->seq_run = 0; e->seq_restart = 0; e->seq_arm = 0; e->seq_clear[0] = e->seq_clear[1] = 0;
     e->seq_ext = 0; e->seq_pulse = 0; e->seq_live = 0; e->seq_armed = 0;
-    e->seq_ln = 0; e->seq_lroot = MV_SEQ_NOROOT; e->seq_load = 0;
+    e->seq_ln = 0; e->seq_lroot = MV_SEQ_NOROOT; e->seq_load = 0; e->seq_lrom = 0; e->seq_lbytes = 0;
     e->lfo1_sync_inc[0] = e->lfo1_sync_inc[1] = 0;   /* free until the main loop says (mv_engine_sync) */
     e->sync_s[0] = e->sync_s[1] = 0;            /* OFF, matching lfo1_sync_inc 0 */
     e->sync_beat[0] = e->sync_beat[1] = 0;
+    e->fx_minc = 0; e->fx_dtap = 0;             /* the FX free until the main loop says (mv_engine_sync) */
+    e->fx_ds = e->fx_cs = 0; e->fx_beat = 0;
     for (v = 0; v < MV_NV; v++) {
         mv_voice_t *p = &e->v[v];
         p->o1.ph = 0; p->o1.inc = 0; p->o2.ph = 0; p->o2.inc = 0;
@@ -126,6 +128,11 @@ void mv_engine_note_off(mv_engine_t *e, uint32_t note) { if (note < 128u) mv_ev_
 void mv_engine_note_to(mv_engine_t *e, uint32_t note, uint32_t vel, uint32_t to)
 {
     if (note < 128u && (to & 3u)) mv_ev_push(e, (to & 3u) << 16 | (vel ? 1u << 15 | (vel & 127u) : 0u) | note << 7);
+}
+void mv_engine_note_direct(mv_engine_t *e, uint32_t note, uint32_t vel, uint32_t to)
+{
+    if (note < 128u && (to & 3u))
+        mv_ev_push(e, 1u << 18 | (to & 3u) << 16 | (vel ? 1u << 15 | (vel & 127u) : 0u) | note << 7);
 }
 
 /* ---- play modes (JT VoiceAllocator, the JP bytes 69..72, 243, 244), per part ---- */
@@ -339,13 +346,16 @@ static void mv_ev_drain(mv_engine_t *e)
 {
     while (e->ev_r != e->ev_w) {
         uint32_t ev = e->evq[e->ev_r & (MV_EVQ - 1u)], note = ev >> 7 & 127u, on = ev >> 15 & 1u, to = ev >> 16 & 3u;
-        uint32_t t = on ? route(e, note, to) : to, ap = e->arp_live ? arp_parts(e) : 0u, i;
+        uint32_t direct = ev >> 18 & 1u;       /* (the FM-1's keys: their parts already chosen) */
+        uint32_t t = on ? (direct ? to : route(e, note, to)) : to, ap = e->arp_live ? arp_parts(e) : 0u, i;
         e->ev_r++;
         if (on && e->seq_live) {                /* SEQ TRANSPOSE (phase 2, 5a: transpose > arp > voices): a key for a
                                                    part whose track transposes sets its offset, and goes nowhere else
-                                                   (its key-up, harmless anywhere, still goes everywhere below) */
+                                                   (its key-up, harmless anywhere, still goes everywhere below). Not
+                                                   while that track is armed: REC records and plays its keys (Kris
+                                                   7 Nov, 1a: TRANSPOSE took every key after the first one recorded) */
             for (i = 0; i < 2u; i++)
-                if ((t >> i & 1u) && mv_seq_xpose_on(&e->seq, e->seqb, i)) {
+                if ((t >> i & 1u) && !(e->seq_armed >> i & 1u) && mv_seq_xpose_on(&e->seq, e->seqb, i)) {
                     mv_seq_transpose(&e->seq, i, note);
                     t &= ~(1u << i);
                 }
@@ -402,13 +412,22 @@ static void seq_block(mv_engine_t *e, uint32_t n)
         e->seq_restart = 0;
         e->seq_armed = 0;                       /* (stopped: nothing is armed; started: armed again just below) */
     }
-    if (e->seq_load) {                          /* a clip LOADed (phase 3): into its track, running or not */
-        mv_seq_load(&e->seq, (uint32_t)e->seq_load - 1u, e->seq_lbuf, e->seq_ln, e->seq_lroot, seq_emit, e);
+    if (e->seq_load) {                          /* a clip LOADed (phase 3): into its track, running or not; a
+                                                   factory one played from flash (Kris 7 Nov, 1a) */
+        uint32_t part = (uint32_t)e->seq_load - 1u;
+        if (e->seq_lrom) mv_seq_load_rom(&e->seq, part, e->seq_lrom, e->seq_lbytes, e->seq_ln, e->seq_lroot, seq_emit, e);
+        else mv_seq_load(&e->seq, part, e->seq_lbuf, e->seq_ln, e->seq_lroot, seq_emit, e);
         e->seq_load = 0;
     }
     for (i = 0; i < 2u; i++) {
+        if (e->seq.t[i].rom && e->seq.t[i].rom_n > MV_SEQ_NEV)
+            arm &= ~(1u << i);                  /* a flash clip too long for RAM: plays, never records (the panel
+                                                   refuses it too: this only guards) */
         if (e->seq_clear[i]) { mv_seq_clear(&e->seq, i, seq_emit, e); e->seq_clear[i] = 0; }
         if ((e->seq_armed >> i & 1u) && !(arm >> i & 1u)) mv_seq_disarm(&e->seq, i);   /* held keys: note-offs */
+        if (!(e->seq_armed >> i & 1u) && (arm >> i & 1u) && e->seq.t[i].rom)   /* REC on a factory clip: into RAM
+                                                   first (the panel armed it only if it fits) */
+            mv_seq_unrom(&e->seq, i);
     }
     e->seq_armed = (uint8_t)arm;
     /* After a MIDI START the ticks are held to the clock's pulses: the first clock after START is beat 1 (MIDI's
@@ -670,6 +689,25 @@ void mv_engine_sync(mv_engine_t *e)
         e->sync_beat[i] = beat;
         e->lfo1_sync_inc[i] = s ? mv_lfo_sync_inc(s, beat) : 0u;   /* (one 32-bit store: the ISR reads it whole) */
     }
+    {   /* DELAY SYNC and CHORUS SYNC RATE (Kris 7 Nov, 4a 5a): UPPER's, as the FX chain is UPPER's (render). The same
+         * rule as LFO1: a divide only when a byte changes, or the beat moves past 1/512 while a value depends on it */
+        uint32_t ds = e->perf[MV_PF_DSYNUP], cs = e->perf[MV_PF_CSYNUP], was = e->fx_beat, tk;
+        uint32_t d = beat > was ? beat - was : was - beat;
+        int timed;
+        if (ds >= MV_DSYNC_N) ds = 0;           /* (mv_prog refuses these; held here too: the ISR trusts the words) */
+        if (cs >= MV_CSYNC_N) cs = 0;
+        timed = ds || (cs && cs != MV_CSYNC_LFO1);
+        if (ds == e->fx_ds && cs == e->fx_cs && (!timed || d <= (was >> 9))) return;
+        e->fx_ds = (uint8_t)ds; e->fx_cs = (uint8_t)cs; e->fx_beat = beat;
+        /* the delay: one note value = ticks x beat / 24 samples, Q12 = ticks x beat x 512 / 3, rounded. ticks x beat
+         * <= 48 x a 40 BPM beat (66 150) = 3.2 M; past 25 M (a 5 BPM clock) the quotient leaves 32 bits: then the
+         * longest word, which mv_fx holds at the line anyway */
+        tk = mv_sync_ticks(ds) * beat;
+        e->fx_dtap = !tk ? 0u : tk > 25000000u ? 0xFFFFFFFEu : mv_udiv64_32((uint64_t)tk * 512u + 1u, 3u);
+        /* the chorus: one LFO cycle = ticks x beat / 24 samples, step = 2^32 x 24 / (ticks x beat), rounded */
+        tk = mv_sync_ticks(cs) * beat;
+        e->fx_minc = cs == MV_CSYNC_LFO1 ? MV_FX_MINC_LFO1 : !tk ? 0u : mv_udiv64_32((24ull << 32) + tk / 2u, tk);
+    }
 }
 
 void mv_engine_render(mv_engine_t *e, int32_t *out, uint32_t n)
@@ -682,7 +720,12 @@ void mv_engine_render(mv_engine_t *e, int32_t *out, uint32_t n)
         int32_t l1u[2] = {0, 0}, l1g[2] = {0, 0}, l2u[2] = {0, 0}, bend_q8[2] = {0, 0};
         int any = 0;
         for (v = 0; v < MV_NV; v++) any |= mv_env_active(&e->v[v].aenv);
-        mv_fx_set(&e->fx, b);                   /* the FX bytes (a compare when nothing moved) */
+        {   /* the FX bytes and the tempo sync (a compare when nothing moved). CHORUS SYNC RATE = LFO1: UPPER's LFO1
+             * step a block over MV_CTL frames (last block's: LFO1 is set below; | 1 keeps it synced, never "free") */
+            uint32_t minc = e->fx_minc;
+            if (minc == MV_FX_MINC_LFO1) minc = (e->part[0].lfo1.inc / MV_CTL) | 1u;
+            mv_fx_set(&e->fx, b, minc, e->fx_dtap);
+        }
         mv_rv_set(&e->rv, e->rvb);              /* the reverb settings (likewise) */
         arp_block(e, MV_CTL);                   /* the arp's notes for this block (it may start a voice) */
         seq_block(e, MV_CTL);                   /* the sequencer's likewise (and its STOP's note-offs) */

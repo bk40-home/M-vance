@@ -1,0 +1,32 @@
+# the MIDI page (Kris 7 Nov, DAW use: fm1-port/mvance-midi-daw-proposal-2026-11-07.md). FM-1 ids: GLO 7 (x6: PLAY MODE
+# 1/2 2/2, PERFORM 1/2 2/2, GLOBAL, MIDI), KNOB1 enc 2 LOCAL, KNOB2 enc 3 CLOCK, KNOB3 enc 4 CLK OUT, PLAY 12.
+# tests/run_host.sh tests/scripts/midi_daw.txt: check the log (MIDI out / MIDI clock lines) and the WAV
+#   0.5-0.9 s  LOCAL ON: a key sounds and is sent
+#   1.1-1.5 s  LOCAL OFF: a key is sent, silent here
+#   1.6-2.0 s  the computer's echo (MIDI in) of it sounds
+#   2.1 s      CLK OUT ON: F8 at TEMPO (120: 48 a second)
+#   3.1 s      PLAY: START (FA), then beat 1's F8; 4.1 s PLAY again: STOP (FC)
+#   4.2-5.2 s  a clock comes in (CLOCK AUTO): no F8 out while it comes; out again 0.5 s after it stops
+#   6.0 s      CLOCK INT: an incoming START is ignored, F8 out goes on
+100 btn 7
+150 btn 7
+200 btn 7
+250 btn 7
+300 btn 7
+350 btn 7
+400 shot
+500 keys 1
+900 keys 0
+1000 enc 2 1
+1100 keys 1
+1500 keys 0
+1600 midi 0x90 60 100
+2000 midi 0x80 60 0
+2100 enc 4 1
+3100 btn 12
+4100 btn 12
+4200 clock 120 48
+6000 enc 3 1
+6100 midi 0xFA 0 0
+6200 shot
+7000 end

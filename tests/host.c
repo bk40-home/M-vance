@@ -155,6 +155,10 @@ static int midi_get(uint8_t *st, uint8_t *d1, uint8_t *d2)
     return src;
 }
 static void midi_send(uint32_t st, uint32_t d1, uint32_t d2) { printf("%6u ms  MIDI out %02X %u %u\n", fm1_ms, st, d1, d2); }
+/* MIDI clock out (platform.c on the device: due times, the timer releases them): here a line per F8, with the frame
+ * in its buffer, so a script can count them (tests/scripts/midi_clock.txt) */
+static void midi_rt_at(uint32_t frame, uint8_t b) { printf("%6u ms  MIDI clock %02X +%u\n", fm1_ms, b, frame); }
+static void midi_rt_flush(void) { printf("%6u ms  MIDI clock flush\n", fm1_ms); }
 
 static void app_audio(int32_t *out, uint32_t n);
 static void app_main(void);

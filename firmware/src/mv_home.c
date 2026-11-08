@@ -62,7 +62,17 @@ static void name_of(const uint8_t *name, char *s)
     s[j] = 0;
 }
 
-void home_program(uint32_t n, const uint8_t *name, int edited, uint32_t mode, const uint8_t *lower, uint32_t split)
+/* "LOCAL OFF" (x 96) fits left of the chip? A SPLIT chip (SPLIT C#4) is the widest and reaches left past it; the
+ * category chips and DUAL do not. Short form otherwise */
+static int cat_fits_local(const uint8_t *name, uint32_t mode)
+{
+    const char *c = mode == MV_KEY_DUAL ? "DUAL" : category(name);
+    if (mode == MV_KEY_SPLIT) return 0;
+    return !c || 96 + text_w(&FONT_S, "LOCAL OFF") + 4 <= 232 - (text_w(&FONT_S, c) + 10);
+}
+
+void home_program(uint32_t n, const uint8_t *name, int edited, uint32_t mode, const uint8_t *lower, uint32_t split,
+                  int local_off)
 {
     static const char *const NN[12] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
     char num[3], s[MV_PROG_NAME + 4], chip[12];
@@ -72,7 +82,8 @@ void home_program(uint32_t n, const uint8_t *name, int edited, uint32_t mode, co
     num[0] = (char)('0' + (n + 1u) / 10u); num[1] = (char)('0' + (n + 1u) % 10u); num[2] = 0;
     cv_text(8, 0, &FONT_S, "PROGRAM", C_GRAY);
     cv_text(72, 0, &FONT_S, num, C_HI);
-    if (edited) cv_text(96, 0, &FONT_S, "EDITED", C_ACC);
+    if (local_off) cv_text(96, 0, &FONT_S, cat_fits_local(name, mode) ? "LOCAL OFF" : "L.OFF", C_ACC);
+    else if (edited) cv_text(96, 0, &FONT_S, "EDITED", C_ACC);
     if (mode == MV_KEY_DUAL) cat = "DUAL";      /* a layered program: its mode in the chip (SPLIT with its key) */
     else if (mode == MV_KEY_SPLIT) {
         uint32_t i = 0;

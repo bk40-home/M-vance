@@ -14,7 +14,13 @@
  *   LOAD       clip k into the selected track: read from flash (a read does not stall), handed to the ISR
  *              (mv_seq_load at the next block: what the track played ends first, the playhead runs on); its LENGTH
  *              is set for that track (a setting: kept in flash), its ROOT comes with it, the offset goes to 0
- *   record     16-byte head: 'C', format 1, LENGTH code, ROOT, QUANT, 0, events (16-bit LE), name (6), 0, 0; then the
+ *   factory    (Kris 7 Nov) read-only clips in the firmware (firmware/gen/mv_fclips.h, made by tools/mid2clip.py from
+ *              MIDI files), numbered after the user ones: k = MV_CLIP_N .. MV_CLIP_ALL - 1, shown F1, F2 ..; LOAD
+ *              only (SAVE answers MV_CLIP_RO). They play straight from flash (mv_seq_load_rom): any length to 32
+ *              bars, any number of notes. SAVE of a track playing one: decoded into the record if it fits (else
+ *              MV_CLIP_LONG)
+ *   record     16-byte head: 'C', format 2, LENGTH in bars (format 1, before 7 Nov: a 1..4 code for 1 / 2 / 4 / 8
+ *              bars, read as such), ROOT, QUANT, 0, events (16-bit LE), name (6), 0, 0; then the
  *              events, 4 bytes each: tick (16-bit LE), note, velocity (0 = note-off). A sector: MV_CLIP_PER records,
  *              under platform.c's own header (magic, length, CRC): a sector never written, or cut short, reads as 3
  *              empty clips
@@ -24,6 +30,7 @@
 #include <stdint.h>
 #include "mv_voice.h"
 #include "store.h"
+#include "mv_fclips.h"
 
 #define MV_CLIP_SLOT 1u                         /* the slot (0: the programs' performance bytes, mv_prog.h) */
 #define MV_CLIP_PER 3u                          /* clips a sector */
@@ -35,10 +42,11 @@
 _Static_assert(MV_CLIP_SEC <= SECTOR_MAX, "3 clips fit a sector");
 _Static_assert(MV_CLIP_SLOT < NSLOT, "the clips' slot exists");
 #define MV_CLIP_NONE 0xFFu
+#define MV_CLIP_ALL (MV_CLIP_N + MV_FCLIP_N)    /* user clips, then the factory ones */
 
 typedef struct {
     uint8_t used;                               /* 1: it holds a track (its events may still be 0) */
-    uint8_t len, root, quant;                   /* LENGTH code (1..4), ROOT (MV_SEQ_NOROOT none), QUANT recorded at */
+    uint8_t len, root, quant;                   /* LENGTH in bars (1..32), ROOT (MV_SEQ_NOROOT none), QUANT recorded at */
     uint16_t n;                                 /* events */
     char name[MV_CLIP_NAME];                    /* ASCII 32..125, not 0-terminated */
 } mv_clip_info_t;
@@ -51,7 +59,7 @@ typedef struct {
 } mv_clip_t;
 
 /* what mv_clip_save / mv_clip_load report */
-enum { MV_CLIP_OK = 0, MV_CLIP_AGAIN = -1, MV_CLIP_EMPTY = -2, MV_CLIP_BUSY = -3 };
+enum { MV_CLIP_OK = 0, MV_CLIP_AGAIN = -1, MV_CLIP_EMPTY = -2, MV_CLIP_BUSY = -3, MV_CLIP_RO = -4, MV_CLIP_LONG = -5 };
 
 void mv_clip_init(mv_clip_t *c);                /* the directory, from flash */
 /* SAVE: part's track into clip k, named name (MV_CLIP_NAME characters). MV_CLIP_AGAIN: the track changed while it
@@ -61,6 +69,11 @@ int mv_clip_save(mv_clip_t *c, const mv_engine_t *e, uint32_t part, uint32_t k, 
  * there (or unreadable); MV_CLIP_AGAIN: the last LOAD is not taken yet (try on the next pass) */
 int mv_clip_load(mv_clip_t *c, mv_engine_t *e, uint32_t k, uint32_t part);
 static inline int mv_clip_dirty(const mv_clip_t *c) { return c->pend != MV_CLIP_NONE; }
+/* a factory clip (k >= MV_CLIP_N): its entry, else 0 */
+static inline const mv_fclip_t *mv_clip_factory(uint32_t k)
+{
+    return k >= MV_CLIP_N && k < MV_CLIP_ALL ? &MV_FCLIPS[k - MV_CLIP_N] : 0;
+}
 /* the waiting SAVE to flash (call only when nothing sounds): its sector read, its record put in, the sector written.
  * 0 done (or nothing to do), else the write failed (err set; the SAVE is dropped, the directory reread) */
 int mv_clip_flush(mv_clip_t *c);
