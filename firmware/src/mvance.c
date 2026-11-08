@@ -165,7 +165,10 @@ static mv_roll_t roll;                          /* what it shows (main loop only
 static struct { uint8_t oct, ch, rv[MV_RV_N], arp[MV_ARP_N], tempo, prog, bank[4], seq[MV_SQ_N], seqf, midi,
                 spare[SPARE - 6u - MV_SQ_N]; } set;
 /* midi: one more spare (Kris 7 Nov, DAW use, 6a): the MIDI page's MV_MIDI_* bits (mv_ui.h). A record from before has 0
- * there: LOCAL ON, CLOCK AUTO, CLK OUT OFF, which is how it behaved */
+ * there: LOCAL ON, CLOCK AUTO, CLK OUT OFF, which is how it behaved.
+ * LOCAL is never kept (Kris 8 Nov): every power-up starts LOCAL ON, so a keyboard left silent after a DAW session is
+ * never a mystery. OFF lasts until the power goes; CLOCK and CLK OUT are kept. MIDI_KEPT is what flash holds */
+#define MIDI_KEPT (MV_MIDI_MASK & ~MV_MIDI_LOCALOFF)
 /* prog: one of the spares (34 bytes still: the record loads as before). bank: 4 more (A1, Kris 3 Nov), the factory
  * bank the saved programs belong to (mv_prog_factory_id, little-endian; 0 = not recorded yet). seq: 5 more (Kris
  * 6 Nov, 6a), the sequencer's settings (MV_SQ_*): a record from before has 0 there, which no LENGTH is, so it gets
@@ -386,7 +389,8 @@ static void app_main(void)
         }
         if (bad || set.tempo < 40u || set.tempo > 240u) set.tempo = 120;
         eng.tempo = set.tempo;
-        set.midi = bad ? 0u : (uint8_t)(set.midi & MV_MIDI_MASK);   /* the MIDI page (unknown bits dropped) */
+        set.midi = bad ? 0u : (uint8_t)(set.midi & MIDI_KEPT);   /* the MIDI page: LOCAL ON always (a record saved
+                                                   before 8 Nov may hold LOCAL OFF), unknown bits dropped */
         if (!bad && set.seqf != SEQF_BARS && set.seq[MV_SQ_LENUP]) {   /* LENGTH codes 1..4 -> 1 / 2 / 4 / 8 bars */
             for (k = MV_SQ_LENUP; k <= MV_SQ_LENLO; k++)
                 if (set.seq[k] >= 1u && set.seq[k] <= 4u) set.seq[k] = (uint8_t)(1u << (set.seq[k] - 1u));
@@ -515,7 +519,7 @@ static void app_main(void)
                 for (k = 0; k < MV_ARP_N; k++) set.arp[k] = eng.arpb[k];
                 set.tempo = eng.tempo;
                 for (k = 0; k < MV_SQ_N; k++) set.seq[k] = eng.seqb[k];
-                set.midi = ui.midi;             /* MIDI: LOCAL, CLOCK, CLK OUT */
+                set.midi = (uint8_t)(ui.midi & MIDI_KEPT);   /* MIDI: CLOCK, CLK OUT (LOCAL is not kept) */
                 dirty = 1; t_change = fm1_ms;
             }
             if (r & MV_UI_PAGE) {
