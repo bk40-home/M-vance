@@ -17,7 +17,7 @@ arpeggiator, a two-track sequencer and 64 programs, on eight voices.
 
 > **Status: in development, not yet released.** Builds are tested on the FM-1 as they go; the first release will be
 > on [Releases](https://github.com/bk40-home/M-vance/releases) and, once listed, on the
-> [FM-1 Firmware Hub](https://thefirmwarehub.com). Package identity `FM-1_968080`.
+> [FM-1 Firmware Hub](https://thefirmwarehub.com). Package identity `FM-1_96808Y` for release X.Y (v2.1: `FM-1_968081`).
 
 ## The synth
 

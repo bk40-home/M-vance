@@ -76,7 +76,9 @@ jobs:
         if: github.ref_type == 'tag'
         uses: softprops/action-gh-release@v2
         with:
+          # the release builds only, not the dev ones (mvance-smk37.fwsc). No comments inside the block below:
+          # in a YAML "|" block a "#" is literal text, so it would become part of the file pattern.
           files: |
-            build/mvance-[0-9]*.fwsc   # (the release builds, not the dev ones: mvance-smk37.fwsc)
+            build/mvance-[0-9]*.fwsc
             build/SHA256SUMS
           generate_release_notes: true
