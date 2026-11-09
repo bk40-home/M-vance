@@ -2,7 +2,7 @@
 /* M-vance programs: 64 JP-8080 patches (Kris 1 Nov, 9: PRESETS selects, SAVE writes; 2 Nov: a test bank he can
  * rename, reorder and edit). The main loop's: never the ISR.
  *
- *   factory  firmware/gen/mv_factory.h (tools/mid2bank.c from a .mid / .syx in docs/presets/, parsed by the firmware's
+ *   factory  firmware/gen/mv_factory.h (tools/make_bank.py from tools/bank/factory.txt via tools/mid2bank.c, parsed by the firmware's
  *            own mv_sysex_parse): in flash, read-only; what a slot holds until it is first saved, and FACTORY's
  *   the bank in RAM (64 x 248 B = 15.9 KB), loaded at boot: flash blobs 0..3 hold 16 programs each (3968 of a
  *            blob's 4084 B; one sector each, so a save rewrites 16 programs, not 64). A blob not saved yet (or

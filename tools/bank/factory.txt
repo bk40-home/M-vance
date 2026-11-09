@@ -1,5 +1,5 @@
-# M-vance factory bank (Kris 2 Nov, B1): 64 programs picked from three JP-8000/8080 banks for a broad selection, each
-# renamed and with one value changed. Built by tools/make_bank.py into build/mvance-factory.syx and, through
+# M-vance factory bank: Kris's own 64 programs, made and edited on the FM-1 and pulled from it into
+# tools/bank/mvance.syx (GPL-3.0-only, LICENSING.md). Built by tools/make_bank.py into build/mvance-factory.syx and, through
 # tools/mid2bank (the firmware's own SysEx parser and range clamp), firmware/gen/mv_factory.h.
 #
 #   source <letter> <file>            a bank: a .mid or .syx of JP-8000/8080 DT1 messages
@@ -24,86 +24,86 @@
 #   OFF .. 1/2 (0..10), CSYNC= L.CSYNC= the LFO1 list or LFO1 (0..23). The FX play UPPER's (DSYNC=, CSYNC=);
 #   synced, the delay's TIME and the Multi-FX type's own rate are not used.
 #
-# The sources are third-party banks: see LICENSING.md before publishing a build with this bank.
+# A list may name any source; the published bank takes all 64 from tools/bank/mvance.syx.
 
-# Pulled from the FM-1 on 2026-11-06 (make_bank.py --from-device): every slot as the
-# device had it, from tools/bank/mvance.syx; each line's comment says where the program came from before
-# (the list then: tools/bank/history/factory-20261106-2146.txt).
+# Pulled from the FM-1 on 2026-11-06 (make_bank.py --from-device): every slot as the device had it.
 
 source K tools/bank/mvance.syx
 
-# ---- leads 1-16
- 1  K:P1   "Pluck 01"          # was A:24 'LD Millennium' AENV_R=24: A LD 1999 Trance (release 14)
- 2  K:P2   "Pluck 02"          # was A:25 'LD Seventies Saw' DLY_LEVEL=28: A LD 70s Supersaw (delay off)
- 3  K:P3   "Pluck 03"          # was A:34 'LD Classic Gate' DLY_LEVEL=30: A LD ClassicTrance (delay off)
- 4  K:P4   "Pluck 04"          # was A:46 'LD Sync Hammer' PORTA_TIME=30: A LD Hard 80s Sync (glide 21)
- 5  K:P5   "Pluck 05"          # was A:50 'LD Wax Wings' DLY_LEVEL=26: A LD Icarus (delay off)
- 6  K:P6   "Pluck 06"          # was A:62 'LD Dorian Edge' RESO=48: A LD Phrygian (reso 41)
- 7  K:P7   "Pluck 07"          # was A:63 'LD Glide Wall' PORTA_TIME=56: A LD Porta SprSaw (glide 50)
- 8  K:P8   "Pluck 08"          # was B:73 'LD Saw Crown' CUTOFF=32: B LD SawOfLegand 1 (cutoff 25)
- 9  K:P9   "Pluck 09"          # was B:76 'LD Saw Cathedral' DLY_LEVEL=24: B LD SawOfLegand 4 (delay off)
-10  K:P10  "Pluck 10"          # was B:81 'LD Frost Flight' RESO=56: B LD Snow Flight (reso 49)
-11  K:P11  "FX 01"             # was B:85 'LD Whiteout' FENV_D=100: B LD The Blizzard (filter decay 108)
-12  K:P12  "Misc 01"           # was B:89 'LD Hook Maker' DLY_LEVEL=30: B LD Trance Maker (delay off)
-13  K:P13  "Lead 01"           # was B:94 'LD Question Mark' AENV_R=52: B LD What's That ? (release 61)
-14  K:P14  "Misc 02"           # was D:P4A 'LD Arc Light' MFX_LEVEL=64: D DST Perfecto LD (multi-FX 73)
-15  K:P15  "Misc 03"           # was D:P22A 'LD Three Rivers' CUTOFF=100: D DST Nelson LD / ADVTHREE (cutoff 94)
-16  K:P16  "Misc 04"           # was D:P50A 'LD Summer Haze' RESO=34: D DST Vath LD / SUMMER (reso 26)
+# ---- plucks 1-10
+ 1  K:P1   "Pluck 01"
+ 2  K:P2   "Pluck 02"
+ 3  K:P3   "Pluck 03"
+ 4  K:P4   "Pluck 04"
+ 5  K:P5   "Pluck 05"
+ 6  K:P6   "Pluck 06"
+ 7  K:P7   "Pluck 07"
+ 8  K:P8   "Pluck 08"
+ 9  K:P9   "Pluck 09"
+10  K:P10  "Pluck 10"
 
-# ---- pads 17-28
-17  K:P17  "Lead 02"           # was B:96 'PD Slow Tide' AENV_R=90: B PD Abner (release 81)
-18  K:P18  "Lead 03"           # was B:99 'PD Eighty Eight' MFX_LEVEL=104: B PD CouldBeJP8 (multi-FX 96)
-19  K:P19  "Lead 04"           # was B:100 'PD Data Fog' CUTOFF=80: B PD Digital World (cutoff 86)
-20  K:P20  "Lead 05"           # was B:104 'PD Solar Wind' FENV_D=110: B PD Into The Sun (filter decay 122)
-21  K:P21  "Lead 06"           # was B:106 'PD Laser Mist' RESO=34: B PD LazerPhazer (reso 27)
-22  K:P22  "Lead 07"           # was B:111 'PD Phase Garden' CUTOFF=84: B PD Phased (cutoff 77)
-23  K:P23  "Lead 08"           # was B:118 'PD Quilt' AENV_R=84: B PD Warm Blanket (release 74)
-24  K:P24  "Lead 09"           # was B:119 'PD Whisper' RESO=72: B PD Whisp (reso 66)
-25  K:P25  "Lead 10"           # was D:P20A 'PD Open Sky' AENV_R=70: D DST OffShoreH PD / SKY (release 57)
-26  K:P26  "Lead 11"           # was D:P27A 'PD Dark Matter' MFX_LEVEL=44: D DST Push PD / DARKNESS (multi-FX 30)
-27  K:P27  "Lead 12"           # was D:P38A 'PD Square Glow' AENV_R=70: D DST Jupiter PD (release 58)
-28  K:P28  "Lead 13"           # was D:P40A 'PD Wide Air' DLY_LEVEL=100: D DST Airwave PD / Dimension 8000 U (delay 127)
+# ---- FX, leads and misc 11-16
+11  K:P11  "FX 01"
+12  K:P12  "Misc 01"
+13  K:P13  "Lead 01"
+14  K:P14  "Misc 02"
+15  K:P15  "Misc 03"
+16  K:P16  "Misc 04"
 
-# ---- basses 29-40
-29  K:P29  "Lead 14"           # was A:4 'BS Round Belly' CUTOFF=4: A BA Chubby Kitten (cutoff 0)
-30  K:P30  "Lead 15"           # was A:9 'BS Res Rubber' RESO=56: A BA Jupiter Res (reso 48)
-31  K:P31  "Lead 16"           # was A:10 'BS Glide Grit' PORTA_TIME=36: A BA Maor Levi (glide 30)
-32  K:P32  "Lead 17"           # was A:12 'BS Ladder Low' RESO=46: A BA Moogtastic (reso 40)
-33  K:P33  "Lead 18"           # was A:14 'BS Runner' FENV_D=44: A BA Run Away Bass (filter decay 38)
-34  K:P34  "Lead 19"           # was A:17 'BS Square Root' CUTOFF=6: A BA Squareular (cutoff 0)
-35  K:P35  "Lead 20"           # was A:19 'BS Sub Thump' FENV_D=40: A BA Sub Puncher (filter decay 47)
-36  K:P36  "Lead 21"           # was A:21 'BS Night Walker' AENV_R=40: A BA The Stalker (release 53)
-37  K:P37  "Lead 22"           # was D:P3A 'BS Downward' FENV_D=110: D DST Sasha BS (filter decay 127)
-38  K:P38  "Lead 23"           # was D:P31A 'BS Rubber Mono' RESO=56: D DST Blanche BS (reso 48)
-39  K:P39  "Arp 01"            # was D:P36A 'BS Earthy' CUTOFF=16: D DST Nature BS (cutoff 10)
-40  K:P40  "Misc 05"           # was D:P56A 'BS Acid Twist' RESO=80: D DST Anjuna BS (reso 88)
+# ---- leads 17-38
+17  K:P17  "Lead 02"
+18  K:P18  "Lead 03"
+19  K:P19  "Lead 04"
+20  K:P20  "Lead 05"
+21  K:P21  "Lead 06"
+22  K:P22  "Lead 07"
+23  K:P23  "Lead 08"
+24  K:P24  "Lead 09"
+25  K:P25  "Lead 10"
+26  K:P26  "Lead 11"
+27  K:P27  "Lead 12"
+28  K:P28  "Lead 13"
+29  K:P29  "Lead 14"
+30  K:P30  "Lead 15"
+31  K:P31  "Lead 16"
+32  K:P32  "Lead 17"
+33  K:P33  "Lead 18"
+34  K:P34  "Lead 19"
+35  K:P35  "Lead 20"
+36  K:P36  "Lead 21"
+37  K:P37  "Lead 22"
+38  K:P38  "Lead 23"
 
-# ---- plucks and arps 41-48
-41  K:P41  "Pad 01"            # was B:121 'PL Filament' DLY_LEVEL=36: B PLK Aly Fila (delay off)
-42  K:P42  "Pad 02"            # was B:122 'PL Chapel' DLY_LEVEL=30: B PLK Consecratn (delay off)
-43  K:P43  "Pad 03"            # was B:124 'PL Muted Pick' FENV_D=34: B PLK Mute Pikes (filter decay 29)
-44  K:P44  "Pad 04"            # was B:126 'PL Viper' RESO=20: B PLK Snake Bite (reso 11)
-45  K:P45  "Pad 05"            # was B:128 'PL Canal Pluck' DLY_LEVEL=32: B PLK Van Dyk Like (delay off)
-46  K:P46  "Pad 06"            # was B:90 'AR Trance Steps' FENV_D=70: B LD Trancy Arp (filter decay 78)
-47  K:P47  "Pad 07"            # was A:53 'AR Pulse Train' DLY_LEVEL=20: A LD JP8 Pulses (delay off)
-48  K:P48  "Pad 08"            # was D:P29A 'PL Bright Stab' MFX_LEVEL=100: D DST PushHi BS (multi-FX 122)
+# ---- arp and misc 39-40
+39  K:P39  "Arp 01"
+40  K:P40  "Misc 05"
 
-# ---- brass, strings, bells, keys 49-56
-49  K:P49  "Pad 09"            # was A:44 'BR Soft Horns' AENV_A=24: A LD Gassy Brass (attack 19)
-50  K:P50  "Pad 10"            # was A:52 'BR Synth Brass' CUTOFF=58: A LD JP8 Brass (cutoff 52)
-51  K:P51  "Pad 11"            # was A:64 'BR Square Horns' PORTA_TIME=16: A LD Pulse Horns (glide 12)
-52  K:P52  "Pad 12"            # was B:83 'BL Story Chime' AENV_R=34: B LD Story Time (release 26). (A LD FM Bell was near silent on
-53  K:P53  "Pad 13"            # was B:112 'ST Ensemble' MFX_LEVEL=90: B PD Poly Strings (multi-FX 83)
-54  K:P54  "Pad 14"            # was B:97 'ST Banded Bow' AENV_R=76: B PD Banded String (release 68)
-55  K:P55  "Strings 01"        # was A:41 'BL Metal Keys' RESO=56: A LD FM Goodness (reso 64)
-56  K:P56  "Misc 06"           # was D:P26A 'BR Victory Brass' MFX_LEVEL=72: D DST Push LD / Chariots U (multi-FX 80)
+# ---- pads 41-54
+41  K:P41  "Pad 01"
+42  K:P42  "Pad 02"
+43  K:P43  "Pad 03"
+44  K:P44  "Pad 04"
+45  K:P45  "Pad 05"
+46  K:P46  "Pad 06"
+47  K:P47  "Pad 07"
+48  K:P48  "Pad 08"
+49  K:P49  "Pad 09"
+50  K:P50  "Pad 10"
+51  K:P51  "Pad 11"
+52  K:P52  "Pad 12"
+53  K:P53  "Pad 13"
+54  K:P54  "Pad 14"
 
-# ---- effects and the odd ones 57-64
-57  K:P57  "Bass 01"           # was A:7 'FX Feedback Loop' FENV_D=50: A BA Feedback FX (filter decay 42)
-58  K:P58  "Bass 02"           # was A:59 'FX Shape Shifter' RESO=32: A LD Morphing FX (reso 24)
-59  K:P59  "Bass 03"           # was B:84 'FX Odd Machines' CUTOFF=74: B LD StrangeThings (cutoff 82)
-60  K:P60  "Bass 04"           # was A:26 'FX LFO Wobble' LFO1_RATE=40: A LD AdjustLFORate (LFO 1 rate 0: now it moves by itself)
-61  K:P61  "Bass 05"           # was B:117 'FX Steel Storm' CUTOFF=70: B PD Terminator (cutoff 63)
-62  K:P62  "Bass 06"           # was A:1 'FX Growler' PORTA_TIME=14: A BA ActuallySkrlx (glide 9)
-63  K:P63  "Bass 07"           # was D:P6A 'FX Fuzz Box' MFX_LEVEL=50: D DST Friends BS (distortion 42)
-64  K:P64  "Bass 08"           # was D:P34A 'FX Jet Stream' MFX_LEVEL=56: D DST Tiga LD (jet phaser 47)
+# ---- strings and misc 55-56
+55  K:P55  "Strings 01"
+56  K:P56  "Misc 06"
+
+# ---- basses 57-64
+57  K:P57  "Bass 01"
+58  K:P58  "Bass 02"
+59  K:P59  "Bass 03"
+60  K:P60  "Bass 04"
+61  K:P61  "Bass 05"
+62  K:P62  "Bass 06"
+63  K:P63  "Bass 07"
+64  K:P64  "Bass 08"

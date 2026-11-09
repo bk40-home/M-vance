@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 /* M-vance factory clips (Kris 7 Nov 2026): read-only sequencer patterns, shown after the 12 user clips on SEQ 3/3
  * (F1, F2 ..) and LOADed into either track like them. Made by tools/mid2clip.py from MIDI files into
- * firmware/gen/mv_fclips_local.h, which git ignores (third-party transcriptions, as the factory bank): included when
+ * firmware/gen/mv_fclips_local.h, which git ignores (third-party transcriptions): included when
  * it is there, else none (the public repo). A test may supply its own set: MV_FCLIPS_TEST, then MV_FCLIP_N and
  * MV_FCLIPS of its own before mv_clip.c. */
 #pragma once

@@ -8,8 +8,8 @@
   python3 tools/make_bank.py --from-device FILE.syx      the FM-1's own programs (pulled with docs/bank.html) become
                                                          the factory bank: FILE is kept as tools/bank/device.syx,
                                                          factory.txt is rewritten to take every slot from it (the
-                                                         old list kept in tools/bank/history/, each slot's origin
-                                                         kept as its comment), then the bank is built from it
+                                                         old list kept in tools/bank/history/), then the bank is
+                                                         built from it
 
   1  reads each source bank (.mid or .syx of JP-8000/8080 DT1 messages: user patches 02 bb pp xx and the
      performances' patches 03 pp 4x), and assembles every patch (248 bytes, as the JP stores them)
@@ -205,8 +205,8 @@ def run_mid2bank(args):
 
 def from_device(path):
     """--from-device: the pulled bank as tools/bank/device.syx, factory.txt rewritten to take all 64 from it (P1, Kris
-    4 Nov). The old list goes to tools/bank/history/factory-<time>.txt; each slot's line keeps where its program came
-    from (the old line, as a comment), so the history of a sound stays in the list."""
+    4 Nov). The old list goes to tools/bank/history/factory-<time>.txt; the new list keeps the old group headings and
+    gives each slot its device name only (Kris 9 Nov: no origin comments, the programs are his own)."""
     import datetime
     src = Path(path).resolve()
     perfs = bank_patches(src)
@@ -222,25 +222,19 @@ def from_device(path):
     lines = old.splitlines()
     head, i = [], 0                                     # the old header: up to the first source line
     while i < len(lines) and not lines[i].startswith("source"):
-        head.append(lines[i]); i += 1
-    origin, group, note = {}, {}, None                  # slot -> the old line (and its designed note); group titles
+        if not lines[i].startswith(("# Pulled from the FM-1", "# device had it")):   # the last pull's note: replaced
+            head.append(lines[i])
+        i += 1
+    group = {}                                          # first slot -> the old group heading (# ---- name a-b)
     for ln in lines[i:]:
-        m = re.match(r"\s*(\d+)\s+(\S+)\s+(\"[^\"]*\"|'[^']*')\s*(.*)", ln)
         if ln.startswith("# ----"):
             nxt = re.search(r"(\d+)-\d+", ln)
             if nxt:
                 group[int(nxt.group(1))] = ln
-        elif re.match(r"# \d+: designed:", ln):
-            note = ln.split("designed:", 1)[1].strip()
-        elif m:
-            frm, nm, rest = m.group(2), m.group(3).strip("\"'"), m.group(4)
-            edits, _, com = rest.partition("#")
-            o = f"{frm} {nm!r}" + (f" {edits.strip()}" if edits.strip() else "") + (f": {com.strip()}" if com.strip() else "")
-            origin[int(m.group(1))] = o + (f" ({note})" if note and frm == "INIT" else "")
-            note = None
-    out = head + [f"# Pulled from the FM-1 on {stamp[:4]}-{stamp[4:6]}-{stamp[6:8]} (make_bank.py --from-device): every slot as the",
-                  "# device had it, from tools/bank/device.syx; each line's comment says where the program came from before",
-                  f"# (the list then: tools/bank/history/factory-{stamp}.txt).", "",
+    while head and not head[-1].strip():               # one blank line before the pull's note, however many pulls
+        head.pop()
+    out = head + ["", f"# Pulled from the FM-1 on {stamp[:4]}-{stamp[4:6]}-{stamp[6:8]} (make_bank.py --from-device): every slot as the",
+                  f"# device had it, from tools/bank/device.syx (the list before: tools/bank/history/factory-{stamp}.txt).", "",
                   "source K tools/bank/device.syx"]
     for s in range(1, NPROG + 1):
         if s in group:
@@ -248,7 +242,7 @@ def from_device(path):
         c, up, lo, ext = perfs[f"P{s}"]
         name = bytes(up[0:16]).decode("ascii", "replace").rstrip()
         q = f"'{name}'" if '"' in name else f'"{name}"'
-        out.append(f"{s:2d}  K:P{s:<3} {q:18s}  # was {origin.get(s, '?')}")
+        out.append(f"{s:2d}  K:P{s:<3} {q}")
     (bank / "factory.txt").write_text("\n".join(out) + "\n", newline="\n")
     print(f"make_bank: tools/bank/factory.txt now takes all 64 from tools/bank/device.syx "
           f"(the old list: tools/bank/history/factory-{stamp}.txt)")
@@ -378,9 +372,8 @@ def main():
     if missing:
         fail(f"slots without a program: {missing}")
 
-    # tools/bank/public.txt (Kris 5 Nov, B): the INIT-only bank committed to GitHub, written to mv_factory_public.h.
-    # Every other list writes the local bank mv_factory.h, which is git-ignored: its programs come from third-party
-    # banks (LICENSING.md). firmware/src/mv_prog.h uses the local bank when it is there, else the public one.
+    # tools/bank/public.txt (Kris 5 Nov, B) writes mv_factory_public.h; that split has gone (6 Nov): every other list
+    # writes mv_factory.h, the committed factory bank (Kris's own programs, LICENSING.md), which mv_prog.h includes.
     public = spec.name == "public.txt"
     out = ROOT / ("build/mvance-public.syx" if public else "build/mvance-factory.syx")
     out.parent.mkdir(exist_ok=True)

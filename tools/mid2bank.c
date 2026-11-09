@@ -4,7 +4,7 @@
  * (checksum, framing, the JP-8000 two-message form, the range clamp), so the factory set is byte for byte what the
  * device itself would read from that SysEx.
  *   cc -std=c99 -O2 -Ifirmware/src -Ifirmware/gen tools/mid2bank.c -o build/mid2bank
- *   build/mid2bank docs/presets/Alan_Marcero_Trance_A.mid > firmware/gen/mv_factory.h
+ *   build/mid2bank build/mvance-factory.syx > firmware/gen/mv_factory.h   (tools/make_bank.py runs it so)
  * Every user patch address 02 bb pp 00 in the file lands at program pp (0..63); the rest of the 64 stay INIT.
  * Performances (03 pp xx, Kris 3 Nov: layer / split) land at program pp too: the common block's name, KEY MODE
  * (0x10), SPLIT POINT (0x11) and BALANCE (0x13), the upper patch (03 pp 40/41) and the lower one (03 pp 42/43),

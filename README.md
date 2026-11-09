@@ -114,7 +114,7 @@ of JP-8000/8080 SysEx: **Play** auditions a patch or performance on the FM-1 wit
 slots** writes the ticked ones into the slots from the one you choose (one ticked: one targeted slot), **Read all 64**
 reads the FM-1's programs back and **Download .syx** saves them. `python3 tools/make_bank.py --from-device FILE.syx`
 then makes those the factory bank: the file is kept as `tools/bank/device.syx`, `factory.txt` takes every slot from it
-(each line's comment says where the program came from; the old list goes to `tools/bank/history/`), and the bank is
+(the old list goes to `tools/bank/history/`), and the bank is
 built. USB only (the TRS jack has no SysEx). The protocol, JP-8080 DT1 / RQ1 with one M-vance area for the
 performance bytes: `firmware/src/mv_xfer.h`; `python3 tests/xfer_test.py` checks it on the host build.
 

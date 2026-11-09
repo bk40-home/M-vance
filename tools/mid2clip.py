@@ -26,8 +26,8 @@ the 12 user clips on SEQ 3/3 (F1, F2 ..): LOAD puts one into the selected track,
            track's name (its index when the name is a DAW's "MIDI Out")
 
 The output holds third-party transcriptions: it is firmware/gen/mv_fclips_local.h, which git ignores. The tracked
-firmware/gen/mv_fclips.h includes it when it is there and is an empty set otherwise (the public repo, as the factory
-bank). Standard library only."""
+firmware/gen/mv_fclips.h includes it when it is there and is an empty set otherwise (the public repo).
+Standard library only."""
 import os
 import struct
 import sys
