@@ -10,9 +10,17 @@
     -Build firmware (default)  WSL unit tests, WSL `sh build.sh` -> build\mvance.fwsc, install over USB-MIDI.
     -Build sim                 WSL `sh sim/build.sh` -> docs\sim (WebAssembly). Needs Emscripten (emsdk) in WSL.
     -Build all                 the firmware flow, then the simulator.
+    -Build dock                the fm1-dock module (dock/): build\M-VANCE.dock, to deploy from fm1-dock's console.
+                               Needs an fm1-dock checkout in WSL (FM1_DOCK, default ~/fm1-dock: cloned the first time)
+                               and the same JieLi toolchain (JIELI_TOOLCHAIN) as the firmware.
     -Serve                     after a sim build (or on its own), serve docs\ on http://localhost:<ServePort>.
     -Bank <file.syx>           rebuild the factory bank first (make_bank --from-device); path is repo-relative.
     -SkipTests / -NoInstall    as before.
+    -Defs "<-D...>"            build the firmware with these defines (DINGHY_DEFS), e.g. a trial of the build switches
+                               in firmware/src/mv_build.h. The unit tests run as normal; the next build without -Defs
+                               is the normal firmware again.
+    -Trial                     the fm1-dock module's cuts on the standalone firmware (menu 8):
+                               -Defs "-DMV_DEBUG=0 -DMV_XFER=0 -DMV_DLY_MS=900u"
 
   WSL builds this folder in place (/mnt/c/...) through a login shell, so JIELI_TOOLCHAIN / AC79_SDK (firmware)
   and the emsdk env (sim) set in your WSL profile are used.
@@ -24,9 +32,12 @@
   .\flash.ps1 -Build sim -Serve                 build the simulator and serve it
   .\flash.ps1 -Build all -Serve                 firmware (tests+build+flash), then sim, then serve
   .\flash.ps1 -Bank mvance-bank-renamed.syx     rebuild the factory bank first, then build + flash
+  .\flash.ps1 -Trial                            the dock module's cuts: build + flash (.\flash.ps1 puts it back)
+  .\flash.ps1 -Build dock                       the fm1-dock module -> build\M-VANCE.dock
+  .\flash.ps1 -Defs "-DMV_DLY_MS=900u" -SkipTests   any defines: build + flash
 #>
 param(
-    [ValidateSet('firmware','sim','all')]
+    [ValidateSet('firmware','sim','all','dock')]
     [string]$Build = 'firmware',
     [switch]$SkipTests,
     [switch]$NoInstall,
@@ -34,7 +45,9 @@ param(
     [switch]$Serve,
     [int]$ServePort = 8000,
     [string]$Port = "",
-    [switch]$NoPause
+    [switch]$NoPause,
+    [string]$Defs = "",
+    [switch]$Trial
 )
 
 $ErrorActionPreference = "Stop"
@@ -55,8 +68,14 @@ function Invoke-Wsl([string]$what, [string]$cmd) {
 
 if (-not (Get-Command wsl.exe -ErrorAction SilentlyContinue)) { Finish 1 "wsl.exe not found: install WSL first." }
 
+# the dock module's cuts on the standalone firmware (firmware/src/mv_build.h; Kris 12 Nov): no DEBUG page, no SysEx
+# transfer, the delay lines 900 ms
+$TrialDefs = "-DMV_DEBUG=0 -DMV_XFER=0 -DMV_DLY_MS=900u"
+if ($Trial) { $Defs = $TrialDefs }
+
 # what to run, as plain flags (set from the menu, or from the switches above)
 $doTests = $false; $doFirmware = $false; $doInstall = $false; $doSim = $false; $doServe = $false; $bankFile = $Bank
+$doDock = $false
 
 if ($PSBoundParameters.Count -eq 0) {
     # ---- interactive menu (no arguments were given) ----
@@ -69,6 +88,8 @@ if ($PSBoundParameters.Count -eq 0) {
     Write-Host "  5  Everything: firmware flash + simulator + serve"
     Write-Host "  6  Rebuild factory bank from a .syx, then firmware flash"
     Write-Host "  7  Serve docs only (no build)"
+    Write-Host "  8  Firmware TRIAL: the dock module's cuts ($TrialDefs), flash"
+    Write-Host "  9  fm1-dock module: test, build build\M-VANCE.dock (deploy it from fm1-dock's console)"
     Write-Host "  Q  Quit"
     $choice = Read-Host "Choose [1]"
     if ([string]::IsNullOrWhiteSpace($choice)) { $choice = "1" }
@@ -82,6 +103,8 @@ if ($PSBoundParameters.Count -eq 0) {
               if ([string]::IsNullOrWhiteSpace($bankFile)) { Finish 1 "No bank file given." }
               $doTests = $true; $doFirmware = $true; $doInstall = $true }
         "7" { $doServe = $true }
+        "8" { $Defs = $TrialDefs; $doTests = $true; $doFirmware = $true; $doInstall = $true }
+        "9" { $doTests = $true; $doDock = $true }
         "Q" { Finish 0 "Nothing to do." }
         default { Finish 1 "Unknown choice '$choice'." }
     }
@@ -89,10 +112,20 @@ if ($PSBoundParameters.Count -eq 0) {
     # ---- driven by switches ----
     $doFirmware = $Build -in @('firmware','all')
     $doSim      = $Build -in @('sim','all')
+    $doDock     = $Build -eq 'dock'
+    if ($doDock) { $doTests = -not $SkipTests }
     $doTests    = $doFirmware -and -not $SkipTests
     $doInstall  = $doFirmware -and -not $NoInstall
     $doServe    = [bool]$Serve
 }
+
+# ---- the defines for the firmware build (-Defs / -Trial / menu 8). Only what a -D list needs is allowed, so the line
+# reaches bash as typed: it goes in single quotes, which Windows PowerShell passes to wsl.exe unchanged (the double
+# quotes of a typed  bash -lc '...DINGHY_DEFS="..."...'  are what it strips, so the defines never arrived)
+$Defs = $Defs.Trim()
+if ($Defs -and $Defs -notmatch '^[-A-Za-z0-9_=. ]+$') { Finish 1 "-Defs: only -D options (letters, digits, _ = . - and spaces): '$Defs'" }
+$buildCmd = if ($Defs) { "DINGHY_DEFS='$Defs' sh build.sh" } else { "sh build.sh" }
+if ($Defs -and $doFirmware) { Write-Host "`nFirmware build with: $Defs   (run .\flash.ps1 again without it for the normal firmware)" -ForegroundColor Yellow }
 
 # ---- 0. rebuild the factory bank first (optional): make_bank --from-device <file.syx>
 if ($bankFile) {
@@ -109,7 +142,7 @@ if ($doTests) {
 # ---- 2. firmware build (+ flash over USB-MIDI)
 if ($doFirmware) {
     $before = if (Test-Path $pkg) { (Get-Item $pkg).LastWriteTime } else { [datetime]::MinValue }
-    $rc = Invoke-Wsl "build" "sh build.sh"
+    $rc = Invoke-Wsl "build" $buildCmd
     if ($rc -ne 0) { Finish $rc "Build FAILED (exit $rc): nothing installed." }
     if (-not (Test-Path $pkg) -or (Get-Item $pkg).LastWriteTime -le $before) {
         Finish 1 "Build reported success but $pkg was not rewritten: not installing an old package."
@@ -139,9 +172,28 @@ if ($doFirmware) {
         $msg = $hint[$rc]; if (-not $msg) { $msg = "Install ended with exit $rc." }
         if ($rc -ne 0) { Finish $rc $msg }        # firmware flash failed: stop (don't go on to the sim)
         Write-Host "`n$msg" -ForegroundColor Green
+        if ($Defs) { Write-Host "This is a TRIAL build ($Defs). .\flash.ps1 (menu 1) puts the normal firmware back." -ForegroundColor Yellow }
     } else {
         Write-Host "`nFirmware built: $pkg" -ForegroundColor Green
     }
+}
+
+# ---- 2b. the fm1-dock module (dock/): fm1-dock's tools/hbmod.py builds it from this folder in place. No double
+# quotes in the WSL line (Windows PowerShell would strip them): the paths have no spaces
+if ($doDock) {
+    $dockPkg = Join-Path $root "build\M-VANCE.dock"
+    $before = if (Test-Path $dockPkg) { (Get-Item $dockPkg).LastWriteTime } else { [datetime]::MinValue }
+    # (JIELI_TOOLCHAIN: build.sh's default, ~/.jieli/toolchain, when the profile does not set it: fm1-dock's
+    # build.py has none of its own)
+    $rc = Invoke-Wsl "fm1-dock module" ('export JIELI_TOOLCHAIN=${JIELI_TOOLCHAIN:-$HOME/.jieli/toolchain}; ' +
+        'R=$PWD; D=${FM1_DOCK:-$HOME/fm1-dock}; ' +
+        '[ -d $D/tools ] || git clone --depth 1 https://github.com/joakimeriksson/fm1-dock $D || exit 1; ' +
+        'cd $D && python3 tools/hbmod.py $R/dock && mkdir -p $R/build && cp build/modules/dock.dock $R/build/M-VANCE.dock')
+    if ($rc -ne 0) { Finish $rc "fm1-dock module build FAILED (exit $rc)." }
+    if (-not (Test-Path $dockPkg) -or (Get-Item $dockPkg).LastWriteTime -le $before) {
+        Finish 1 "The module build reported success but $dockPkg was not rewritten."
+    }
+    Write-Host ("`nModule: {0} ({1:N0} bytes). Deploy it from https://joakimeriksson.github.io/fm1-dock/#console (Chrome / Edge)" -f $dockPkg, (Get-Item $dockPkg).Length) -ForegroundColor Green
 }
 
 # ---- 3. simulator build (WebAssembly into docs\sim)

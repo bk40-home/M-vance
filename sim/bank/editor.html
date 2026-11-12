@@ -3,6 +3,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>M-vance bank editor</title>
+<!-- One place to build a bank and send it (Kris 12 Nov, B1): arrange 64 slots by drag and drop (editor.js on
+     bank-model.js), and, connected to the FM-1 over WebMIDI (fm1-midi.js, the bank tool's transfer code), play any
+     slot or palette entry, send the bank or the ticked slots, and read the FM-1's 64 programs into the grid.
+     WebMIDI with SysEx: Chrome or Edge, on https (GitHub Pages) or localhost. -->
 <style>
   :root { --amber:#ff8000; --bg:#111; --card:#1b1b1b; --line:#333; --over:#3a2a00; }
   body { background:var(--bg); color:#eee; font-family:system-ui,sans-serif; margin:0; padding:16px; }
@@ -34,8 +38,27 @@
   .pnm { flex:1; cursor:grab; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .chip { cursor:grab; background:#2a2a2a; border:1px solid var(--line); border-radius:4px; padding:0 6px;
           font-size:.7rem; color:var(--amber); }
+  .fm1 { background:#161208; border:1px solid #3a2a00; border-radius:8px; padding:8px 10px; }
+  .fm1 select { background:#222; color:#eee; border:1px solid var(--line); border-radius:6px; padding:.3rem; max-width:220px; }
+  .fm1 .lbl { font-size:.8rem; opacity:.75; }
+  button.primary { background:var(--amber); color:#111; border-color:var(--amber); font-weight:600; }
+  button:disabled { opacity:.4; cursor:default; }
+  progress { width:140px; }
+  .play { padding:0 5px; font-size:.7rem; border:1px solid var(--line); border-radius:4px; background:#222; color:var(--amber); }
+  .sel { margin:0; accent-color:var(--amber); }
+  .slot.ticked { border-color:var(--amber); }
+  .help.ok { color:#8fc46a; opacity:1; }
 </style>
 <h1>M-vance bank editor</h1>
+<div class="bar fm1">
+  <button id="connect" class="primary">Connect FM-1</button>
+  <span class="lbl">to</span><select id="outSel" disabled></select>
+  <span class="lbl">from</span><select id="inSel" disabled></select>
+  <button id="readAll" disabled title="replace the 64 slots with the programs on the FM-1">Read 64 from FM-1</button>
+  <button id="sendBank" disabled title="write every filled slot to the same slot on the FM-1">Send bank to FM-1</button>
+  <button id="sendSel" disabled title="write the ticked slots to the same slots on the FM-1">Send ticked</button>
+  <progress id="prog" max="1" value="0" hidden></progress>
+</div>
 <div class="bar">
   <label class="btn">Load bank<input type="file" id="loadBank" accept=".syx,.mid,.midi" hidden></label>
   <label class="btn">Add source parts<input type="file" id="addSrc" accept=".syx,.mid,.midi" hidden></label>
@@ -43,8 +66,9 @@
   <button id="clearPal">Clear palette</button>
   <span id="count"></span>
 </div>
-<p id="status" class="help">Load a bank (.syx/.mid) into the slots. Drag a performance from the palette onto a slot;
-  drag the U / L chips onto a slot's UPPER / LOWER row; drag a slot onto another to reorder; ✎ renames.</p>
+<p id="status" class="help">Load a bank (.syx/.mid) into the slots, or connect and read the FM-1's 64. Drag a performance
+  from the palette onto a slot; drag the U / L chips onto a slot's UPPER / LOWER row; drag a slot onto another to
+  reorder; ✎ renames. Connected: ▶ plays a slot or palette entry on the FM-1 (not saved), tick slots to send them.</p>
 <div class="wrap">
   <div id="grid" class="grid"></div>
   <aside><h2>Palette</h2><div id="palette"></div></aside>

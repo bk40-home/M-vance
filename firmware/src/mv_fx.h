@@ -38,7 +38,8 @@
  *   now runs M-vance's look-ahead limiter (mv_lim.h: 16 frames late, gain ramped, never a clamp) on this output.
  *
  * Memory: the lines live in the platform's pool (.pool, zeroed at boot): the delay 2 x 16-bit lines of 1303 ms
- * (the longest tap: PAN L->R's R at 1302.1 ms) = 230 KB at 44.1 kHz, the Multi-FX one 32-bit line of 50 ms (9 KB).
+ * (the longest tap: PAN L->R's R at 1302.1 ms) = 230 KB at 44.1 kHz (MV_DLY_MS sets it: 900 for the fm1-dock
+ * module, 159 KB, its taps held at 900 ms), the Multi-FX one 32-bit line of 50 ms (9 KB).
  * One instance (the lines are this module's statics).
  * Fixed point: the chain works in Q20 (1.0 = 2^20: 11 bits of headroom over the Q15 bus); the delay lines hold Q13
  * (+-4.0: Kris 5 Nov, 3a; Q14's +-2.0 clipped what a hot bus wrote, before any limiter; 6 dB less resolution, still
@@ -47,12 +48,14 @@
  * parameters are rebuilt only when their patch bytes change (mv_fx_set, once a control block). */
 #pragma once
 #include <stdint.h>
+#include "mv_build.h"                         /* MV_DLY_MS: the delay lines' length */
 
 #ifndef MV_FX_FS
 #define MV_FX_FS 44100u                         /* = MV_FS (checked in mv_fx.c); the compare builds it at 48000 */
 #endif
 #define MV_FX_MLEN (MV_FX_FS * 50u / 1000u + 2u)       /* Multi-FX line: 50 ms + 2 (the JT's kModLen) */
-#define MV_FX_DLEN (MV_FX_FS * 1303u / 1000u + 3u)     /* delay lines: 1303 ms + the interpolation pair */
+#define MV_FX_DLEN (MV_FX_FS * MV_DLY_MS / 1000u + 3u)  /* delay lines: MV_DLY_MS (1303 ms standalone; mv_build.h)
+                                                   + the interpolation pair */
 
 typedef struct {
     uint8_t key[6];                             /* bytes 61..66 the caches were built from (mv_fx_set) */

@@ -20,6 +20,7 @@
  * It is #included into mvance.c (the unity build): it saves with platform.c's blob_load / blob_save, slot_*. */
 #pragma once
 #include <stdint.h>
+#include "mv_build.h"                         /* MV_PARTS, MV_PROGS (the fm1-dock module: 1 part, 32 programs) */
 #include "mv_patch.h"
 #include "mv_perf.h"                         /* MV_PF_*, MV_PERF_DEF */
 /* The factory bank: firmware/gen/mv_factory.h, built by tools/make_bank.py from tools/bank/factory.txt, which takes
@@ -27,6 +28,14 @@
  * MV_FACTORY_LO and MV_FACTORY_PERF, and is committed (no local/public split any more). */
 #include "mv_factory.h"
 #define MV_FACTORY_PUBLIC 0                    /* retained so the tests' factory-bank checks still compile and run */
+#if MV_PROGS                                   /* fewer programs than the factory bank (the fm1-dock module: 32): its
+                                                  first MV_PROGS. The factory arrays keep their size (the count is
+                                                  captured first); everything after counts MV_PROGS */
+enum { MV_NFACTORY = MV_NPROG };               /* the factory bank's own count (64) */
+#undef MV_NPROG
+#define MV_NPROG MV_PROGS
+_Static_assert(MV_PROGS <= MV_NFACTORY && MV_PROGS % 16u == 0u && MV_PROGS > 0u, "MV_PROGS: 16, 32 .. the factory bank's count");
+#endif
 
 #define MV_PROG_PER_BLOB 16u                   /* programs a flash blob holds */
 #define MV_PROG_BLOB0 0u                       /* blobs 0..3 */
@@ -35,6 +44,28 @@
 #define MV_PROG_PSLOT 0u                       /* the performance bytes: slot 0 */
 #define MV_PROG_PERF 16u                       /* performance bytes a program (MV_PF_N) */
 
+#if MV_PARTS == 1
+/* One part (mv_build.h; Kris 12 Nov, the fm1-dock module): every program plays SINGLE, so a program is its patch and
+ * the MV_PROG_PK performance bytes a single uses (LFO1, DELAY and CHORUS SYNC, UPPER's MIDI channel); the rest are
+ * MV_PERF_DEF's. They are stored as records of MV_PROG_PER_REC programs, record r in flash slot MV_PROG_ISLOT + r:
+ * its patches, then their kept bytes (32 x 252 = 8064 B: one of the module's 8176-byte banks). A save writes only
+ * the records that changed (one erase each: when silent, as before). 64 programs: 2 records (Kris 12 Nov: all of the
+ * factory bank, UPPER only); record 0 is the 32-program build's record, so its saves carry over. */
+#define MV_PROG_ISLOT 2u                       /* record 0's flash slot (0: the two-part perf bytes, 1: the clips) */
+#define MV_PROG_PK 4u                          /* performance bytes kept a program */
+#define MV_PROG_PER_REC 32u                    /* programs a record */
+#define MV_PROG_NREC (MV_NPROG / MV_PROG_PER_REC)
+typedef struct {
+    mv_patch_t p[MV_PROG_PER_REC];             /* the patches (the record as stored: these, then pk) */
+    uint8_t pk[MV_PROG_PER_REC][MV_PROG_PK];   /* their kept bytes (packed from perf by a save) */
+} mv_prog_rec_t;
+typedef struct {
+    mv_prog_rec_t rec[MV_PROG_NREC];           /* the programs: n in rec[n / 32].p[n % 32] */
+    uint8_t perf[MV_NPROG][MV_PROG_PERF];      /* the performance bytes as the engine takes them (unpacked) */
+    uint16_t dirty;                            /* bit r: record r changed */
+    uint16_t from_flash;                       /* bit r: record r read from flash (else the factory set's) */
+} mv_prog_t;
+#else
 typedef struct {
     mv_patch_t bank[MV_NPROG];                 /* the programs' UPPER patches (RAM copy of blobs 0..3) */
     mv_patch_t lower[MV_NPROG];                /* their LOWER patches (blobs 4..7) */
@@ -42,6 +73,7 @@ typedef struct {
     uint16_t dirty;                            /* bit k: blob k changed (0..3 upper, 4..7 lower), bit 8: the perf */
     uint16_t from_flash;                       /* the same bits: read from flash (else the factory set) */
 } mv_prog_t;
+#endif
 #define MV_PROG_PDIRTY 0x100u
 
 void mv_prog_load(mv_prog_t *g);               /* boot: the 4 blobs, the factory set where one is missing */

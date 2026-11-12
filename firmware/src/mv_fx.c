@@ -307,6 +307,18 @@ static int32_t dly_cap(uint64_t q12)
     return q12 < (1u << 12) ? 1 << 12 : q12 > (uint64_t)DLY_CAP ? DLY_CAP : (int32_t)q12;
 }
 
+/* dly_cap(q12 x a / b) with no 64-bit divide, as mv_fixed.h asks of the chip (Kris 12 Nov, for the fm1-dock module,
+ * which links against nothing: the last 64 / 32 divide in the code, the one place the compiler had to build one for
+ * itself). The same result: past the cap is known before the
+ * divide (floor(q / b) > DLY_CAP exactly when q >= (DLY_CAP + 1) x b), and under it the quotient fits 32 bits, which
+ * mv_udiv64_32 needs. Control rate: a SYNC change only. */
+static int32_t dly_cap_ratio(uint32_t q12, uint32_t a, uint32_t b)
+{
+    uint64_t q = (uint64_t)q12 * a;
+    if (q >= ((uint64_t)DLY_CAP + 1u) * b) return DLY_CAP;
+    return dly_cap(mv_udiv64_32(q, b));
+}
+
 /* setDelayTime with the import law; dtap (Q12 samples, not 0) = synced: L is the note value, TIME is not used */
 static void dly_times(mv_fx_t *f, uint32_t type, uint32_t time, uint32_t dtap)
 {
@@ -314,7 +326,7 @@ static void dly_times(mv_fx_t *f, uint32_t type, uint32_t time, uint32_t dtap)
     int32_t l;
     if (dtap) {                                 /* SYNC (3b): R from L before L is held, so R is held on its own */
         f->d_tl = dly_cap(dtap);
-        f->d_tr = dly_cap((uint64_t)dtap * DLY_SRATIO[type][0] / DLY_SRATIO[type][1]);
+        f->d_tr = dly_cap_ratio(dtap, DLY_SRATIO[type][0], DLY_SRATIO[type][1]);
         if (f->d_cl < 0) { f->d_cl = f->d_tl; f->d_cr = f->d_tr; }
         return;
     }

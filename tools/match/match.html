@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<!-- SPDX-License-Identifier: GPL-3.0-only -->
+<!-- Sound match, the browser page (served by tools/match/serve.py): drop a sample, run, watch, listen, download. -->
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M-vance sound match</title>
+<style>
+  :root { --bg: #f6f5f2; --card: #fff; --ink: #1d1d1f; --mute: #6b6b70; --line: #e4e2dc; --acc: #d4572a;
+          --good: #2f8f4e; --fair: #b8860b; --poor: #c0392b; }
+  * { box-sizing: border-box }
+  body { margin: 0; font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; background: var(--bg); color: var(--ink) }
+  header { padding: 18px 28px; border-bottom: 1px solid var(--line); background: var(--card); display: flex;
+           align-items: baseline; gap: 14px }
+  header h1 { margin: 0; font-size: 20px; letter-spacing: .2px } header span { color: var(--mute); font-size: 13px }
+  main { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 22px; padding: 22px 28px; max-width: 1280px; margin: auto }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 18px 20px; margin-bottom: 18px }
+  #drop { border: 2px dashed #c9c5bb; border-radius: 10px; padding: 34px 20px; text-align: center; cursor: pointer;
+          transition: .15s; background: #fbfaf8 }
+  #drop.over { border-color: var(--acc); background: #fdf1ec }
+  #drop b { font-size: 17px } #drop p { margin: 6px 0 0; color: var(--mute); font-size: 13px }
+  #picked { margin-top: 14px; display: none } #picked audio { width: 100%; margin-top: 6px }
+  .row { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 16px; align-items: end }
+  label { font-size: 12.5px; color: var(--mute); display: flex; flex-direction: column; gap: 4px }
+  select, input { font: inherit; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: #fff; min-width: 130px }
+  button, .btn { font: inherit; font-weight: 600; border: 0; border-radius: 7px; padding: 9px 18px; cursor: pointer;
+                 background: var(--acc); color: #fff; text-decoration: none; display: inline-block }
+  button:disabled { background: #cfcac0; cursor: default }
+  .btn.ghost { background: #fff; color: var(--ink); border: 1px solid var(--line); font-weight: 500 }
+  .bar { height: 8px; background: #eeebe5; border-radius: 4px; overflow: hidden; margin: 10px 0 6px }
+  .bar i { display: block; height: 100%; width: 0; background: var(--acc); transition: width .5s }
+  #stage { font-size: 13.5px; color: var(--mute); min-height: 1.5em }
+  details summary { cursor: pointer; color: var(--mute); font-size: 13px; margin-top: 8px }
+  pre { background: #f7f6f3; border: 1px solid var(--line); border-radius: 6px; padding: 10px; font-size: 12px;
+        max-height: 260px; overflow: auto; white-space: pre-wrap }
+  .pill { display: inline-block; padding: 3px 12px; border-radius: 99px; color: #fff; font-weight: 600; font-size: 13px;
+          text-transform: uppercase; letter-spacing: .5px }
+  .close { background: var(--good) } .fair { background: var(--fair) } .poor { background: var(--poor) }
+  .nums { display: flex; gap: 26px; margin: 12px 0 14px } .nums div { font-size: 12.5px; color: var(--mute) }
+  .nums b { display: block; font-size: 22px; color: var(--ink) }
+  .btns { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 14px }
+  iframe { width: 100%; height: 900px; border: 1px solid var(--line); border-radius: 8px; background: #fff }
+  #runs h2, .card h2 { font-size: 15px; margin: 0 0 10px }
+  #runlist { list-style: none; margin: 0; padding: 0 } #runlist li { padding: 8px 6px; border-bottom: 1px solid var(--line);
+     cursor: pointer; font-size: 13.5px; display: flex; justify-content: space-between; gap: 8px; border-radius: 6px }
+  #runlist li:hover { background: #f3f1ec } #runlist li.on { background: #fdf1ec }
+  #runlist small { color: var(--mute) } .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; margin-right: 6px }
+  .hint { color: var(--mute); font-size: 13px; margin: 8px 0 0 } .err { color: var(--poor); font-weight: 600 }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr } }
+</style></head>
+<body>
+<header><h1>M-vance sound match</h1><span>one held note in &rarr; a JP-8080 patch out, found on the real M-vance engine</span></header>
+<main>
+<section>
+  <div class="card">
+    <div id="drop" tabindex="0"><b>Drop a sample here</b><p>or click to choose &middot; WAV / AIFF / FLAC &middot; one note, held then
+      let go, with its tail, dry if possible</p></div>
+    <input type="file" id="file" accept=".wav,.aif,.aiff,.flac,.ogg" hidden>
+    <div id="picked"><div id="pname"></div><audio id="preview" controls></audio></div>
+    <div class="row">
+      <label>Note played (MIDI number)<select id="note"></select></label>
+      <label>Key held (ms)<input id="gate" type="number" min="50" step="10" placeholder="auto"></label>
+      <label>Search<select id="search">
+        <option value="quick">Quick (~1 min)</option><option value="normal" selected>Normal (~3 min)</option>
+        <option value="thorough">Thorough (~6 min)</option></select></label>
+      <button id="run" disabled>Run</button>
+    </div>
+    <p class="hint">Knowing the note helps the most (set it if you can). Middle C is MIDI 60: Ableton calls it C3, the list
+      shows both names. Times are for 2 cores; more cores are quicker.</p>
+  </div>
+
+  <div class="card" id="progress" hidden>
+    <h2 id="ptitle">Running</h2>
+    <div class="bar"><i id="pbar"></i></div>
+    <div id="stage"></div>
+    <details><summary>Search log</summary><pre id="log"></pre></details>
+  </div>
+
+  <div class="card" id="result" hidden>
+    <h2 id="rtitle"></h2>
+    <span class="pill" id="verdict"></span>
+    <div class="nums"><div><b id="score"></b>score (lower is closer)</div><div><b id="d1"></b>spectrogram distance</div>
+      <div><b id="secs"></b>search time</div></div>
+    <div class="btns">
+      <a class="btn" id="open-ed" target="_blank">Open in bank editor</a>
+      <a class="btn ghost" id="dl-syx">Download the patch (.syx)</a>
+      <a class="btn ghost" id="dl-wav">match.wav</a>
+      <a class="btn ghost" id="open-rep" target="_blank">Open report in a new tab</a>
+    </div>
+    <p class="hint">To hear it on the FM-1: <b>Open in bank editor</b> (Chrome or Edge), press <b>Connect FM-1</b>, then &#9654;
+      next to the patch plays it. To keep it, drag it into a slot, tick the slot and <b>Send ticked</b>.</p>
+    <iframe id="report" title="report"></iframe>
+  </div>
+</section>
+
+<aside class="card" id="runs"><h2>Runs</h2><ul id="runlist"><li><small>none yet</small></li></ul></aside>
+</main>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+let file = null, current = null, timer = null;
+
+/* the note list: Auto, then MIDI 24 .. 108, each named both ways: middle C (MIDI 60) is "C4" in scientific pitch
+   notation (and on Roland gear) and "C3" in Ableton, Cubase, FL Studio and Yamaha's convention */
+(function fillNotes() {
+  const s = $("note");
+  s.add(new Option("Auto (detect)", ""));
+  for (let n = 24; n <= 108; n++) {
+    const pc = NAMES[n % 12], oct = Math.floor(n / 12) - 1;
+    s.add(new Option(`MIDI ${n}  -  ${pc}${oct}  (Ableton: ${pc}${oct - 1})`, n));
+  }
+})();
+
+/* choosing a file: drop, click or keyboard */
+const drop = $("drop");
+drop.onclick = () => $("file").click();
+drop.onkeydown = e => { if (e.key === "Enter" || e.key === " ") $("file").click(); };
+$("file").onchange = e => pick(e.target.files[0]);
+["dragenter", "dragover"].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.add("over"); }));
+["dragleave", "drop"].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.remove("over"); }));
+drop.addEventListener("drop", e => { if (e.dataTransfer.files.length) pick(e.dataTransfer.files[0]); });
+
+function pick(f) {
+  if (!f) return;
+  file = f;
+  $("picked").style.display = "block";
+  $("pname").textContent = `${f.name}  (${(f.size / 1048576).toFixed(1)} MB)`;
+  $("preview").src = URL.createObjectURL(f);
+  $("run").disabled = false;
+  $("run").focus();
+}
+
+/* run: upload the file with the options, then follow the run */
+$("run").onclick = async () => {
+  if (!file) return;
+  $("run").disabled = true;
+  const q = new URLSearchParams({ name: file.name, note: $("note").value, gate: $("gate").value, search: $("search").value });
+  try {
+    const r = await fetch("/run?" + q, { method: "POST", body: file });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || r.statusText);
+    follow(d.id);
+    loadRuns();
+  } catch (e) { alert("Could not start: " + e.message); }
+  $("run").disabled = false;
+};
+
+/* follow a run: poll its status every second until it ends */
+function follow(id) {
+  current = id;
+  clearTimeout(timer);
+  $("result").hidden = true;
+  $("progress").hidden = false;
+  poll();
+}
+async function poll() {
+  const id = current;
+  let d;
+  try { d = await (await fetch("/status/" + id)).json(); } catch (e) { timer = setTimeout(poll, 2000); return; }
+  if (id !== current) return;
+  if (d.state === "done") { showResult(d); loadRuns(); return; }
+  $("ptitle").textContent = d.state === "queued" ? `Waiting: ${d.name}` : `Running: ${d.name}`;
+  $("pbar").style.width = Math.round((d.progress || 0) * 100) + "%";
+  const last = (d.log || []).filter(l => /stage|level|done|engine/.test(l)).pop() || "starting...";
+  $("stage").innerHTML = d.state === "error" ? `<span class="err">Failed: ${esc(d.error)}</span>` : esc(stageText(last));
+  $("log").textContent = (d.log || []).join("\n");
+  if (d.state !== "error") timer = setTimeout(poll, 1000); else loadRuns();
+}
+function stageText(line) {                       /* "  12.3 s  2725 renders  stage 2: ..." -> "Stage 2: ..." */
+  const m = line.match(/renders\s+(.*)$/);
+  const t = (m ? m[1] : line).trim();
+  return t.charAt(0).toUpperCase() + t.slice(1);
+}
+function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]); }
+
+/* the result card */
+function showResult(d) {
+  $("progress").hidden = true;
+  $("result").hidden = false;
+  const r = d.result || {};
+  const base = `/files/${d.id}/`;
+  $("rtitle").textContent = d.name;
+  $("verdict").textContent = r.verdict || "";
+  $("verdict").className = "pill " + (r.verdict || "");
+  $("score").textContent = r.score ?? "-";
+  $("d1").textContent = r.d1 != null ? r.d1 + " dB" : "-";
+  $("secs").textContent = r.seconds != null ? Math.round(r.seconds / 6) / 10 + " min" : "-";
+  const syx = r.syx || "match-user.syx";          /* (runs made before 12 Nov wrote match-user.syx) */
+  $("dl-syx").href = base + syx;
+  $("open-ed").href = "/editor/editor.html?load=" + encodeURIComponent(base + syx);
+  $("dl-syx").textContent = "Download " + syx;
+  $("dl-wav").href = base + "match.wav";
+  $("open-rep").href = base + "report.html";
+  $("report").src = base + "report.html";
+  markRun(d.id);
+}
+
+/* the list of runs (this session and earlier ones) */
+async function loadRuns() {
+  let runs = [];
+  try { runs = await (await fetch("/runs")).json(); } catch (e) { return; }
+  const ul = $("runlist");
+  ul.innerHTML = runs.length ? "" : "<li><small>none yet</small></li>";
+  for (const r of runs) {
+    const li = document.createElement("li");
+    li.dataset.id = r.id;
+    const v = r.result && r.result.verdict;
+    const col = r.state === "done" ? `var(--${v === "close" ? "good" : v || "mute"})` : r.state === "error" ? "var(--poor)" : "var(--acc)";
+    const right = r.state === "done" ? (r.result ? r.result.score : "") : r.state;
+    li.innerHTML = `<span><span class="dot" style="background:${col}"></span>${esc(r.name || r.id)}<br>` +
+      `<small>${esc(r.id.slice(0, 8))} ${esc(r.id.slice(9, 15).replace(/(..)(..)(..)/, "$1:$2"))}</small></span><small>${esc(right)}</small>`;
+    li.onclick = () => r.state === "done" ? fetch("/status/" + r.id).then(x => x.json()).then(d => { current = d.id; clearTimeout(timer); showResult(d); })
+                                         : follow(r.id);
+    ul.appendChild(li);
+  }
+  markRun(current);
+}
+function markRun(id) { document.querySelectorAll("#runlist li").forEach(li => li.classList.toggle("on", li.dataset.id === id)); }
+loadRuns();
+</script>
+</body></html>

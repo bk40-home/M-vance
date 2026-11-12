@@ -1,0 +1,17 @@
+# MV_DLY_MS check (Kris 12 Nov): DELAY MONO LONG at full TIME (its top, 1250 ms) and LEVEL, no feedback. A first note,
+# held 7 s fills the delay's start-up mute and lets its tap glide to the top (both run only while it sounds); the
+# short second note's echo is the check:
+# MV_DLY_MS 1303: 1250 ms after it; 900: held at the line's end, 900 ms.
+100 btn 2
+200 btn 2
+500 btn 2
+600 enc 2 20
+700 enc 3 127
+800 enc 4 -127
+900 enc 5 127
+1000 shot
+1500 keys 0x1
+8500 keys 0
+11000 keys 0x1
+11050 keys 0
+13500 end

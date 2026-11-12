@@ -14,7 +14,7 @@ git diff --quiet -- firmware/gen/ 2>/dev/null || echo "note: firmware/gen/ chang
 # hal/): caught here first. The ROM-constant check reads the chip's disassembly, so only ./build.sh can run it.
 python3 -c "import sys; sys.path.insert(0, 'tools'); import build; e = build.mmio_check(); print(*e, sep='\n'); sys.exit(1 if e else 0)"
 echo "mmio_check: ok"
-for t in mv_fixed_test mv_patch_test mv_pitch_test mv_env_test mv_lfo_test mv_jvtri_test mv_arp_test mv_seq_test mv_clip_test mv_lim_test mv_prog_test mv_voice_test; do
+for t in mv_fixed_test mv_patch_test mv_pitch_test mv_env_test mv_lfo_test mv_jvtri_test mv_arp_test mv_seq_test mv_clip_test mv_lim_test mv_prog_test mv_prog1_test mv_voice_test; do
     cc $CF -o "$OUT/$t" "tests/$t.c" -lm
     "$OUT/$t"
 done

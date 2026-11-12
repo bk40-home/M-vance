@@ -15,8 +15,8 @@ python3 tools/gen_tables.py                            # firmware/gen/mv_tables.
 OUT=docs/sim
 mkdir -p "$OUT"
 cp sim/index.html sim/sim.js sim/audio-worklet.js "$OUT"/
-mkdir -p "$OUT/bank"                                   # the bank editor (linked from the sim page)
-cp sim/bank/bank-model.js sim/bank/editor.js sim/bank/editor.html "$OUT/bank/"
+mkdir -p "$OUT/bank"                                   # the bank editor + FM-1 transfer (linked from the sim page)
+cp sim/bank/bank-model.js sim/bank/fm1-midi.js sim/bank/editor.js sim/bank/editor.html "$OUT/bank/"
 emcc -O2 -DDINGHY_WEBSIM -DAPP_VER='"sim"' \
     -Ifirmware/hal -Ifirmware/src -Ifirmware/gen \
     firmware/src/mvance.c firmware/src/mv_dsp.c \

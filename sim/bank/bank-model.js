@@ -3,7 +3,7 @@
 //
 // M-vance bank model — parse/serialise JP-8000/8080 SysEx banks and the drag-drop editor's operations.
 //
-// The SysEx routines mirror tools/make_bank.py (bank_patches + the output loop) and docs/bank.html exactly, so
+// The SysEx routines mirror tools/make_bank.py (bank_patches + the output loop) exactly (fm1-midi.js sends with them), so
 // a bank serialised here is byte-identical to make_bank.py's .syx. That keeps make_bank.py the canonical builder:
 // the editor exports a .syx, and `python3 tools/make_bank.py --from-device FILE.syx` turns it into factory.txt +
 // firmware/gen/mv_factory.h. ES module; runs in the browser (the simulator/editor page) and in Node (tests).

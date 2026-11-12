@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 /* M-vance panel: implementation (pages, buttons, look and MIDI in mv_ui.h). */
 #include "mv_ui.h"
+#include "mv_build.h"                          /* MV_DEBUG: the DEBUG page (fm1-dock, 12 Nov) */
 
 /* what a knob edits: a patch byte (JP offset 0..247), or one of these (from 0x100: never a patch byte) */
 #define P_NONE 0xFFFFu                          /* a spare knob (decision 3: left empty) */
@@ -63,17 +64,23 @@ static const ui_page_t PAGES[] = {
     {"REVERB", BTN_FX, 1, 2, {P_RV + MV_RV_LOWPASS, P_RV + MV_RV_HIPASS, P_RV + MV_RV_FREEZE, P_NONE}},
     {"PLAY MODE", BTN_GLO, 0, 2, {71, 72, 69, 70}},            /* MONO LEGATO PORTA, PORTA TIME */
     {"PLAY MODE", BTN_GLO, 1, 2, {243, 244, 67, 68}},          /* UNISON, DETUNE, BEND UP / DOWN */
+#if MV_PARTS == 2                               /* (one part: no performance to set; mv_build.h) */
     {"PERFORM", BTN_GLO, 0, 2, {P_PF + MV_PF_MODE, P_PF + MV_PF_SPLIT, P_PF + MV_PF_BAL, P_PANEL}},   /* (Kris 3 Nov) */
     {"PERFORM", BTN_GLO, 1, 2, {P_PF + MV_PF_VSPLIT, P_PF + MV_PF_ARP, P_PF + MV_PF_CHLO, P_PF + MV_PF_CHUP}},
+#endif
     {"GLOBAL", BTN_GLO, 0, 1, {P_MIDICH, P_VOICES, P_TEMPO, P_NONE}},
     {"MIDI", BTN_GLO, 0, 1, {P_LOCAL, P_CLKSRC, P_CLKOUT, P_NONE}},   /* DAW use (Kris 7 Nov): LOCAL, CLOCK, CLK OUT */
+#if MV_DEBUG
     {"DEBUG", BTN_GLO, 0, 1, {P_DEBUG, P_NONE, P_NONE, P_NONE}},   /* the meter and the status (Kris 3 Nov): the knobs
                                                                    do nothing here */
+#endif
     {"ARP", BTN_ARP, 0, 2, {P_ARP + MV_ARP_MODE, P_ARP + MV_ARP_RATE, P_ARP + MV_ARP_OCT, P_ARP + MV_ARP_GATE}},
     {"ARP", BTN_ARP, 1, 2, {P_ARP + MV_ARP_HOLD, P_ARP + MV_ARP_SWING, P_ARP + MV_ARP_CHANCE, P_ARP + MV_ARP_ORDER}},
+#if MV_SEQ
     {"SEQ", BTN_SEQ, 0, 3, {P_SQLEN, P_SQ + MV_SQ_QUANT, P_SQ + MV_SQ_MUTELO, P_SQ + MV_SQ_MUTEUP}},   /* (Kris 6 Nov) */
     {"SEQ", BTN_SEQ, 1, 3, {P_SQBAR, P_SQPITCH, P_SQ + MV_SQ_XPOSE, P_SQROOT}},   /* the piano roll (phase 2) */
     {"SEQ", BTN_SEQ, 2, 3, {P_CL + 0, P_CL + 1, P_CL + 2, P_CL + 3}},          /* the clips (phase 3) */
+#endif
     {"SAVE", BTN_SAVE, 0, 1, {P_SV + 0, P_SV + 1, P_SV + 2, P_SV + 3}},
 };
 #define NPAGES (sizeof PAGES / sizeof PAGES[0])
@@ -653,7 +660,8 @@ uint32_t mv_ui_oct(mv_ui_t *u, const mv_engine_t *e, uint32_t pressed, uint32_t 
         if (u->ovl == MV_OV_PART) {             /* PART SELECT: OCT- LOWER, OCT+ UPPER, both BOTH */
             if (!single) u->panel = (uint8_t)(held == 3u ? MV_UI_BOTH : p & 1u ? MV_UI_LOWER : MV_UI_UPPER);
             u->ovl_t = fm1_ms;
-        } else if (held == 3u) {                /* the other one while the first is held: PART SELECT opens */
+        } else if (held == 3u && MV_PARTS == 2) {   /* the other one while the first is held: PART SELECT opens (one
+                                                   part: none; each press steps the octave) */
             if (p != 3u && u->oct_undo) {       /* the first press's octave step undone (both at once: none made) */
                 *oct = (uint8_t)(int8_t)((int8_t)*oct - u->oct_undo);
                 r |= MV_UI_SETTING;
@@ -682,6 +690,7 @@ uint32_t mv_ui_input(mv_ui_t *u, mv_engine_t *e, uint32_t pressed, uint32_t rele
         r |= ovl_close(u);                      /* the CLEAR question: another button, or 3 s: kept */
     if (u->ovl == MV_OV_LONG && (pressed || fm1_ms - u->ovl_t >= 2000u))
         r |= ovl_close(u);                      /* REC refused: any button, or 2 s */
+#if MV_SEQ
     /* PLAY (Kris 6 Nov): the transport, both tracks from bar 1; stopping disarms (the ISR ends the notes) */
     if (pressed >> BTN_PLAY & 1u) {
         e->seq_ext = 0;                         /* (the panel's start: free, on TEMPO or the clock's tempo) */
@@ -717,6 +726,7 @@ uint32_t mv_ui_input(mv_ui_t *u, mv_engine_t *e, uint32_t pressed, uint32_t rele
         u->rec_down = 0;
     }
     if (pressed >> BTN_SEQ & 1u) u->page = (uint8_t)next_page(u->page, BTN_SEQ);   /* SEQ: its page */
+#endif                                          /* (MV_SEQ 0: PLAY, REC and SEQ do nothing) */
     if (pressed & (1u << BTN_HOME)) u->page = 0;
     if (pressed >> BTN_SAVE & 1u) {             /* SAVE: its page (from the program playing); on it, do it */
         if (PAGES[u->page].p[0] == P_CL) {      /* (on the CLIP page: the clip's LOAD / SAVE, the page stays) */
@@ -906,6 +916,7 @@ void mv_ui_draw(mv_ui_t *u, const mv_engine_t *e, uint32_t midi_ch)
             u->drawn_sv = key;
         }
     }
+#if MV_SEQ
     if (pg->p[0] == P_CL) {                     /* the CLIP page's two lines (as SAVE's): the name, what SAVE will do
                                                    (or what the last one came to, for 2 s) */
         static const char TRK[2] = {'U', 'L'};   /* the track letters */
@@ -962,6 +973,7 @@ void mv_ui_draw(mv_ui_t *u, const mv_engine_t *e, uint32_t midi_ch)
             u->drawn_sv = key;
         }
     }
+#endif
     line[0] = 0;                                /* the edit line: "FILTER CUTOFF 96" */
     if (fresh && u->last < 4u) {
         const char *a;
