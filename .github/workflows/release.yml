@@ -1,5 +1,7 @@
 # Dinghy: build the packages on GitHub, run the host tests, and on a tag vX.Y publish the release with a build
 # attestation (actions/attest-build-provenance): the Firmware Hub shows "Built from source" for exactly these files.
+# Also the fm1-dock module (dock/, Kris 12 Nov): built with fm1-dock's own tools/hbmod.py (its main branch at the time),
+# tested on the host (tests/run_dock_host.sh), and released as M-VANCE-X.Y.dock with the same attestation.
 # The JieLi toolchain comes from pkgman.jieliapp.com (tools/get_toolchain.sh), the AC79 SDK from gitee.com, as in
 # sloopDX's and OberVave's workflows. Run by hand (workflow_dispatch) for a test build without a release.
 name: release
@@ -46,8 +48,18 @@ jobs:
           BOARD=smk37 MODEL=mke sh build.sh
           sh build.sh
 
+      - name: fm1-dock module (dock/, built by fm1-dock's own tools/hbmod.py; kept outside build/)
+        run: |
+          export JIELI_TOOLCHAIN="$HOME/.jieli/toolchain"
+          git clone --depth 1 https://github.com/joakimeriksson/fm1-dock ~/fm1-dock
+          echo "fm1-dock at $(git -C ~/fm1-dock rev-parse --short HEAD)"
+          (cd ~/fm1-dock && python3 tools/hbmod.py "$GITHUB_WORKSPACE/dock")
+          cp ~/fm1-dock/build/modules/dock.dock "$RUNNER_TEMP/M-VANCE.dock"
+
       - name: Host tests
-        run: sh tests/run_tests.sh
+        run: |
+          sh tests/run_tests.sh
+          FM1_DOCK="$HOME/fm1-dock" sh tests/run_dock_host.sh
 
       - name: Release packages (tags only)
         if: github.ref_type == 'tag'
@@ -57,20 +69,25 @@ jobs:
           BOARD=smk37 MODEL=elite sh build.sh --release "$V"
           BOARD=smk37 MODEL=mke sh build.sh --release "$V"
           sh build.sh --release "$V"
-          ls -l build/mvance-"$V"*.fwsc
-          (cd build && sha256sum mvance-"$V"*.fwsc > SHA256SUMS)
+          cp "$RUNNER_TEMP/M-VANCE.dock" build/M-VANCE-"$V".dock
+          ls -l build/mvance-"$V"*.fwsc build/M-VANCE-"$V".dock
+          (cd build && sha256sum mvance-"$V"*.fwsc M-VANCE-"$V".dock > SHA256SUMS)
 
       - uses: actions/upload-artifact@v4
         with:
           name: mvance-fwsc
-          path: build/mvance*.fwsc
+          path: |
+            build/mvance*.fwsc
+            ${{ runner.temp }}/M-VANCE.dock
           if-no-files-found: error
 
       - name: Attest the packages (tags only)
         if: github.ref_type == 'tag'
         uses: actions/attest-build-provenance@v2
         with:
-          subject-path: build/mvance-[0-9]*.fwsc
+          subject-path: |
+            build/mvance-[0-9]*.fwsc
+            build/M-VANCE-[0-9]*.dock
 
       - name: Release (tags only)
         if: github.ref_type == 'tag'
@@ -80,5 +97,6 @@ jobs:
           # in a YAML "|" block a "#" is literal text, so it would become part of the file pattern.
           files: |
             build/mvance-[0-9]*.fwsc
+            build/M-VANCE-[0-9]*.dock
             build/SHA256SUMS
           generate_release_notes: true

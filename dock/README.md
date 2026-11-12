@@ -33,6 +33,10 @@ This runs the unit tests, then fm1-dock's `tools/hbmod.py` in WSL. It writes `bu
 - **fm1-dock checkout.** The first time, it clones fm1-dock to `~/fm1-dock` in WSL. Set `FM1_DOCK` to use another checkout.
 - **Toolchain.** It uses the same JieLi toolchain (`JIELI_TOOLCHAIN`) as the firmware build.
 
+Each tagged release (v2.5.1 on) also has a ready-built `M-VANCE-<version>.dock` among its files. GitHub's release
+workflow builds it from the tagged source with fm1-dock's builder, tests it, and attests it ("built from source"), as
+it does the firmware.
+
 ## Put it on the FM-1
 
 1. **Install fm1-dock** from its page (Chrome or Edge: *Install fm1-dock*). It replaces the M-vance firmware on the FM-1. You can put M-vance back any time with `.\flash.ps1` or from the hub.
