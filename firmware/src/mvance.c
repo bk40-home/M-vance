@@ -289,6 +289,73 @@ static mv_xfer_t xfer = {0, 0, 0xFF, 0, 0, 0, 0};
 static uint32_t xfer_t, xfer_slots;             /* xfer_slots: a slot (or a dump) is in this transfer: the screen */
 static int xfer_busy(void) { return xfer_t && fm1_ms - xfer_t < XFER_HOLD; }
 static void prog_to_engine(uint32_t n);
+
+/* ---- the bank editor's link (Kris 13 Nov: fm1-port/mvance-partB-hardware-sync-proposal-2026-11-13.md, 1b 3a).
+ * A page that reads what plays (RQ1 01 00) is linked for LINK_HOLD ms; it renews by reading again (every 20 s).
+ * While linked, every change to what plays (the panel, a CC or a program change from MIDI, PRESETS) goes out as a
+ * DT1 to 01 00 of exactly the bytes that changed, so the page's copy stays the same as the FM-1's:
+ *   link_up / link_lo / link_pf  what the page has (the sound as last sent to it, or as it last wrote it)
+ *   link_report (main loop)      the first region that differs from the engine: one DT1 from its first changed byte
+ *                                to its last, a pass (the upper patch 01 00 40.., the lower 01 00 42.., the 16
+ *                                performance bytes 01 00 70..: the addresses the page writes with, mv_xfer.h)
+ * Not linked (no page, or it went quiet): one test a pass, nothing sent, the CCs as always. Nothing kept in flash, no
+ * panel setting: a DAW that never reads what plays never sees these messages */
+#define LINK_HOLD 30000u                        /* ms after the last read of what plays: the link lapses */
+static uint32_t link_t;                         /* fm1_ms of that read (0: not linked) */
+static uint8_t link_up[MV_PATCH_BYTES], link_lo[MV_PATCH_BYTES], link_pf[MV_PROG_PERF];
+static void link_sync(void)                     /* the page has what plays now */
+{
+    uint32_t i;
+    for (i = 0; i < MV_PATCH_BYTES; i++) { link_up[i] = eng.patch.b[i]; link_lo[i] = eng.lower.b[i]; }
+    for (i = 0; i < MV_PROG_PERF; i++) link_pf[i] = eng.perf[i];
+}
+/* the page wrote what plays (DT1 01 00, body: the bytes between F0 and F7): it has the bytes it wrote, as the engine
+ * took them (in range). Only those: a change of the panel's not reported yet stays to report */
+static void link_took(const uint8_t *body, uint32_t n)
+{
+    uint32_t area = body[7], off = body[8], len = n - 10u, i;
+    if (area >= 0x40u && area <= 0x43u) {       /* a patch: upper 40 / 41, lower 42 / 43 (bytes 128.. on the odd one) */
+        uint8_t *have = area < 0x42u ? link_up : link_lo;
+        const uint8_t *now = area < 0x42u ? eng.patch.b : eng.lower.b;
+        for (i = (area & 1u) * 128u + off; i < MV_PATCH_BYTES && len; i++, len--) have[i] = now[i];
+    } else if (area == MV_XF_AREA_EXT) {
+        for (i = off; i < MV_PROG_PERF && len; i++, len--) link_pf[i] = eng.perf[i];
+    } else if (area == 0x00u) {                 /* common: the name (the upper's 0..15), KEY MODE, SPLIT, BALANCE */
+        for (i = off; i < off + len; i++) {
+            if (i < 16u) link_up[i] = eng.patch.b[i];
+            else if (i == 0x10u) link_pf[MV_PF_MODE] = eng.perf[MV_PF_MODE];
+            else if (i == 0x11u) link_pf[MV_PF_SPLIT] = eng.perf[MV_PF_SPLIT];
+            else if (i == 0x13u) link_pf[MV_PF_BAL] = eng.perf[MV_PF_BAL];
+        }
+    }
+}
+static void link_open(void)                     /* (the dump that follows brings the page up to date) */
+{
+    link_t = fm1_ms | 1u;                       /* (never 0: 0 is "not linked") */
+    link_sync();
+}
+/* one DT1 for the changed bytes of the first region that differs, if any; the page then has them */
+static void link_report(void)
+{
+    static const struct { uint8_t area; uint8_t *have; uint32_t n; } R[3] = {
+        {0x40u, link_up, MV_PATCH_BYTES}, {0x42u, link_lo, MV_PATCH_BYTES}, {MV_XF_AREA_EXT, link_pf, MV_PROG_PERF}};
+    static uint8_t msg[MV_XF_MSG_MAX], now[MV_PATCH_BYTES];
+    uint32_t k, i, lo, hi;
+    if (fm1_ms - link_t >= LINK_HOLD) { link_t = 0; return; }   /* the page went quiet: unlinked */
+    for (k = 0; k < 3u; k++) {
+        for (i = 0; i < R[k].n; i++)            /* the region as it is (perf is volatile: read once, here) */
+            now[i] = k == 0u ? eng.patch.b[i] : k == 1u ? eng.lower.b[i] : eng.perf[i];
+        for (lo = 0; lo < R[k].n && now[lo] == R[k].have[lo]; lo++) {}
+        if (lo == R[k].n) continue;             /* this region: the same */
+        for (hi = R[k].n - 1u; now[hi] == R[k].have[hi]; hi--) {}
+        /* address 01 00 aa oo: a patch byte i is area 40 + i / 128, offset i % 128 (as a whole patch's DT1 runs on) */
+        i = xf_dt1(msg, (uint32_t)A_TEMP << 24 | (uint32_t)(R[k].area + (lo >> 7)) << 8 | (lo & 0x7Fu), now + lo,
+                   hi - lo + 1u);
+        if (sysex_send(msg, i)) { link_t = 0; return; }   /* the computer stopped reading: unlinked */
+        for (i = lo; i <= hi; i++) R[k].have[i] = now[i];
+        return;                                 /* one message a pass (as a dump) */
+    }
+}
 static void app_sysex(const uint8_t *p, uint32_t n)   /* platform_poll: main loop */
 {
     uint32_t r = mv_xfer_rx(&xfer, &prog, &eng, p, n);
@@ -299,7 +366,11 @@ static void app_sysex(const uint8_t *p, uint32_t n)   /* platform_poll: main loo
         xfer_slots = 0;
     }
     xfer_t = fm1_ms;
-    if (r & (MV_XF_SLOT | MV_XF_REQ)) xfer_slots = 1;   /* (an audition alone keeps the screen as it is) */
+    /* the transfer screen: a slot written or read. An audition alone keeps the screen as it is, and so does a read of
+     * what plays (Kris 13 Nov, Part B 3a: the bank editor's link reads it every 20 s; it must not flash the screen) */
+    if ((r & MV_XF_SLOT) || ((r & MV_XF_REQ) && !xfer.dump_temp)) xfer_slots = 1;
+    if ((r & MV_XF_REQ) && xfer.dump_temp) link_open();   /* a read of what plays: the page links (or renews) */
+    if ((r & MV_XF_TEMP) && link_t) link_took(p, n);   /* the page wrote what plays: it has those bytes (no echo) */
     if ((r & MV_XF_SLOT) && xfer.last_slot == ui.cur) prog_to_engine(ui.cur);   /* the program playing: heard now */
 }
 #else
@@ -599,6 +670,9 @@ pass:
                 set.midi = (uint8_t)(ui.midi & MIDI_KEPT);   /* MIDI: CLOCK, CLK OUT (LOCAL is not kept) */
                 dirty = 1; t_change = fm1_ms;
             }
+#if defined(DINGHY_WEBSIM)
+            if (wsim_page_moved) { wsim_page_moved = 0; r |= MV_UI_PAGE; }   /* a tile showed its page (sim/mv_tiles.c) */
+#endif
             if (r & MV_UI_PAGE) {
                 lcd_fill(0, 0, 240, 240, C_BLACK);  /* the whole screen (no footer now: it is the DEBUG page) */
                 dbg_all = 1;
@@ -736,7 +810,7 @@ pass:
             uint32_t len = mv_xfer_next(&xfer, &prog, &eng, msg, sizeof msg);
             if (len && sysex_send(msg, len)) xfer.dump_n = 0;   /* the computer stopped reading: the dump ends */
             xfer_t = fm1_ms;
-        }
+        } else if (link_t) link_report();       /* linked: what changed in what plays, to the page (after a dump) */
         if (xfer_shown && !xfer_busy()) {       /* the transfer is over: the screen as it was */
             xfer_shown = 0;
             lcd_fill(0, 0, 240, 240, C_BLACK);
@@ -837,4 +911,7 @@ static void dock_release(void)
         (void)mv_prog_flush(&prog);
     settings_save(&set, sizeof set);            /* (the host keeps it, and writes it when nothing plays) */
 }
+#endif
+#if defined(DINGHY_WEBSIM)
+#include "../../sim/mv_tiles.c"                 /* the simulator's tiles: every page at once (Kris 13 Nov) */
 #endif

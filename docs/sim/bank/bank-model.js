@@ -178,3 +178,68 @@ export function renameSlot(it, name) {
   it.up = Uint8Array.from(it.up); it.up.set(nm, 0);
   return it;
 }
+
+// ================= a sound: what plays (Kris 13 Nov, Part B) =================
+// The temporary area 01 00 of the FM-1 and of the simulator: the upper and lower patches (248 bytes each) and the
+// 16 M-vance performance bytes, { up, lo, pf }. The bank editor keeps its edit buffer as one, and links the sim and the
+// FM-1 to it with the firmware's own messages (firmware/src/mv_xfer.h, mvance.c link_*): a DT1 to 01 00 writes bytes,
+// RQ1 01 00 reads all of it, and a linked device reports each change as a DT1 of the changed bytes.
+
+// an item's sound, exactly as perfMsgs(it, 0x01, 0x00) plays it (the name in the upper's first 16 bytes; a single
+// patch: its lower a copy)
+export function soundOf(it) {
+  const name = Array.from((it.name + " ".repeat(16)).slice(0, 16), (c) => {
+    const v = c.charCodeAt(0); return v >= 32 && v <= 125 ? v : 32; });
+  const up = Uint8Array.from(it.up); up.set(name, 0);
+  return { up, lo: Uint8Array.from(it.kind === "P" ? it.lo : up), pf: Uint8Array.from(perfOf(it)) };
+}
+export function soundCopy(s) { return { up: Uint8Array.from(s.up), lo: Uint8Array.from(s.lo), pf: Uint8Array.from(s.pf) }; }
+export function soundEqual(a, b) {
+  const eq = (x, y) => x.length === y.length && x.every((v, i) => v === y[i]);
+  return !!a && !!b && eq(a.up, b.up) && eq(a.lo, b.lo) && eq(a.pf, b.pf);
+}
+export function soundNew() { return { up: new Uint8Array(PATCH), lo: new Uint8Array(PATCH), pf: Uint8Array.from(PERF_DEF) }; }
+// a sound kept in a slot: a performance item (like: the slot's item before, for its LFO/DELAY/CHORUS part syncs,
+// which ride in the performance bytes anyway)
+export function itemFromSound(s, like) {
+  return { kind: "P", no: like ? like.no : 0, name: nameOf(s.up), up: Uint8Array.from(s.up), lo: Uint8Array.from(s.lo),
+           ext: Uint8Array.from(s.pf), sync: like && like.sync ? [...like.sync] : [0, 0, 0, 0, 0, 0], com: null };
+}
+
+// the message is a DT1 to the temporary area (01 00): its area byte (00 common, 40..43 a patch, 70 the performance
+// bytes), else -1
+export function tempArea(m) {
+  return m.length >= 12 && m[0] === 0xf0 && m[1] === 0x41 && m[3] === 0x00 && m[4] === 0x06 && m[5] === 0x12
+    && m[6] === 0x01 && m[7] === 0x00 ? m[8] : -1;
+}
+// a DT1 to 01 00 into sound s (as the firmware takes it: a patch byte i at area 40 + i / 128, offset i % 128; the
+// common's name and MODE / SPLIT / BALANCE). Returns true when it was one (a bad checksum: false, nothing changed)
+export function applyTemp(s, m) {
+  const area = tempArea(m);
+  if (area < 0 || rsum(m.slice(6, m.length - 2)) !== m[m.length - 2]) return false;
+  const off = m[9], d = m.slice(10, m.length - 2);
+  if (area >= 0x40 && area <= 0x43) {
+    const t = area < 0x42 ? s.up : s.lo, at = (area & 1) * 128 + off;
+    t.set(d.slice(0, Math.max(0, PATCH - at)), at);
+  } else if (area === 0x70) s.pf.set(d.slice(0, Math.max(0, NPERF - off)), off);
+  else if (area === 0x00) {
+    for (let i = 0; i < d.length; i++) {
+      const a = off + i;
+      if (a < 16) s.up[a] = d[i]; else if (a === 0x10) s.pf[0] = d[i]; else if (a === 0x11) s.pf[1] = d[i];
+      else if (a === 0x13) s.pf[2] = d[i];
+    }
+  } else return false;
+  return true;
+}
+// the first region (upper, lower, performance bytes) where `want` differs from `have`: one DT1 to 01 00 from its
+// first changed byte to its last (the firmware's link_report does the same), else null
+export function diffMsg(have, want) {
+  for (const [area, a, b] of [[0x40, have.up, want.up], [0x42, have.lo, want.lo], [0x70, have.pf, want.pf]]) {
+    let lo = 0, hi = a.length - 1;
+    while (lo < a.length && a[lo] === b[lo]) lo++;
+    if (lo === a.length) continue;
+    while (a[hi] === b[hi]) hi--;
+    return dt1([0x01, 0x00, area + (lo >> 7), lo & 0x7f], b.slice(lo, hi + 1));
+  }
+  return null;
+}

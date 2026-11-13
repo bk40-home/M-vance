@@ -141,3 +141,19 @@ void mv_ui_set_clips(mv_ui_t *u, const mv_clip_t *c);   /* the clips' directory 
 void mv_ui_overlay_draw(mv_ui_t *u, const mv_engine_t *e);   /* the overlay shown: drawn when it changed */
 /* the track REC acts on (MV_PART_*): UPPER, or LOWER when PANEL says LOWER in a layered program */
 uint32_t mv_ui_track(const mv_ui_t *u, const mv_engine_t *e);
+
+#if defined(DINGHY_WEBSIM)
+/* ---- the simulator only (sim/mv_tiles.c; Kris 13 Nov, fm1-port/mvance-all-pages-editor-proposal-2026-11-13.md
+ * 1a 2a 3a): every page drawn at once, as tiles. Never in the device or host builds */
+uint32_t mv_ui_npages(void);                    /* the page table's size (HOME is page 0) */
+int mv_ui_page_tile(uint32_t i);                /* 1: page i is a tile (mv_ui_draw draws all of it: not HOME, SAVE,
+                                                   CLIP, ROLL or DEBUG) */
+const char *mv_ui_page_title(uint32_t i);       /* its header's title ("FILTER") */
+const char *mv_ui_page_btn(uint32_t i);         /* the button that reaches it ("SEL") */
+uint32_t mv_ui_page_sub(uint32_t i);            /* sub (0-based) | nsub << 8: the header's "1/2" */
+/* page i shown, as a section button would show it: 1 moved, 0 it already shows, -1 not a tile */
+int mv_ui_goto(mv_ui_t *u, uint32_t i);
+/* a key of what page i's tile shows (its header's part tag, each column's label, value, bar and highlight): the
+ * tile is drawn again only when it changes */
+uint32_t mv_ui_page_key(const mv_ui_t *u, const mv_engine_t *e, uint32_t i, uint32_t midi_ch);
+#endif

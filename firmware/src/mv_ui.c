@@ -1132,3 +1132,52 @@ static void mv_ui_dump(const char *path, mv_engine_t *e)
     fclose(f);
 }
 #endif
+
+/* ---- the simulator only (DINGHY_WEBSIM): the tiles (mv_ui.h; sim/mv_tiles.c draws them with mv_ui_draw on a copy of
+ * the panel). Nothing here changes what the device or the host build does: neither defines DINGHY_WEBSIM */
+#if defined(DINGHY_WEBSIM)
+uint32_t mv_ui_npages(void) { return (uint32_t)NPAGES; }
+int mv_ui_page_tile(uint32_t i)
+{
+    const ui_page_t *g;
+    if (i == 0u || i >= NPAGES) return 0;       /* (HOME: mv_home.c draws it) */
+    g = &PAGES[i];
+    return g->btn != BTN_SAVE && g->p[0] != P_DEBUG && g->p[0] != P_SQBAR && g->p[0] != P_CL;   /* (SAVE, CLIP: their
+                                                   lines are the panel's state; ROLL, DEBUG: mvance.c draws them) */
+}
+const char *mv_ui_page_title(uint32_t i) { return i < NPAGES ? PAGES[i].title : ""; }
+const char *mv_ui_page_btn(uint32_t i) { return i < NPAGES ? btn_name(PAGES[i].btn) : ""; }
+uint32_t mv_ui_page_sub(uint32_t i) { return i < NPAGES ? (uint32_t)PAGES[i].sub | (uint32_t)PAGES[i].nsub << 8 : 0u; }
+
+int mv_ui_goto(mv_ui_t *u, uint32_t i)
+{
+    uint32_t c;
+    if (!mv_ui_page_tile(i)) return -1;
+    if (u->page == i) return 0;
+    u->page = (uint8_t)i;                       /* as mv_ui_input does when a button moves the page: */
+    u->redraw = 1; u->last = 0xFF;
+    for (c = 0; c < 4u; c++) (void)fm1_enc_take(ENC_KNOB1 + c);   /* nothing turned before lands on the new page */
+    return 1;
+}
+
+uint32_t mv_ui_page_key(const mv_ui_t *u, const mv_engine_t *e, uint32_t i, uint32_t midi_ch)
+{
+    const ui_page_t *pg;
+    uint32_t k, h, mode, last;
+    int32_t fill;
+    char val[8];
+    if (i >= NPAGES) return 0;
+    pg = &PAGES[i];
+    /* the highlight: only on the page showing, for 3 s after an edit (as mv_ui_draw's "fresh") */
+    last = i == u->page && fm1_ms - u->t_touch < 3000u ? u->last : 0xFFu;
+    h = (2166136261u ^ i) * 16777619u ^ tag_key(u, e, pg);
+    for (k = 0; k < 4u; k++) {                  /* the same key mv_ui_draw keeps per column */
+        uint32_t p = pg->p[k];
+        const char *label = p == P_NONE ? "" : col_label(e, p);
+        if (p == P_NONE) { val[0] = 0; mode = BAR_NONE; fill = 0; }
+        else col_value(e, p, midi_ch, val, &mode, &fill);
+        h = (h ^ show_key(label, val, fill, mode << 1 | (uint32_t)(last == k))) * 16777619u;
+    }
+    return h;
+}
+#endif

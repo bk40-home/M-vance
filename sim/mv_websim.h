@@ -23,3 +23,4 @@ void wsim_keys(uint32_t mask);          /* the 27 on-screen keys, bit 0 = F3 (dr
 void wsim_btn(int id, int down);        /* a panel button held (1) or let go (0); ids are platform.c's BTN_* enum */
 void wsim_enc(int id, int detents);     /* an encoder turned (+ = clockwise); ids are the ENC_* enum */
 void wsim_midi(int st, int d1, int d2); /* one MIDI message in, over USB */
+void wsim_sysex_in(const uint8_t *p, int n);   /* one SysEx in, F0 .. F7 (the program transfer, mv_xfer.h) */

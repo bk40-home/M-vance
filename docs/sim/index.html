@@ -64,12 +64,22 @@
                background:linear-gradient(#070708,#131315); }
   .key.on { background:var(--amber); }
 
-  .help { color:var(--dim); font-size:.62rem; letter-spacing:.03em; margin-top:10px; text-align:center; max-width:800px; }
+  /* (all the pages at once: on the bank editor now, Kris 13 Nov) */
+  /* the help line on the synth's dark panel colour, light text (was grey on the grey page: hard to read) */
+  .help { color:var(--ink); background:var(--panel); border-radius:10px; padding:8px 14px; font-size:.72rem;
+          letter-spacing:.03em; margin-top:12px; text-align:center; max-width:800px; }
+  /* Link FM-1 (Kris 13 Nov, Part B 4a: the switch replaces the automatic controller mode) */
+  .link { display:flex; align-items:center; gap:6px; font-size:.78rem; padding:.45rem .8rem; border-radius:8px;
+          background:#333; color:var(--ink); }
+  .link input { accent-color:var(--amber); }
+  .link.off { opacity:.45; }
 </style>
 
 <div class="topbar">
   <button id="start">&#9654; Start audio</button>
   <a href="bank/editor.html" target="_blank" rel="noopener" class="ghost">Bank editor &#8594;</a>
+  <label class="link off" id="linkBox" title="keep the FM-1's sound and the sim's the same, both ways (an FM-1 on USB)">
+    <input type="checkbox" id="link" disabled> Link FM-1</label>
   <span id="mode" class="mode">Emulator</span>
 </div>
 
@@ -116,7 +126,12 @@
 </div>
 
 <p class="help">Z&ndash;' Q&ndash;0 keys &nbsp;|&nbsp; turn the knobs: drag, scroll or &larr;&rarr;&uarr;&darr; &nbsp;|&nbsp;
-  [ ] octave &nbsp;|&nbsp; a MIDI keyboard works too &nbsp;|&nbsp; click &#9654; Start audio first</p>
+  [ ] octave &nbsp;|&nbsp; a MIDI keyboard works too &nbsp;|&nbsp; click &#9654; Start audio first<br>
+  Link FM-1 (an FM-1 on USB): the sim shows the FM-1's sound and its knobs edit it; the keys play the FM-1;
+  PRESETS changes the FM-1's program. Every page at once: the Bank editor.</p>
 
-<script src="mvance.js"></script>
-<script type="module" src="sim.js"></script>
+<!-- ?v=20261113133234: sim/build.sh stamps the build id into the docs/ copy, so a browser never mixes a cached old
+     script with a new page (Kris 13 Nov: tiles missing until a hard reload). Unstamped (served from sim/) it is a
+     constant: harmless -->
+<script src="mvance.js?v=20261113133234"></script>
+<script type="module" src="sim.js?v=20261113133234"></script>

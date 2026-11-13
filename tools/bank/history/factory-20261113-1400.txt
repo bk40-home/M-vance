@@ -1,0 +1,109 @@
+# M-vance factory bank: Kris's own 64 programs, made and edited on the FM-1 and pulled from it into
+# tools/bank/mvance.syx (GPL-3.0-only, LICENSING.md). Built by tools/make_bank.py into build/mvance-factory.syx and, through
+# tools/mid2bank (the firmware's own SysEx parser and range clamp), firmware/gen/mv_factory.h.
+#
+#   source <letter> <file>            a bank: a .mid or .syx of JP-8000/8080 DT1 messages
+#   <slot> <from> "<name>" <edit> ... # where it came from
+#     slot   1..64, the program number on the FM-1
+#     from   A:24  user patch 24 of source A (1..128, as the JP numbers them: A11 = 1 .. B88 = 128)
+#            D:P26A  performance 26's upper patch (P26B: its lower)
+#     name   up to 16 characters (ASCII 32..125); the two letters in front say what it is:
+#            LD lead, PD pad, BS bass, PL pluck, AR arp, BR brass, ST strings, BL bell / keys, FX effect
+#     edit   KEY=value (the stored byte) or KEY+n / KEY-n; KEY as in tools/mvance-params.yaml (CUTOFF, RESO,
+#            FENV_D, AENV_R, DLY_LEVEL, MFX_LEVEL, PORTA_TIME, LFO1_RATE ...). Signed values are stored with
+#            their centre (64 = 0), as the JP stores them. L.KEY=value edits the LOWER patch
+#   performances (Kris 3 Nov, layer / split): every program is one; these lines say how it plays
+#     D:P26           a whole performance of the source: its upper and lower patch, KEY MODE, SPLIT and BALANCE
+#     LOWER=A:19      the LOWER patch (else a copy of the upper: a single)
+#     MODE=SINGLE|DUAL|SPLIT  SPLIT=60 (notes below it LOWER)  BAL=64 (0..127, 64 both full)
+#     e.g.  60  A:34  "LD Split Demo"  LOWER=A:19 MODE=SPLIT SPLIT=60
+#   LFO1 SYNC (Kris 5 Nov): a performance's patch (D:P26, D:P26A, LOWER=D:P26B) brings its JP part's LFO1 SYNC with
+#   it; SYNC= (upper) / L.SYNC= (lower) set it: OFF 1/16 1/8T 1/16D 1/8 1/4T 1/8D 1/4 1/2T 1/4D 1/2 1/1T 1/2D 1/1
+#   2/1T 1/1D 2/1 3M 4M 5M 6M 7M 8M (or 0..22; D dotted, nM n measures). Synced, LFO1 RATE is not used.
+#   DELAY SYNC / CHORUS SYNC RATE (Kris 7 Nov): the same, from the JP part's offsets 4 / 6; DSYNC= L.DSYNC= take
+#   OFF .. 1/2 (0..10), CSYNC= L.CSYNC= the LFO1 list or LFO1 (0..23). The FX play UPPER's (DSYNC=, CSYNC=);
+#   synced, the delay's TIME and the Multi-FX type's own rate are not used.
+#
+# A list may name any source; the published bank takes all 64 from tools/bank/mvance.syx.
+
+# Pulled from the FM-1 on 2026-11-06 (make_bank.py --from-device): every slot as the device had it.
+
+source K tools/bank/mvance.syx
+
+# ---- plucks 1-10
+ 1  K:P1   "Pluck 01"
+ 2  K:P2   "Pluck 02"
+ 3  K:P3   "Pluck 03"
+ 4  K:P4   "Pluck 04"
+ 5  K:P5   "Pluck 05"
+ 6  K:P6   "Pluck 06"
+ 7  K:P7   "Pluck 07"
+ 8  K:P8   "Pluck 08"
+ 9  K:P9   "Pluck 09"
+10  K:P10  "Pluck 10"
+
+# ---- FX, leads and misc 11-16
+11  K:P11  "FX 01"
+12  K:P12  "Misc 01"
+13  K:P13  "Lead 01"
+14  K:P14  "Misc 02"
+15  K:P15  "Misc 03"
+16  K:P16  "Misc 04"
+
+# ---- leads 17-38
+17  K:P17  "Lead 02"
+18  K:P18  "Lead 03"
+19  K:P19  "Lead 04"
+20  K:P20  "Lead 05"
+21  K:P21  "Lead 06"
+22  K:P22  "Lead 07"
+23  K:P23  "Lead 08"
+24  K:P24  "Lead 09"
+25  K:P25  "Lead 10"
+26  K:P26  "Lead 11"
+27  K:P27  "Lead 12"
+28  K:P28  "Lead 13"
+29  K:P29  "Lead 14"
+30  K:P30  "Lead 15"
+31  K:P31  "Lead 16"
+32  K:P32  "Lead 17"
+33  K:P33  "Lead 18"
+34  K:P34  "Lead 19"
+35  K:P35  "Lead 20"
+36  K:P36  "Lead 21"
+37  K:P37  "Lead 22"
+38  K:P38  "Lead 23"
+
+# ---- arp and misc 39-40
+39  K:P39  "Arp 01"
+40  K:P40  "Misc 05"
+
+# ---- pads 41-54
+41  K:P41  "Pad 01"
+42  K:P42  "Pad 02"
+43  K:P43  "Pad 03"
+44  K:P44  "Pad 04"
+45  K:P45  "Pad 05"
+46  K:P46  "Pad 06"
+47  K:P47  "Pad 07"
+48  K:P48  "Pad 08"
+49  K:P49  "Pad 09"
+50  K:P50  "Pad 10"
+51  K:P51  "Pad 11"
+52  K:P52  "Pad 12"
+53  K:P53  "Pad 13"
+54  K:P54  "Pad 14"
+
+# ---- strings and misc 55-56
+55  K:P55  "Strings 01"
+56  K:P56  "Misc 06"
+
+# ---- basses 57-64
+57  K:P57  "Bass 01"
+58  K:P58  "Bass 02"
+59  K:P59  "Bass 03"
+60  K:P60  "Bass 04"
+61  K:P61  "Bass 05"
+62  K:P62  "Bass 06"
+63  K:P63  "Bass 07"
+64  K:P64  "Bass 08"

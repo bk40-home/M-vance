@@ -47,13 +47,18 @@ static void fm1_irq_on(void) {}
 
 /* ---- the screen: 240 x 240 RGB565 (gfx.c draws into fb; JS reads it) ---- */
 static uint16_t fb[240 * 240];
+/* where lcd_fill / lcd_blit draw: the screen, or a tile's scratch while sim/mv_tiles.c draws a page there (Kris 13
+ * Nov: every page at once). Only between the app's passes (the one yield is platform_poll's), so never mid-draw */
+static uint16_t *fb_dst = fb;
+/* a tile asked for its page (wsim_goto): mvance.c's loop clears the screen and draws it, as after a button */
+static volatile uint8_t wsim_page_moved;
 static void lcd_sync(void) {}
 static void lcd_fill(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t c)
 {
     uint32_t i, j;
     for (j = y; j < y + h && j < 240u; j++)
         for (i = x; i < x + w && i < 240u; i++)
-            fb[j * 240u + i] = c;
+            fb_dst[j * 240u + i] = c;
 }
 static void lcd_blit(uint32_t x, uint32_t y, uint32_t w, uint32_t h, const uint16_t *px)
 {
@@ -62,7 +67,7 @@ static void lcd_blit(uint32_t x, uint32_t y, uint32_t w, uint32_t h, const uint1
         for (i = 0; i < w; i++)
             if (x + i < 240u && y + j < 240u) {
                 uint16_t c = px[j * w + i];
-                fb[(y + j) * 240u + x + i] = (uint16_t)(c >> 8 | c << 8);   /* gfx.c sends bytes swapped (as the ST7789 gets them) */
+                fb_dst[(y + j) * 240u + x + i] = (uint16_t)(c >> 8 | c << 8);   /* gfx.c sends bytes swapped (as the ST7789 gets them) */
             }
 }
 #ifndef CV_MAX
@@ -182,6 +187,17 @@ EMSCRIPTEN_KEEPALIVE void wsim_btn(int id, int down)
     else { host_rel |= bit; fm1_in.buttons &= ~bit; }
 }
 EMSCRIPTEN_KEEPALIVE void wsim_enc(int id, int detents) { host_enc[(uint32_t)id % HOST_NENC] += detents; }
+/* SysEx in (Kris 13 Nov, Part B 5a): a whole message F0 .. F7, as the FM-1's USB would hand it to the app: the bank
+ * editor loads a sound (DT1 01 00), reads it (RQ1 01 00) and links to the sim exactly as to the FM-1 (mv_xfer.h,
+ * mvance.c link_*). Called from JS between the app's passes, like the rest of this API */
+EMSCRIPTEN_KEEPALIVE void wsim_sysex_in(const uint8_t *p, int n)
+{
+#ifdef APP_SYSEX
+    if (n >= 3 && p[0] == 0xF0u && p[n - 1] == 0xF7u) APP_SYSEX(p + 1, (uint32_t)n - 2u);
+#else
+    (void)p; (void)n;                           /* (a build without the program transfer: nothing takes it) */
+#endif
+}
 EMSCRIPTEN_KEEPALIVE void wsim_midi(int st, int d1, int d2)
 {
     mq[mq_w % 64u][0] = (uint8_t)st; mq[mq_w % 64u][1] = (uint8_t)d1;

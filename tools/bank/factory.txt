@@ -26,9 +26,10 @@
 #
 # A list may name any source; the published bank takes all 64 from tools/bank/mvance.syx.
 
-# Pulled from the FM-1 on 2026-11-06 (make_bank.py --from-device): every slot as the device had it.
+# Pulled from the FM-1 on 2026-11-13 (make_bank.py --from-device): every slot as the
+# device had it, from tools/bank/device.syx (the list before: tools/bank/history/factory-20261113-1400.txt).
 
-source K tools/bank/mvance.syx
+source K tools/bank/device.syx
 
 # ---- plucks 1-10
  1  K:P1   "Pluck 01"
