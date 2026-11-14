@@ -134,3 +134,5 @@ changes of [SLOOP](https://github.com/isod89/sloop-fm1) (isod89); the arpeggiato
 
 JP-8000 and JP-8080 are trademarks of Roland Corporation; "M-VAVE" and "FM-1" belong to their owners. M-vance is not
 made by, endorsed by or affiliated with them, and none of these marks appear in the firmware.
+
+You can also try M-vance in the browser, no flashing needed, in the free community [FM-1 Emulator](https://fm1-emulator.atst.tools/).
