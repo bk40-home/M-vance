@@ -24,3 +24,17 @@ _start:
 	ssp = _sstack_top
 	call fm1_cstart
 	goto .
+
+/* CPU1 entry (from keremimo/melodee 165d177, after the AC79 SDK's cpu.a/startup.S.o): its own supervisor/user stacks,
+ * then return from the startup interrupt into the RAM polling loop (fm1_multicore.h fm1_core1_main). No interrupt is
+ * enabled on this core. */
+	.section .text.core1,"ax",@progbits
+	.globl fm1_core1_start
+fm1_core1_start:
+	cli
+	icfg = 0
+	usp = _cpu1_ustack_top
+	sp = _cpu1_sstack_top
+	ssp = _cpu1_sstack_top
+	reti = fm1_core1_main
+	rti

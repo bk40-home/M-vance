@@ -54,6 +54,7 @@
 #include "mv_voice.h"
 #include "mv_prog.h"
 #include "mv_clip.h"
+#include "mv_build.h"                           /* MV_UI_KIT: the screen kit's settings below */
 
 typedef struct {
     uint8_t page;                               /* 0 = HOME, else an index into the page table */
@@ -94,6 +95,11 @@ typedef struct {
     uint32_t cl_msg_t;                          /* .. from then (fm1_ms) */
     uint8_t midi;                               /* MIDI page (Kris 7 Nov, DAW use): MV_MIDI_* bits, kept in flash (the
                                                    caller loads it from the settings and saves it on MV_UI_SETTING) */
+#if MV_UI_KIT
+    uint8_t theme, colour;                      /* GLOBAL 2/2 (the screen kit, Kris 14 Nov): the theme (mv_kit.h, 0 AMBER ..)
+                                                   and COLOUR (0 THEME, 1 BY TYPE: the name's category). Kept in flash:
+                                                   the caller loads them and saves them on MV_UI_SETTING */
+#endif
 } mv_ui_t;
 /* the MIDI page's settings, one byte (fm1-port/mvance-midi-daw-proposal-2026-11-07.md, 1a 2a 3a 6a). 0 is today's
  * behaviour, so a settings record from before (0 in its spare) changes nothing:

@@ -41,8 +41,13 @@ EMSCRIPTEN_KEEPALIVE uint16_t *wsim_tile(int i)
     t.redraw = 1;                               /* the header and all 4 columns */
     if ((uint32_t)i != ui.page) t.last = 0xFF;  /* the highlight only on the page showing (mv_ui_page_key) */
     fb_dst = tile_fb;
+#if MV_UI_KIT                                   /* the screen kit (Kris 14 Nov): the page in its bands, on its ground */
+    lcd_fill(0, 0, 240, 240, KT.bg);
+    mv_kui_tile(&t);                            /* (the live screen's band keys are kept: mv_kui.c) */
+#else
     lcd_fill(0, 0, 240, 240, C_BLACK);          /* as the screen is cleared when a page opens (mvance.c) */
     mv_ui_draw(&t, &eng, set.ch);
+#endif
     fb_dst = fb;
     return tile_fb;
 }

@@ -2,6 +2,9 @@
 /* M-vance panel: implementation (pages, buttons, look and MIDI in mv_ui.h). */
 #include "mv_ui.h"
 #include "mv_build.h"                          /* MV_DEBUG: the DEBUG page (fm1-dock, 12 Nov) */
+#if MV_UI_KIT
+#include "mv_kit.h"                            /* kit_theme_name, KIT_NTHEME (GLOBAL 2/2) */
+#endif
 
 /* what a knob edits: a patch byte (JP offset 0..247), or one of these (from 0x100: never a patch byte) */
 #define P_NONE 0xFFFFu                          /* a spare knob (decision 3: left empty) */
@@ -29,6 +32,10 @@
 #define P_SQPITCH 0x192u                        /* ROLL: the lowest row shown */
 #define P_SQROOT 0x193u                         /* ROLL: TRANSPOSE's ROOT of the selected track (RAM, with its notes) */
 #define P_CL 0x1A0u                             /* CLIP: P_CL + 0 CLIP, 1 CURSOR, 2 CHAR, 3 MODE (the panel's own) */
+#if MV_UI_KIT
+#define P_THEME 0x1B0u                          /* GLOBAL 2/2 (the screen kit): THEME, COLOUR (the panel's, kept in flash) */
+#define P_COLOUR 0x1B1u
+#endif
 #define TEMPO_MIN 40
 #define TEMPO_MAX 240
 #define IS_PATCH(p) ((p) < 0x100u)
@@ -68,7 +75,12 @@ static const ui_page_t PAGES[] = {
     {"PERFORM", BTN_GLO, 0, 2, {P_PF + MV_PF_MODE, P_PF + MV_PF_SPLIT, P_PF + MV_PF_BAL, P_PANEL}},   /* (Kris 3 Nov) */
     {"PERFORM", BTN_GLO, 1, 2, {P_PF + MV_PF_VSPLIT, P_PF + MV_PF_ARP, P_PF + MV_PF_CHLO, P_PF + MV_PF_CHUP}},
 #endif
+#if MV_UI_KIT
+    {"GLOBAL", BTN_GLO, 0, 2, {P_MIDICH, P_VOICES, P_TEMPO, P_NONE}},
+    {"GLOBAL", BTN_GLO, 1, 2, {P_THEME, P_COLOUR, P_NONE, P_NONE}},   /* the screen's look (Kris 14 Nov, plan 5a) */
+#else
     {"GLOBAL", BTN_GLO, 0, 1, {P_MIDICH, P_VOICES, P_TEMPO, P_NONE}},
+#endif
     {"MIDI", BTN_GLO, 0, 1, {P_LOCAL, P_CLKSRC, P_CLKOUT, P_NONE}},   /* DAW use (Kris 7 Nov): LOCAL, CLOCK, CLK OUT */
 #if MV_DEBUG
     {"DEBUG", BTN_GLO, 0, 1, {P_DEBUG, P_NONE, P_NONE, P_NONE}},   /* the meter and the status (Kris 3 Nov): the knobs
@@ -196,6 +208,10 @@ static const char *col_label(const mv_engine_t *e, uint32_t p)
     case P_CL + 1: return "CURSOR";
     case P_CL + 2: return "CHAR";
     case P_CL + 3: return "MODE";
+#if MV_UI_KIT
+    case P_THEME: return "THEME";
+    case P_COLOUR: return "COLOUR";
+#endif
     case 31: return C1A[b[30] < 7u ? b[30] : 5u];
     case 32: return C1B[b[30] < 7u ? b[30] : 5u];
     case 37: return C2A[b[33] & 3u];
@@ -287,6 +303,10 @@ static const char *choice_name(uint32_t p, uint32_t v)
     case P_LSYNC: return SYNC[v < MV_LFO1_SYNC_N ? v : 0u];
     case P_DSYNC: return SYNC[v < MV_DSYNC_N ? v : 0u];
     case P_CSYNC: return SYNC[v < MV_CSYNC_N ? v : 0u];
+#if MV_UI_KIT
+    case P_THEME: return kit_theme_name(v);
+    case P_COLOUR: return v ? "BY TYPE" : "THEME";   /* BY TYPE: the colour of the name's category (LEAD, PAD ..) */
+#endif
     default: return 0;
     }
 }
@@ -339,6 +359,10 @@ static void col_value(const mv_engine_t *e, uint32_t p, uint32_t midi_ch, char *
     }
     if (p == P_PANEL) { copy7(s, choice_name(p, ui_self ? ui_self->panel : 0u)); return; }
     if (IS_MIDI(p)) { copy7(s, choice_name(p, midi_bit(ui_self ? ui_self->midi : 0u, p))); return; }   /* MIDI page */
+#if MV_UI_KIT
+    if (p == P_THEME) { copy7(s, choice_name(p, ui_self ? ui_self->theme : 0u)); return; }
+    if (p == P_COLOUR) { copy7(s, choice_name(p, ui_self ? ui_self->colour : 0u)); return; }
+#endif
     if (p == P_LSYNC || p == 17u) {             /* LFO1 SYNC of the part edited; RATE 1 shows it in place of the
                                                    number while that part is synced (the JP ignores RATE then) */
         int both;
@@ -473,6 +497,9 @@ void mv_ui_init(mv_ui_t *u, const mv_prog_t *prog)
     u->clips = 0; u->cl_sel = 0; u->cl_pos = 0; u->cl_mode = MV_CL_LOAD; u->cl_act = 0; u->cl_msg = MV_CLM_NONE;
     u->cl_msg_t = 0;
     u->midi = 0;                                /* MIDI page: today's behaviour until the settings load it */
+#if MV_UI_KIT
+    u->theme = 0; u->colour = 0;                /* GLOBAL 2/2: AMBER, THEME until the settings load them */
+#endif
     for (k = 0; k < MV_CLIP_NAME; k++) u->cl_name[k] = "CLIP01"[k];
     for (k = 0; k < 4u; k++) { u->t_knob[k] = 0; u->drawn[k] = ~0u; }
 }
@@ -504,6 +531,13 @@ static uint32_t edit(mv_ui_t *u, mv_engine_t *e, uint32_t col, int32_t step, uin
         return u->midi != was ? MV_UI_SETTING : 0u;
     }
     if (p == P_PANEL) { u->panel = (uint8_t)mv_clamp((int32_t)u->panel + step, 0, MV_UI_BOTH); return 0; }
+#if MV_UI_KIT
+    if (p == P_THEME || p == P_COLOUR) {        /* GLOBAL 2/2: the screen's look, kept in flash */
+        uint8_t *b = p == P_THEME ? &u->theme : &u->colour, was = *b;
+        *b = (uint8_t)mv_clamp((int32_t)*b + step, 0, p == P_THEME ? (int32_t)KIT_NTHEME - 1 : 1);
+        return *b != was ? MV_UI_SETTING : 0u;
+    }
+#endif
     if (p == P_LSYNC) {                         /* into the program, the part PANEL says (BOTH: each by the step) */
         int both;
         uint32_t k = MV_PF_SYNC(ui_part(e, p, &both));

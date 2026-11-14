@@ -24,12 +24,12 @@
 
 const CSS = `
   #pages { display:flex; flex-wrap:wrap; gap:12px; justify-content:center; }
-  .pgroup { background:#262628; border-radius:12px; padding:8px 10px 10px; }
-  .pgroup h3 { margin:0 0 6px; font-size:.6rem; font-weight:normal; letter-spacing:.1em; color:#ff7a1f; }
+  .pgroup { background:var(--surf, #262628); border:1px solid var(--line, #333); border-radius:12px; padding:8px 10px 10px; }
+  .pgroup h3 { margin:0 0 6px; font-size:.6rem; font-weight:normal; letter-spacing:.1em; color:var(--theme, #ff7a1f); }
   .ptiles { display:flex; flex-wrap:wrap; gap:6px; }
   .tile canvas { display:block; width:var(--tile-w,168px); aspect-ratio:240 / 216; image-rendering:pixelated;
                  border:2px solid #000; border-radius:5px; cursor:ns-resize; touch-action:none; background:#000; }
-  .tile.live canvas { border-color:#ff7a1f; }                    /* the page the screen shows */
+  .tile.live canvas { border-color:var(--theme, #ff7a1f); }                    /* the page the screen shows */
   #pages.readonly .tile canvas, .tile.locked canvas { cursor:default; opacity:.45; }   /* not editable now */
   /* smaller than the screen: smoothed (sharp pixels at a fractional scale drop whole rows of the 8 px font and
      the labels break up; Kris 13 Nov "text is very hard to read"). 1:1 and larger: the device's sharp pixels */

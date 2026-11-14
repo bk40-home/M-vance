@@ -15,6 +15,7 @@ python3 tools/gen_tables.py                            # firmware/gen/mv_tables.
 OUT=docs/sim
 mkdir -p "$OUT"
 cp sim/index.html sim/sim.js sim/pages.js sim/engine.js sim/audio-worklet.js "$OUT"/
+cp third_party/fm1-kit/web/theme.css third_party/fm1-kit/web/theme.js third_party/fm1-kit/web/sim.css "$OUT"/   # the look (fm1-kit)
 BUILD=$(date +%Y%m%d%H%M%S)                            # the build stamp: index.html and sim.js ask for
 sed -i "s/__BUILD__/$BUILD/g" "$OUT/index.html" "$OUT/sim.js"   # ?v=<stamp>, so no stale cached script survives
 mkdir -p "$OUT/bank"                                   # the bank editor + FM-1 transfer (linked from the sim page)

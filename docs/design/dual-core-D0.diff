@@ -1,0 +1,429 @@
+diff --git a/firmware/app.ld b/firmware/app.ld
+index 3e142e0..45c6c57 100644
+--- a/firmware/app.ld
++++ b/firmware/app.ld
+@@ -3,7 +3,7 @@
+ /* Felucca memory map.
+  * Code + constants execute in place from XIP (app.bin offset 0 = 0x02000120).
+  * 0x01C00000..0x01C06000 holds .ram_text (code that must run while the flash
+- * is busy: the flash driver); 0x01C06000..0x01C08000 stays for RAM-run debug.
++ * is busy: the flash driver), then .dsp_text (CPU1's loop); 0x01C06000..0x01C08000 stays for RAM-run debug.
+  * RAM  : .data/.bss (96 KiB)
+  * POOL : big zero-initialised buffers (FX lines, canvases), section .pool
+  * STACKS with 256-byte guard bands; NOINIT survives resets and UBOOT entry.
+@@ -21,9 +21,19 @@ SECTIONS
+     .text : { KEEP(*(.text.crt0)) *(.text*) *(.rodata*) . = ALIGN(4); _etext = .; } > XIP
+     .ram_text : { _rt_start = .; KEEP(*(.ram_text*)) . = ALIGN(4); _rt_end = .; } > RAMTEXT AT > XIP
+     _rt_load = LOADADDR(.ram_text);
++    /* CPU1's polling loop (src/audio_worker.h, hal/fm1_multicore.h): it must run from RAM, as the flash may be off
++     * between jobs. Right after .ram_text: the PC guard's RAM window covers both (_guard_ram_end) */
++    .dsp_text : { _dsp_start = .; *(.dsp_text*) . = ALIGN(4); _dsp_end = .; } > RAMTEXT AT > XIP
++    _dsp_load = LOADADDR(.dsp_text);
++    _guard_ram_end = _dsp_end;
+     .data : { . = ALIGN(4); _data_start = .; *(.data*) *(.sdata*) . = ALIGN(4); _data_end = .; } > RAM AT > XIP
+     _data_load = LOADADDR(.data);
+     .bss (NOLOAD) : { _bss_start = .; *(.bss*) *(.sbss*) *(COMMON) . = ALIGN(4); _bss_end = .; } > RAM
++    /* CPU1's stacks: 6 KiB user, 6 KiB supervisor (fm1_multicore.h guards the lowest 256 bytes; a voice_block needs
++     * about 1.5 KiB, so either may carry it) */
++    .cpu1_stacks (NOLOAD) : { . = ALIGN(32); _cpu1_stacks_lo = .; KEEP(*(.cpu1_stacks)) _cpu1_stacks_hi = .; } > RAM
++    _cpu1_ustack_top = _cpu1_stacks_lo + 6144;
++    _cpu1_sstack_top = _cpu1_stacks_lo + 12288;
+     .pool (NOLOAD) : { _pool_start = .; *(.pool*) . = ALIGN(4); _pool_end = .; } > POOL
+     .noinit (NOLOAD) : { *(.noinit*) } > NOINIT
+     _guard0 = 0x01C74000; _ustack_lo = 0x01C74100; _ustack_top = 0x01C7A000;
+diff --git a/firmware/crt0.S b/firmware/crt0.S
+index 5176548..acb1cf3 100644
+--- a/firmware/crt0.S
++++ b/firmware/crt0.S
+@@ -24,3 +24,17 @@ _start:
+ 	ssp = _sstack_top
+ 	call fm1_cstart
+ 	goto .
++
++/* CPU1 entry (from keremimo/melodee 165d177, after the AC79 SDK's cpu.a/startup.S.o): its own supervisor/user stacks,
++ * then return from the startup interrupt into the RAM polling loop (fm1_multicore.h fm1_core1_main). No interrupt is
++ * enabled on this core. */
++	.section .text.core1,"ax",@progbits
++	.globl fm1_core1_start
++fm1_core1_start:
++	cli
++	icfg = 0
++	usp = _cpu1_ustack_top
++	sp = _cpu1_sstack_top
++	ssp = _cpu1_sstack_top
++	reti = fm1_core1_main
++	rti
+diff --git a/firmware/hal/fm1_guard.h b/firmware/hal/fm1_guard.h
+index 8231e31..d155a0f 100644
+--- a/firmware/hal/fm1_guard.h
++++ b/firmware/hal/fm1_guard.h
+@@ -35,7 +35,7 @@
+ #define FM1_EMU_USP_L (*(volatile uint32_t *)0x1EEF0E4u)
+ 
+ extern char _guard0[], _ustack_lo[], _guard1[], _sstack_lo[], _sstack_top[], _etext[];
+-extern uint32_t _rt_start[], _rt_end[];
++extern uint32_t _rt_start[], _guard_ram_end[];   /* .ram_text, then .dsp_text (app.ld) */
+ 
+ enum { FM1_GUARD_STACK = 1, FM1_GUARD_WRITE = 2, FM1_GUARD_BUS = 4, FM1_GUARD_PC = 8 };
+ 
+@@ -75,8 +75,8 @@ static void fm1_guard_enable(uint32_t which)
+     if (which & FM1_GUARD_PC) {
+         FM1_PC_LIMIT0_L = 0x02000120u;
+         FM1_PC_LIMIT0_H = (uint32_t)(uintptr_t)_etext;
+-        {   /* RAM code (.ram_text); with none, repeat the XIP window */
+-            volatile uint32_t rs = (uint32_t)(uintptr_t)_rt_start, re = (uint32_t)(uintptr_t)_rt_end;
++        {   /* RAM code (.ram_text, CPU1's loop in .dsp_text); with none, repeat the XIP window */
++            volatile uint32_t rs = (uint32_t)(uintptr_t)_rt_start, re = (uint32_t)(uintptr_t)_guard_ram_end;
+             FM1_PC_LIMIT1_L = re > rs ? rs : 0x02000120u;
+             FM1_PC_LIMIT1_H = re > rs ? re - 1u : (uint32_t)(uintptr_t)_etext;
+         }
+diff --git a/firmware/hal/fm1_irq.h b/firmware/hal/fm1_irq.h
+index f76f3f6..b3714d2 100644
+--- a/firmware/hal/fm1_irq.h
++++ b/firmware/hal/fm1_irq.h
+@@ -29,6 +29,10 @@
+ #define FM1_DBG_MSG (*(volatile uint32_t *)0x1EEE244u)
+ #define FM1_DBG_MSG_CLR (*(volatile uint32_t *)0x1EEE248u)
+ #define FM1_DBG_EN (*(volatile uint32_t *)0x1EEE340u)
++/* DBG_MSG sources by core (SDK cpu/wl82/debug.c): read/write MMU, PC and write
++ * limits, bus-invalid fetch/read/write */
++#define FM1_DBG_C1 ((1u << 6) | (1u << 8) | (1u << 10) | (1u << 11) | (7u << 16))
++#define FM1_DBG_C0 ((1u << 7) | (1u << 9) | (1u << 12) | (1u << 13) | (7u << 19))
+ 
+ enum { FM1_IRQ_EXCEPTION = 1, FM1_IRQ_ALNK0 = 11, FM1_IRQ_SPI1 = 16, FM1_IRQ_UART1 = 20,
+        FM1_IRQ_SARADC = 24, FM1_IRQ_SPI2 = 37, FM1_IRQ_TIMER5 = 63, FM1_IRQ_SOFT0 = 120 };
+@@ -37,6 +41,7 @@ static inline uint32_t fm1_icfg(void) { uint32_t v; __asm__ volatile("%0 = icfg"
+ static inline void fm1_icfg_set(uint32_t v) { __asm__ volatile("icfg = %0" ::"r"(v) : "memory"); }
+ static inline void fm1_irq_off(void) { __asm__ volatile("cli" ::: "memory"); }
+ static inline void fm1_irq_on(void) { __asm__ volatile("csync\n\tsti" ::: "memory"); }
++static inline uint32_t fm1_cnum(void) { uint32_t v; __asm__ volatile("%0 = cnum" : "=r"(v)); return v; }
+ 
+ #define FM1_CRASH_MAGIC 0x43525348u          /* "CRSH" */
+ typedef struct {
+@@ -87,14 +92,79 @@ static void fm1_irq_enable_all(void)
+     fm1_irq_on();
+ }
+ 
++#include "fm1_core1_stop.h"
++
++/* (M-Vsynth2: from keremimo/melodee 165d177, as there.) */
++/* CPU1 faults (keremimo/melodee#17: on some units CPU1 misreads shared SRAM).
++ * CPU1 enables no interrupt, so the debug unit's errors about it (a fetch
++ * outside the PC limits, a bus error) raise the exception on CPU0, whose own
++ * state is intact: the crash report used to reset the unit for them. Now CPU1
++ * is held, the fault recorded, the audio worker retires (audio_worker.h) and
++ * CPU0 resumes. CPU1 can also take the exception itself: an idle unit's
++ * report, pc 00000002 on a garbled red screen, was CPU1 calling a null job and
++ * drawing the crash screen while CPU0 went on drawing the UI; its fm1_reboot
++ * then held CPU1 before the reset. Now CPU1 records it and parks until CPU0
++ * holds it. Only CPU0 can finish restoring the debug guards after a hold. */
++fm1_core1_fault_t fm1_core1_fault;           /* (fm1_core1_stop.h: the audio worker in mv_dsp.o reads its count) */
++
++static int fm1_core1_fault_c(const uint32_t *f)   /* 1: handled, CPU0 resumes */
++{
++#if MELODEE_DUAL_CORE
++    uint32_t cpu = fm1_cnum(), dbg = FM1_DBG_MSG, was;
++    if (!cpu && (dbg & FM1_DBG_C0))
++        return 0;                                   /* CPU0's own */
++    /* CPU1 took it too and cleared DBG_MSG first. Once per CPU1 fault, so a
++     * genuine CPU0 exception with DBG_MSG clear that lands in that window is
++     * resumed once; it faults again and is reported then. */
++    if (!cpu && !(dbg & FM1_DBG_C1)) {
++        if (fm1_core1_fault.echoes >= fm1_core1_fault.count)
++            return 0;                               /* else CPU0's own */
++        fm1_core1_fault.echoes++;
++        return 1;
++    }
++    if (!cpu && fm1_core1_fault.count >= 16u)
++        return 0;                                   /* a hold that did not take */
++    if (!cpu)
++        fm1_core1_stop();
++    fm1_core1_fault.cpu = cpu;
++    fm1_core1_fault.dbg = dbg;
++    fm1_core1_fault.emu = *(volatile uint32_t *)(cpu ? 0x1EEF2D4u : 0x1EEF0D4u);   /* the faulting core's EMU_MSG */
++    fm1_core1_fault.pc = f[16];
++    fm1_core1_fault.rets = f[25];
++    fm1_core1_fault.count++;                        /* (before DBG_MSG clears: see the echo above) */
++    was = FM1_DBG_WR_EN & 1u;                       /* (writing 0xE7 toggles the unlock) */
++    if (!was)
++        FM1_DBG_WR_EN = 0xE7u;
++    FM1_DBG_MSG_CLR = dbg;
++    if (!was)
++        FM1_DBG_WR_EN = 0xE7u;
++    if (cpu) {
++        __asm__ volatile("csync" ::: "memory");     /* publish the fault; CPU0 joins and holds us */
++        for (;;)
++            ;
++    }
++#if !MELODEE_CORE1_FALLBACK
++    fm1_core1_failure();                     /* CPU0 must not resume into serial rendering */
++#endif
++    return 1;
++#else
++    (void)f;
++    return 0;
++#endif
++}
++
+ /* called from fm1_fatal_common (fm1_vec.S) with the saved frame:
+  * f[0..15] r0..r15, f[16] reti, f[17] rete, f[18] retx, f[19] stub+6,
+- * f[20] psr, f[21] icfg, f[22] usp, f[23] ssp, f[24] sp, f[25] interrupted rets */
++ * f[20] psr, f[21] icfg, f[22] usp, f[23] ssp, f[24] sp, f[25] interrupted rets.
++ * Returns only to resume CPU0 after a CPU1 fault (fm1_vec.S). */
+ void fm1_fault_c(uint32_t *f)
+ {
+     static volatile uint32_t in_fault;
+-    uint32_t i, count = fm1_crash.magic == FM1_CRASH_MAGIC ? fm1_crash.count : 0;
+-    uint32_t early = fm1_crash.magic == FM1_CRASH_MAGIC ? fm1_crash.early : 0;
++    uint32_t i, count, early;
++    if (fm1_core1_fault_c(f))
++        return;
++    count = fm1_crash.magic == FM1_CRASH_MAGIC ? fm1_crash.count : 0;
++    early = fm1_crash.magic == FM1_CRASH_MAGIC ? fm1_crash.early : 0;
+     fm1_irq_off();
+     if (in_fault++)                           /* fault while reporting: reset at once */
+         *(volatile uint32_t *)0x10000u |= 1u << 4;
+diff --git a/firmware/hal/fm1_sys.h b/firmware/hal/fm1_sys.h
+index f1bccda..e27306c 100644
+--- a/firmware/hal/fm1_sys.h
++++ b/firmware/hal/fm1_sys.h
+@@ -106,9 +106,16 @@ static void fm1_reset_reason(void)
+     fm1_boot.wdt_con = fm1_p33_read(FM1_P3_WDT_CON);
+ }
+ 
++/* Publish newly copied executable SRAM before first use (Melodee) */
++static inline __attribute__((always_inline)) void fm1_code_sync(void)
++{ __asm__ volatile("csync" ::: "memory"); }
++
++#include "fm1_core1_stop.h"                   /* (Melodee: CPU1 held before any reset or update record) */
++
+ static void fm1_reboot(void)
+ {
+     __asm__ volatile("cli");
++    fm1_core1_stop();
+     fm1_p33_or(FM1_P3_PR_PWR, 0x10);
+     for (;;)
+         ;
+@@ -119,6 +126,7 @@ static void fm1_enter_uboot(void)
+     static const char k[16] = "usb_update_mode";
+     uint32_t i;
+     __asm__ volatile("cli");
++    fm1_core1_stop();
+     /* CPU0 write limits (fm1_guard.h) may cover the mailbox: drop them all */
+     if (!(*(volatile uint32_t *)0x1EEE240u & 1u))
+         *(volatile uint32_t *)0x1EEE240u = 0xE7u;
+@@ -132,6 +140,8 @@ static void fm1_enter_uboot(void)
+ 
+ FM1_INLINE void fm1_core_reset(void)
+ {
++    __asm__ volatile("cli" ::: "memory");
++    fm1_core1_stop();
+     FM1_PWR_CON |= 0x10u;
+     for (;;)
+         ;
+@@ -141,6 +151,7 @@ FM1_INLINE void fm1_enter_update(const uint8_t *parm)
+ {
+     uint32_t i;
+     __asm__ volatile("cli");
++    fm1_core1_stop();                                /* before writing the bootloader's update record */
+     if (!(*(volatile uint32_t *)0x1EEE240u & 1u))       /* drop CPU0 write limits, as fm1_enter_uboot */
+         *(volatile uint32_t *)0x1EEE240u = 0xE7u;
+     *(volatile uint32_t *)0x1EEE348u = 0;
+diff --git a/firmware/hal/fm1_vec.S b/firmware/hal/fm1_vec.S
+index a0a7643..8dc0884 100644
+--- a/firmware/hal/fm1_vec.S
++++ b/firmware/hal/fm1_vec.S
+@@ -1,5 +1,6 @@
+ /* SPDX-License-Identifier: GPL-3.0-only
+- * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
++ * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
++ * Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+ /* 128 fatal-vector stubs, 6 bytes each: VEC[n] = fm1_fatal_stubs + 6*n.
+  * The call leaves rets = stub + 6, so common code recovers n. */
+ 	.section .text.fm1vec,"ax",@progbits
+@@ -19,4 +20,18 @@ fm1_fatal_common:
+ 	[--sp] = {r15-r0}
+ 	r0 = sp				/* frame: r0..r15, reti, rete, retx, rets(stub+6), psr, icfg, usp, ssp, sp, rets(orig) */
+ 	call fm1_fault_c
+-1:	goto 1b
++	/* fm1_fault_c returns only after a CPU1 fault taken here (CPU1 now held):
++	 * resume as an ISR wrapper does. reti, the interrupted rets and psr move to
++	 * the frame's last three words (f[23..25]), where {psr, rets, reti} = [sp++]
++	 * reads them; it also leaves sp where the exception found it. */
++	r0 = [sp+64]			/* f[16] reti */
++	r1 = [sp+100]			/* f[25] the interrupted rets */
++	r2 = [sp+80]			/* f[20] psr */
++	[sp+92] = r0
++	[sp+96] = r1
++	[sp+100] = r2
++	{r15-r0} = [sp++]
++	sp += 28			/* f[16..22] */
++	{psr, rets, reti} = [sp++]
++	csync
++	rti
+diff --git a/firmware/src/mv_dsp.c b/firmware/src/mv_dsp.c
+index e013a4e..2195fb6 100644
+--- a/firmware/src/mv_dsp.c
++++ b/firmware/src/mv_dsp.c
+@@ -5,7 +5,32 @@
+  * Why apart: Dinghy builds its unity file at -Os because -O2 there (with usb.c) made USB-MIDI out babble and
+  * broke updates (OberVave's finding). The DSP has no such ties: it touches no hardware and only C objects, so it
+  * can take -O2 (unrolled inner loops, more in registers) without the platform seeing it. mvance.c includes only
+- * the headers and calls mv_engine_* / mv_cc_apply / mv_patch_*. */
++ * the headers and calls mv_engine_* / mv_cc_apply / mv_patch_*; platform.c starts the second core
++ * through mv_core1_start. */
++/* The second core (Melodee's, hal/fm1_multicore.h + src/audio_worker.h; as M-Vsynth2's vs_dsp.c): CPU1 polls a mailbox
++ * from RAM. Stage D0: it starts and idles; the engine does not hand it voices yet (MV_PAR_* are unused until D1).
++ * The only hardware this file touches. Not on a computer, in a browser, or as an fm1-dock module (the dock's host
++ * firmware owns CPU1): those are one core */
++#if !defined(DINGHY_HOST) && !defined(DINGHY_WEBSIM) && !defined(DINGHY_DOCK)
++#include "fm1_time.h"
++#include "fm1_dual.h"
++#if MELODEE_DUAL_CORE
++#include "fm1_multicore.h"
++#define MV_PAR_SUBMIT(fn, ctx) audio_worker_submit((fn), (ctx))   /* 1: CPU1 took the job */
++#define MV_PAR_JOIN() audio_worker_join()      /* 1: its results are in; 0: CPU1 retired (one core from now) */
++#define MV_PAR_CHECK() audio_worker_check()    /* between blocks: retire a CPU1 that faulted or misread */
++int mv_core1_start(uint32_t power_ok, uint32_t early)   /* platform.c, at boot: 1 online */
++{
++    return fm1_core1_boot_allowed(power_ok, early) ? fm1_multicore_start() : 0;
++}
++int mv_core1_online(void);                     /* (declared in mv_voice.h from D1; here so D0 stands alone) */
++int mv_core1_online(void) { return audio_worker_online; }
++#endif
++#endif
++#ifndef MV_PAR_SUBMIT
++int mv_core1_online(void);
++int mv_core1_online(void) { return 0; }
++#endif
+ #include "mv_patch.c"
+ #include "mv_pitch.c"
+ #include "mv_osc.c"
+diff --git a/firmware/src/platform.c b/firmware/src/platform.c
+index 2b847a9..de58c37 100644
+--- a/firmware/src/platform.c
++++ b/firmware/src/platform.c
+@@ -57,6 +57,9 @@ enum { ENC_SELECT = 0, ENC_ALGORITHM = 1, ENC_KNOB1 = 2, ENC_KNOB2 = 3, ENC_KNOB
+ #include "fm1_sys.h"
+ #include "fm1_irq.h"
+ #include "fm1_guard.h"
++#include "fm1_power.h"                         /* the stock supplies (Melodee) */
++#include "fm1_dual.h"
++int mv_core1_start(uint32_t power_ok, uint32_t early);   /* mv_dsp.c (the second core) */
+ #if BOARD_SMK37
+ #include "smk_input.h"                          /* keys with velocity, buttons, 8 encoders, LEDs, pads, faders, wheels */
+ static void fm1_led_key_glow(uint32_t id, int on) { (void)id; (void)on; }   /* (no key LEDs: the pads glow) */
+@@ -510,6 +513,8 @@ void fm1_cstart(void)
+ {
+     extern uint32_t _data_start[], _data_end[], _data_load[], _bss_start[], _bss_end[];
+     extern uint32_t _pool_start[], _pool_end[], _rt_start[], _rt_end[], _rt_load[];
++    extern uint32_t _dsp_start[], _dsp_end[], _dsp_load[];   /* CPU1's polling loop (app.ld) */
++    uint32_t power_ok, early;
+     uint32_t *s, *d, p3, boot_mode;
+     fm1_time_init();
+     fm1_reset_reason();
+@@ -525,8 +530,15 @@ void fm1_cstart(void)
+     for (d = _pool_start; d < _pool_end; d++) *d = 0;
+     for (s = _data_load, d = _data_start; d < _data_end; s++, d++) *d = *s;
+     for (s = _rt_load, d = _rt_start; d < _rt_end; s++, d++) *d = *s;
++    for (s = _dsp_load, d = _dsp_start; d < _dsp_end; s++, d++) *d = *s;
++    fm1_code_sync();                            /* (the copied code published before its first use) */
+     fm1_mailbox_clear();
+-    fm1_guard_enable(FM1_GUARD_STACK | FM1_GUARD_WRITE | FM1_GUARD_BUS | FM1_GUARD_PC);
++    /* the stock V15 supplies (Melodee's fm1_power.h): IRQs off, CPU1 held, before the peripherals and CPU1. A failed
++     * setup keeps one core */
++    power_ok = (uint32_t)fm1_power_init();
++    early = fm1_crash.magic == FM1_CRASH_MAGIC && fm1_crash.early;   /* crashing at boot: one core until power-off */
++    /* the PC guard waits for CPU1: it starts through the mask ROM before it reaches our RAM loop (Melodee) */
++    fm1_guard_enable(FM1_GUARD_STACK | FM1_GUARD_WRITE | FM1_GUARD_BUS);
+     fm1_boot.p3_rst = (uint8_t)p3;
+     if (boot_mode == BOOT_RECOVERY || recovery_key())
+         recovery_main();                        /* OCT- at power-on: the USB rescue */
+@@ -545,6 +557,12 @@ void fm1_cstart(void)
+     smk_trim_read();                            /* (after fm1_input_init: it sets the defaults first) */
+     smk_owner_check();
+ #endif
++#if MELODEE_DUAL_CORE
++    mv_core1_start(power_ok, early);            /* CPU1: half the voices (mv_dsp.c); bounded, falls back to one core */
++#else
++    (void)power_ok; (void)early;
++#endif
++    fm1_guard_enable(FM1_GUARD_PC);
+     fm1_audio_init(abuf, HALF_WORDS, isr_alnk0, 3);   /* (abuf is zero: .bss) */
+     usb_start();
+ #if FELUCCA_UART
+diff --git a/tools/build.py b/tools/build.py
+index 64cc560..877a1cb 100644
+--- a/tools/build.py
++++ b/tools/build.py
+@@ -191,21 +191,23 @@ def build_app():
+         ld.write_text(txt.replace("LENGTH = 0x8DFBC", f"LENGTH = {APP_SLOT:#X}".replace("0X", "0x")))
+     tc("pi32v2/bin/ld", "--gc-sections", "-e", "_start", "-T", ld, OUT / "crt0.o", OUT / "fm1_vec.o",
+        OUT / "fm1_isr.o", OUT / "mvance.o", OUT / "mv_dsp.o", "-o", elf)
+-    for sect in ("text.bin", "data.bin", "ramtext.bin"):
++    for sect in ("text.bin", "data.bin", "ramtext.bin", "dsptext.bin"):
+         (OUT / sect).unlink(missing_ok=True)
+-    *_, syms, dis, rt = tc_all(("common/bin/objcopy", "-O", "binary", "-j", ".text", elf, OUT / "text.bin"),
+-                               ("common/bin/objcopy", "-O", "binary", "-j", ".data", elf, OUT / "data.bin"),
+-                               ("common/bin/objcopy", "-O", "binary", "-j", ".ram_text", elf, OUT / "ramtext.bin"),
+-                               ("common/bin/objdump", "-t", elf),
+-                               ("common/bin/objdump", "-d", elf),
+-                               ("common/bin/objdump", "-d", "-j", ".ram_text", elf))
++    *_, syms, dis, rt, dt = tc_all(("common/bin/objcopy", "-O", "binary", "-j", ".text", elf, OUT / "text.bin"),
++                                   ("common/bin/objcopy", "-O", "binary", "-j", ".data", elf, OUT / "data.bin"),
++                                   ("common/bin/objcopy", "-O", "binary", "-j", ".ram_text", elf, OUT / "ramtext.bin"),
++                                   ("common/bin/objcopy", "-O", "binary", "-j", ".dsp_text", elf, OUT / "dsptext.bin"),
++                                   ("common/bin/objdump", "-t", elf),
++                                   ("common/bin/objdump", "-d", elf),
++                                   ("common/bin/objdump", "-d", "-j", ".ram_text", elf),
++                                   ("common/bin/objdump", "-d", "-j", ".dsp_text", elf))
+     (OUT / "mvance.dis").write_text(dis)
+ 
+     def symv(name):
+         return int(re.search(r"^([0-9a-f]+) .*\s" + name + r"$", syms, re.M).group(1), 16)
+     img = bytearray((OUT / "text.bin").read_bytes())
+-    # .ram_text and .data follow .text at their load addresses; crt0 copies them by words
+-    for sect, lname in (("ramtext.bin", "_rt_load"), ("data.bin", "_data_load")):
++    # .ram_text, .dsp_text and .data follow .text at their load addresses; fm1_cstart copies them by words
++    for sect, lname in (("ramtext.bin", "_rt_load"), ("dsptext.bin", "_dsp_load"), ("data.bin", "_data_load")):
+         load = symv(lname)
+         if load % 4:
+             raise SystemExit(f"{lname} {load:#x} is not word aligned")
+@@ -217,10 +219,14 @@ def build_app():
+             img += blob
+     img += b"\xff" * (-len(img) % 4)
+     (OUT / "mvance.bin").write_bytes(img)
+-    return bytes(img), syms, dis, rt
++    return bytes(img), syms, dis, rt + "\n" + DSP_MARK + "\n" + dt
++
++
++DSP_MARK = "==== .dsp_text"
+ 
+ 
+ def check(img, syms, dis, rt):
++    rt, _, dt = rt.partition(DSP_MARK)
+     errors, notes = [], []
+     m = re.search(r"^([0-9a-f]+) .*\s_start$", syms, re.M)
+     if not m or int(m.group(1), 16) != APP_XIP:
+@@ -232,6 +238,12 @@ def check(img, syms, dis, rt):
+         errors.append(f".ram_text contains calls: {rt_calls[:3]}")
+     else:
+         notes.append(f".ram_text: {len([ln for ln in rt.splitlines() if LINE.match(ln)])} insns, no calls")
++    # CPU1's loop (.dsp_text) runs while the flash may be off: a direct call must stay in RAM (its job is an indirect call)
++    dt_calls = [ln for ln in dt.splitlines() if re.search(r"\bcall -?\d+ <", ln) and not re.search(r": 1c[0-9a-f]{5} >", ln)]
++    if dt_calls:
++        errors.append(f".dsp_text calls out of RAM: {dt_calls[:3]}")
++    else:
++        notes.append(f".dsp_text (CPU1's loop): {len([ln for ln in dt.splitlines() if LINE.match(ln)])} insns, no call out of RAM")
+     for ln in dis.splitlines():     # nothing may call or load an address in the chip ROM
+         mm = LINE.match(ln)
+         if not mm:
+@@ -246,7 +258,7 @@ def check(img, syms, dis, rt):
+     def sym(name):
+         mm = re.search(r"^([0-9a-f]+) .*\s" + name + r"$", syms, re.M)
+         return int(mm.group(1), 16) if mm else 0
+-    ram = sym("_bss_end") - 0x01C08000
++    ram = max(sym("_bss_end"), sym("_cpu1_stacks_hi")) - 0x01C08000   # (CPU1's stacks follow .bss)
+     pool = sym("_pool_end") - 0x01C20000
+     notes.append(f"image {len(img)} B of {APP_SLOT}; RAM .data+.bss {ram} B of 98304; pool {pool} B of 344064")
+     if ram > 96 * 1024:

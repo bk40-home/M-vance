@@ -166,6 +166,10 @@ static int quiet(void) { return mv_engine_quiet(&eng); }   /* nothing sounds, no
 #define C_OFF RGB(90, 90, 90)
 #define KEY0 53u                                /* key 0 = F3 */
 #include "mv_home.c"                           /* the home screen (Kris 3 Nov, H1): after the colours it draws with */
+#if MV_UI_KIT
+#include "mv_kit.c"                            /* the screen kit (Kris 14 Nov: fm1-port/mvance-kit-ui-plan-2026-11-14.md):
+                                                   knobs, graphs, themes; the roll below draws in its colours */
+#endif
 
 /* the buttons that light for the page shown (the section buttons, HOME and SEQ) */
 static const uint8_t UI_LED_BTN[8] = {BTN_HOME, BTN_LFO, BTN_EDIT, BTN_ENV, BTN_SEL, BTN_FX, BTN_GLO, BTN_SEQ};
@@ -187,12 +191,14 @@ static mv_roll_t roll;                          /* what it shows (main loop only
  * layout (34 bytes) is new with the arp: the first boot after it starts from the defaults, once */
 #define SPARE 14u
 static struct { uint8_t oct, ch, rv[MV_RV_N], arp[MV_ARP_N], tempo, prog, bank[4], seq[MV_SQ_N], seqf, midi,
-                spare[SPARE - 6u - MV_SQ_N]; } set;
+                theme, colour, spare[SPARE - 8u - MV_SQ_N]; } set;
 /* midi: one more spare (Kris 7 Nov, DAW use, 6a): the MIDI page's MV_MIDI_* bits (mv_ui.h). A record from before has 0
  * there: LOCAL ON, CLOCK AUTO, CLK OUT OFF, which is how it behaved.
  * LOCAL is never kept (Kris 8 Nov): every power-up starts LOCAL ON, so a keyboard left silent after a DAW session is
  * never a mystery. OFF lasts until the power goes; CLOCK and CLK OUT are kept. MIDI_KEPT is what flash holds */
 #define MIDI_KEPT (MV_MIDI_MASK & ~MV_MIDI_LOCALOFF)
+/* theme, colour: two more spares (Kris 14 Nov, the screen kit: GLOBAL 2/2). A record from before has 0 there: AMBER,
+ * THEME, the kit's defaults. Only MV_UI_KIT builds read or write them (the record's size is the same either way) */
 /* prog: one of the spares (34 bytes still: the record loads as before). bank: 4 more (A1, Kris 3 Nov), the factory
  * bank the saved programs belong to (mv_prog_factory_id, little-endian; 0 = not recorded yet). seq: 5 more (Kris
  * 6 Nov, 6a), the sequencer's settings (MV_SQ_*): a record from before has 0 there, which no LENGTH is, so it gets
@@ -464,6 +470,10 @@ static void app_idle(void)
     if (idle_ok) midi_in();
 }
 
+#if MV_UI_KIT
+#include "mv_kui.c"                            /* M-vance's screens on the kit (they read the state above) */
+#endif
+
 /* ---- the fm1-dock module (dock/, DINGHY_DOCK; Kris 12 Nov): the host runs its own main loop and calls the app once
  * a pass (draw()), so app_main is entered again and again: its state (MV_KEEP) is static, its start-up runs once,
  * and its loop body is one pass (a `continue` still ends the pass, as before). The standalone build is unchanged:
@@ -568,17 +578,27 @@ static void app_main(void)
     }
 #endif
     palette_set(1);                             /* the family's AMBER (gfx.c): the panel's labels, values, rules */
+#if MV_UI_KIT
+    ui.theme = (uint8_t)(set.theme < KIT_NTHEME ? set.theme : 0u);   /* GLOBAL 2/2, as kept (out of range: AMBER) */
+    ui.colour = (uint8_t)(set.colour & 1u);
+    mv_kui_full();                              /* (drawn by the first pass) */
+#else
     lcd_fill(0, 0, 240, 240, C_BLACK);
     home_header();
+#endif
 
 #ifdef DINGHY_DOCK
 pass:
     if (dock_full) {                            /* back from the host's picker: the screen as on a page change */
         dock_full = 0;
+#if MV_UI_KIT
+        mv_kui_full();
+#else
         lcd_fill(0, 0, 240, 240, C_BLACK);
         dbg_all = 1;
         if (mv_ui_home(&ui)) { home_header(); prog_drawn = ~0u; knobs_drawn = ~0u; voices_drawn = ~0u; scope_live = 1; }
         else ui.redraw = 1;
+#endif
     }
     do {                                        /* one pass (draw()) */
 #else
@@ -648,9 +668,13 @@ pass:
                 }
                 bank_record(mv_prog_factory_id());
                 bank_ask = 0;
+#if MV_UI_KIT
+                mv_kui_full();
+#else
                 lcd_fill(0, 0, 240, 240, C_BLACK);   /* home again, all of it */
                 home_header();
                 prog_drawn = ~0u; knobs_drawn = ~0u; voices_drawn = ~0u; scope_live = 1;
+#endif
             }
             b = 0;                              /* (nothing else reaches the panel this pass) */
         }
@@ -668,13 +692,20 @@ pass:
                 set.tempo = eng.tempo;
                 for (k = 0; k < MV_SQ_N; k++) set.seq[k] = eng.seqb[k];
                 set.midi = (uint8_t)(ui.midi & MIDI_KEPT);   /* MIDI: CLOCK, CLK OUT (LOCAL is not kept) */
+#if MV_UI_KIT
+                set.theme = ui.theme; set.colour = ui.colour;   /* GLOBAL 2/2 */
+#endif
                 dirty = 1; t_change = fm1_ms;
             }
 #if defined(DINGHY_WEBSIM)
             if (wsim_page_moved) { wsim_page_moved = 0; r |= MV_UI_PAGE; }   /* a tile showed its page (sim/mv_tiles.c) */
 #endif
             if (r & MV_UI_PAGE) {
+#if MV_UI_KIT
+                mv_kui_full();                  /* the whole screen in the kit's bands */
+#else
                 lcd_fill(0, 0, 240, 240, C_BLACK);  /* the whole screen (no footer now: it is the DEBUG page) */
+#endif
                 dbg_all = 1;
                 if (mv_ui_home(&ui) && !mv_ui_overlay(&ui)) {   /* back home: everything there drawn again */
                     home_header();
@@ -682,8 +713,12 @@ pass:
                 }
             }
         }
-        if ((e = fm1_enc_take(ENC_PRESETS)) != 0)   /* PRESETS: the programs (wrapping 64 -> 1) */
+        if ((e = fm1_enc_take(ENC_PRESETS)) != 0) {   /* PRESETS: the programs (wrapping 64 -> 1) */
+#if MV_UI_KIT
+            mv_kui_prog_turned();               /* (their list shows for 2 s) */
+#endif
             prog_select((uint32_t)(((int32_t)ui.cur + e % (int32_t)MV_NPROG + (int32_t)MV_NPROG) % (int32_t)MV_NPROG), 1);
+        }
         if (prog_req < MV_NPROG) { prog_select(prog_req, 0); prog_req = 0xFF; }   /* MIDI program change in */
         if (r_prog) {                           /* SAVE on its page: WRITE / SWAP / FACTORY (in RAM now, to flash
                                                    once nothing sounds) */
@@ -750,6 +785,7 @@ pass:
 #else
             fm1_led_key(BTN_SAVE, edited || mv_prog_dirty(&prog) || PAGES[ui.page].btn == BTN_SAVE);
 #endif
+#if !MV_UI_KIT
             if (mv_ui_home(&ui) && !bank_ask) {
                 const uint8_t *nm = eng.patch.b, *ln = eng.lower.b;
                 uint32_t lo = (ui.midi & MV_MIDI_LOCALOFF) != 0u;   /* LOCAL OFF shows on the program line */
@@ -759,6 +795,7 @@ pass:
                 if (mode == MV_KEY_SPLIT) key = key * 31u + eng.perf[MV_PF_SPLIT];
                 if (key != prog_drawn) { prog_drawn = key; home_program(ui.cur, nm, edited, mode, ln, eng.perf[MV_PF_SPLIT], (int)lo); }
             }
+#endif
         }
         fm1_led_key(BTN_ARP, eng.arpb[MV_ARP_ON] != 0u);   /* the arp on */
         /* the arp's quarter note in samples: the MIDI clock's 4-quarter average while it comes (clk_bpm drops 2 s
@@ -811,6 +848,7 @@ pass:
             if (len && sysex_send(msg, len)) xfer.dump_n = 0;   /* the computer stopped reading: the dump ends */
             xfer_t = fm1_ms;
         } else if (link_t) link_report();       /* linked: what changed in what plays, to the page (after a dump) */
+#if !MV_UI_KIT
         if (xfer_shown && !xfer_busy()) {       /* the transfer is over: the screen as it was */
             xfer_shown = 0;
             lcd_fill(0, 0, 240, 240, C_BLACK);
@@ -818,6 +856,15 @@ pass:
             else { ui.redraw = 1; dbg_all = 1; }
         }
 #endif
+#endif
+#if MV_UI_KIT
+        mv_kui_draw();                          /* the screen in view: what changed on it (mv_kui.c) */
+#if MV_XFER
+        (void)xfer_shown; (void)xfer_key;       /* (the classic screens' state: unused here) */
+#endif
+        (void)prog_drawn; (void)knobs_drawn; (void)voices_drawn; (void)scope_t; (void)scope_live; (void)st;
+        (void)dbg_all;
+#else
         if (bank_ask) {                         /* the factory bank question: drawn once */
             if (bank_ask == 1) { home_bank_ask(); bank_ask = 2; }
 #if MV_XFER
@@ -845,6 +892,7 @@ pass:
             if (mv_ui_roll(&ui)) { mv_roll_draw(&roll, &ui, &eng, dbg_all); dbg_all = 0; }   /* SEQ 2/2: the roll */
 #endif
         }
+#endif
 #if MV_DEBUG
         if (fm1_ms - cpu_t >= 250u && !cpu_clear) {   /* the meter, 4 times a second: the average of the last quarter
                                                          second, and the peak HELD over the last 3 s (12 quarters).
@@ -875,8 +923,12 @@ pass:
 #else
                 d.prof = 0; d.osc_pc = d.flt_pc = d.etc_pc = 0;
 #endif
+#if MV_UI_KIT
+                mv_kui_debug(&d);               /* (the kit draws it with the page) */
+#else
                 mv_debug_draw(&d, dbg_all);
                 dbg_all = 0;
+#endif
             }
         }
 #endif

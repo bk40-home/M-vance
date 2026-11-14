@@ -1,4 +1,5 @@
 <!doctype html>
+<html lang="en" data-theme="sea">
 <!-- SPDX-License-Identifier: GPL-3.0-only -->
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -10,17 +11,19 @@
      Part B (Kris 13 Nov): the simulator on this page as the edit buffer (its screen, every page as a tile, the
      computer keys), Edit / Store / Store as / Revert / Compare on the slots, and Link FM-1: the FM-1's sound and the
      sim's kept the same both ways (link.js). ?v=__BUILD__: sim/build.sh stamps the build, so no stale script. -->
+<link rel="stylesheet" href="../theme.css?v=__BUILD__">
+<script src="../theme.js?v=__BUILD__"></script>
 <style>
-  :root { --amber:#ff8000; --bg:#111; --card:#1b1b1b; --line:#333; --over:#3a2a00; }
-  body { background:var(--bg); color:#eee; font-family:system-ui,sans-serif; margin:0; padding:16px; }
-  h1 { font-size:1.2rem; margin:0 0 10px; }
+  :root { --amber:var(--theme); --card:var(--surf); --over:var(--fill); }   /* fm1-kit theme.css's tokens */
+  body { background:var(--bg); color:var(--text); font-family:var(--font); margin:0; padding:16px; }
+  .kit-top { margin:-16px -16px 12px; }
   h2 { font-size:.8rem; letter-spacing:.12em; text-transform:uppercase; color:var(--amber); margin:0 0 8px; }
   .bar { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:8px; }
   .btn, button { font-size:.9rem; padding:.4rem .8rem; border:1px solid var(--line); border-radius:6px;
-                 background:#222; color:#eee; cursor:pointer; }
+                 background:var(--raised); color:var(--text); cursor:pointer; }
   #count { margin-left:auto; opacity:.7; font-size:.85rem; }
-  .help { color:#c8c8c8; font-size:.85rem; margin:4px 0 12px; }
-  .help.bad { color:#ff6b6b; opacity:1; }
+  .help { color:var(--dim); font-size:.85rem; margin:4px 0 12px; }
+  .help.bad { color:var(--warn); opacity:1; }
   .wrap { display:flex; gap:16px; align-items:flex-start; }
   .grid { display:grid; grid-template-columns:repeat(8, 1fr); gap:6px; flex:1; }
   .slot { background:var(--card); border:1px solid var(--line); border-radius:6px; padding:5px 6px; font-size:.72rem;
@@ -30,29 +33,29 @@
   .hd { display:flex; align-items:center; gap:5px; }
   .no { color:var(--amber); font-weight:700; min-width:1.4em; }
   .nm { flex:1; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  .ren { padding:0 4px; font-size:.7rem; border:none; background:none; color:#888; }
-  .part { margin-top:3px; padding:2px 4px; border-radius:4px; background:#141414; color:#aaa; white-space:nowrap;
+  .ren { padding:0 4px; font-size:.7rem; border:none; background:none; color:var(--dim); }
+  .part { margin-top:3px; padding:2px 4px; border-radius:4px; background:var(--bg); color:var(--dim); white-space:nowrap;
           overflow:hidden; text-overflow:ellipsis; }
-  .part.over { background:var(--over); color:#fff; }
+  .part.over { background:var(--over); color:var(--text); }
   aside { width:220px; flex:none; }
   #palette { display:flex; flex-direction:column; gap:4px; max-height:72vh; overflow:auto; }
   .pal { display:flex; align-items:center; gap:6px; background:var(--card); border:1px solid var(--line);
          border-radius:6px; padding:4px 6px; font-size:.8rem; }
   .pnm { flex:1; cursor:grab; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  .chip { cursor:grab; background:#2a2a2a; border:1px solid var(--line); border-radius:4px; padding:0 6px;
+  .chip { cursor:grab; background:var(--raised); border:1px solid var(--line); border-radius:4px; padding:0 6px;
           font-size:.7rem; color:var(--amber); }
-  .fm1 { background:#161208; border:1px solid #3a2a00; border-radius:8px; padding:8px 10px; }
-  .fm1 select { background:#222; color:#eee; border:1px solid var(--line); border-radius:6px; padding:.3rem; max-width:220px; }
+  .fm1 { background:var(--surf); border:1px solid var(--line); border-radius:8px; padding:8px 10px; }
+  .fm1 select { background:var(--raised); color:var(--text); border:1px solid var(--line); border-radius:6px; padding:.3rem; max-width:220px; }
   .fm1 .lbl { font-size:.8rem; opacity:.75; }
-  button.primary { background:var(--amber); color:#111; border-color:var(--amber); font-weight:600; }
+  button.primary { background:var(--amber); color:var(--on-theme); border-color:var(--amber); font-weight:600; }
   button:disabled { opacity:.4; cursor:default; }
   progress { width:140px; }
-  .play { padding:0 5px; font-size:.7rem; border:1px solid var(--line); border-radius:4px; background:#222; color:var(--amber); }
+  .play { padding:0 5px; font-size:.7rem; border:1px solid var(--line); border-radius:4px; background:var(--raised); color:var(--amber); }
   .sel { margin:0; accent-color:var(--amber); }
   .slot.ticked { border-color:var(--amber); }
-  .help.ok { color:#8fc46a; opacity:1; }
+  .help.ok { color:var(--ok); opacity:1; }
   /* the sound (Part B): the sim's screen, the edit buffer's buttons, the tiles */
-  .sound { display:flex; gap:14px; align-items:flex-start; background:#161616; border:1px solid var(--line);
+  .sound { display:flex; gap:14px; align-items:flex-start; background:var(--surf); border:1px solid var(--line);
            border-radius:8px; padding:10px; margin-bottom:10px; }
   #screen { width:200px; height:200px; image-rendering:pixelated; border-radius:6px; background:#000; flex:none; }
   .sound .ctl { flex:1; display:flex; flex-direction:column; gap:6px; }
@@ -61,21 +64,27 @@
   .tog { display:flex; align-items:center; gap:5px; font-size:.9rem; }
   .tog input { accent-color:var(--amber); }
   #linkState { font-size:.8rem; opacity:.75; }
-  #linkState.on { color:#8fc46a; opacity:1; }
+  #linkState.on { color:var(--ok); opacity:1; }
   .slot.editing { outline:2px solid var(--amber); }
-  .slot.onfm1 .no::after { content:" ●"; color:#8fc46a; }   /* the program the FM-1 plays (linked) */
-  .slot .edit { padding:0 5px; font-size:.7rem; border:1px solid var(--line); border-radius:4px; background:#222; color:#eee; }
-  .nm-in { font-size:.85rem; color:#ccc; display:flex; align-items:center; gap:6px; }
-  .nm-in input { width:13em; font:inherit; font-family:ui-monospace,monospace; background:#0d0d0d; color:#fff;
+  .slot.onfm1 .no::after { content:" ●"; color:var(--ok); }   /* the program the FM-1 plays (linked) */
+  .slot .edit { padding:0 5px; font-size:.7rem; border:1px solid var(--line); border-radius:4px; background:var(--raised); color:var(--text); }
+  .nm-in { font-size:.85rem; color:var(--dim); display:flex; align-items:center; gap:6px; }
+  .nm-in input { width:13em; font:inherit; font-family:ui-monospace,monospace; background:var(--bg); color:var(--text);
                  border:1px solid var(--line); border-radius:6px; padding:.3rem .5rem; }
   .nm-in input:focus { border-color:var(--amber); outline:none; }
   details.pages { margin-bottom:12px; }
   details.pages summary { cursor:pointer; color:var(--amber); font-size:.8rem; letter-spacing:.12em; text-transform:uppercase;
                           display:flex; gap:12px; align-items:center; }
-  details.pages summary label { color:#ccc; text-transform:none; letter-spacing:0; }
+  details.pages summary label { color:var(--dim); text-transform:none; letter-spacing:0; }
   #pages { margin-top:8px; }
 </style>
-<h1>M-vance bank editor</h1>
+<header class="kit-top">
+  <span class="badge">BANK EDITOR</span>
+  <span class="name">M-vance</span>
+  <span class="spacer"></span>
+  <a class="btn" href="../index.html">Simulator</a>
+  <label>Theme <select data-theme-picker aria-label="Theme"></select></label>
+</header>
 <div class="bar fm1">
   <button id="connect" class="primary">Connect FM-1</button>
   <span class="lbl">to</span><select id="outSel" disabled></select>

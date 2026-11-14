@@ -191,21 +191,23 @@ def build_app():
         ld.write_text(txt.replace("LENGTH = 0x8DFBC", f"LENGTH = {APP_SLOT:#X}".replace("0X", "0x")))
     tc("pi32v2/bin/ld", "--gc-sections", "-e", "_start", "-T", ld, OUT / "crt0.o", OUT / "fm1_vec.o",
        OUT / "fm1_isr.o", OUT / "mvance.o", OUT / "mv_dsp.o", "-o", elf)
-    for sect in ("text.bin", "data.bin", "ramtext.bin"):
+    for sect in ("text.bin", "data.bin", "ramtext.bin", "dsptext.bin"):
         (OUT / sect).unlink(missing_ok=True)
-    *_, syms, dis, rt = tc_all(("common/bin/objcopy", "-O", "binary", "-j", ".text", elf, OUT / "text.bin"),
-                               ("common/bin/objcopy", "-O", "binary", "-j", ".data", elf, OUT / "data.bin"),
-                               ("common/bin/objcopy", "-O", "binary", "-j", ".ram_text", elf, OUT / "ramtext.bin"),
-                               ("common/bin/objdump", "-t", elf),
-                               ("common/bin/objdump", "-d", elf),
-                               ("common/bin/objdump", "-d", "-j", ".ram_text", elf))
+    *_, syms, dis, rt, dt = tc_all(("common/bin/objcopy", "-O", "binary", "-j", ".text", elf, OUT / "text.bin"),
+                                   ("common/bin/objcopy", "-O", "binary", "-j", ".data", elf, OUT / "data.bin"),
+                                   ("common/bin/objcopy", "-O", "binary", "-j", ".ram_text", elf, OUT / "ramtext.bin"),
+                                   ("common/bin/objcopy", "-O", "binary", "-j", ".dsp_text", elf, OUT / "dsptext.bin"),
+                                   ("common/bin/objdump", "-t", elf),
+                                   ("common/bin/objdump", "-d", elf),
+                                   ("common/bin/objdump", "-d", "-j", ".ram_text", elf),
+                                   ("common/bin/objdump", "-d", "-j", ".dsp_text", elf))
     (OUT / "mvance.dis").write_text(dis)
 
     def symv(name):
         return int(re.search(r"^([0-9a-f]+) .*\s" + name + r"$", syms, re.M).group(1), 16)
     img = bytearray((OUT / "text.bin").read_bytes())
-    # .ram_text and .data follow .text at their load addresses; crt0 copies them by words
-    for sect, lname in (("ramtext.bin", "_rt_load"), ("data.bin", "_data_load")):
+    # .ram_text, .dsp_text and .data follow .text at their load addresses; fm1_cstart copies them by words
+    for sect, lname in (("ramtext.bin", "_rt_load"), ("dsptext.bin", "_dsp_load"), ("data.bin", "_data_load")):
         load = symv(lname)
         if load % 4:
             raise SystemExit(f"{lname} {load:#x} is not word aligned")
@@ -217,10 +219,14 @@ def build_app():
             img += blob
     img += b"\xff" * (-len(img) % 4)
     (OUT / "mvance.bin").write_bytes(img)
-    return bytes(img), syms, dis, rt
+    return bytes(img), syms, dis, rt + "\n" + DSP_MARK + "\n" + dt
+
+
+DSP_MARK = "==== .dsp_text"
 
 
 def check(img, syms, dis, rt):
+    rt, _, dt = rt.partition(DSP_MARK)
     errors, notes = [], []
     m = re.search(r"^([0-9a-f]+) .*\s_start$", syms, re.M)
     if not m or int(m.group(1), 16) != APP_XIP:
@@ -232,6 +238,12 @@ def check(img, syms, dis, rt):
         errors.append(f".ram_text contains calls: {rt_calls[:3]}")
     else:
         notes.append(f".ram_text: {len([ln for ln in rt.splitlines() if LINE.match(ln)])} insns, no calls")
+    # CPU1's loop (.dsp_text) runs while the flash may be off: a direct call must stay in RAM (its job is an indirect call)
+    dt_calls = [ln for ln in dt.splitlines() if re.search(r"\bcall -?\d+ <", ln) and not re.search(r": 1c[0-9a-f]{5} >", ln)]
+    if dt_calls:
+        errors.append(f".dsp_text calls out of RAM: {dt_calls[:3]}")
+    else:
+        notes.append(f".dsp_text (CPU1's loop): {len([ln for ln in dt.splitlines() if LINE.match(ln)])} insns, no call out of RAM")
     for ln in dis.splitlines():     # nothing may call or load an address in the chip ROM
         mm = LINE.match(ln)
         if not mm:
@@ -246,7 +258,7 @@ def check(img, syms, dis, rt):
     def sym(name):
         mm = re.search(r"^([0-9a-f]+) .*\s" + name + r"$", syms, re.M)
         return int(mm.group(1), 16) if mm else 0
-    ram = sym("_bss_end") - 0x01C08000
+    ram = max(sym("_bss_end"), sym("_cpu1_stacks_hi")) - 0x01C08000   # (CPU1's stacks follow .bss)
     pool = sym("_pool_end") - 0x01C20000
     notes.append(f"image {len(img)} B of {APP_SLOT}; RAM .data+.bss {ram} B of 98304; pool {pool} B of 344064")
     if ram > 96 * 1024:

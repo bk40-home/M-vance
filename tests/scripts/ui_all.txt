@@ -1,0 +1,124 @@
+# The screen kit (MV_UI_KIT 1; Kris 14 Nov 2026, fm1-port/mvance-kit-ui-plan-2026-11-14.md): every page once, a
+# knob in hand on each kind, the seven themes and COLOUR BY TYPE, HOME playing and quiet, the programs' list, SAVE.
+#   build/host with -DMV_UI_KIT=1, then: build/host/mvance build/host/ui tests/scripts/ui_all.txt
+# FM-1 ids: HOME 8, GLO 7, SAVE 9; encoders SELECT 0, ALGORITHM 1, KNOB1..4 2..5, PRESETS 6.
+# (With MV_UI_KIT 0 it runs too: GLO has one page fewer, so the theme turns land on MIDI.)
+100 shot
+200 keys 0x91
+600 shot
+700 keys 0
+# ALGORITHM through every page (35 in the full build: HOME, then the panel's order), a shot after each
+1000 enc 1 1
+1100 shot
+1200 enc 1 1
+1300 shot
+1400 enc 1 1
+1500 shot
+1600 enc 1 1
+1700 shot
+1800 enc 1 1
+1900 shot
+2000 enc 1 1
+2100 shot
+2200 enc 1 1
+2300 shot
+2400 enc 1 1
+2500 shot
+2600 enc 1 1
+2700 shot
+2800 enc 1 1
+2900 shot
+3000 enc 1 1
+3100 shot
+3200 enc 1 1
+3300 shot
+3400 enc 1 1
+3500 shot
+3600 enc 1 1
+3700 shot
+3800 enc 1 1
+3900 shot
+4000 enc 1 1
+4100 shot
+4200 enc 1 1
+4300 shot
+4400 enc 1 1
+4500 shot
+4600 enc 1 1
+4700 shot
+4800 enc 1 1
+4900 shot
+5000 enc 1 1
+5100 shot
+5200 enc 1 1
+5300 shot
+5400 enc 1 1
+5500 shot
+5600 enc 1 1
+5700 shot
+5800 enc 1 1
+5900 shot
+6000 enc 1 1
+6100 shot
+6200 enc 1 1
+6300 shot
+6400 enc 1 1
+6500 shot
+6600 enc 1 1
+6700 shot
+6800 enc 1 1
+6900 shot
+7000 enc 1 1
+7100 shot
+7200 enc 1 1
+7300 shot
+7400 enc 1 1
+7500 shot
+7600 enc 1 1
+7700 shot
+7800 enc 1 1
+7900 shot
+# a knob in hand of each kind: FILTER 1/2 (SEL): TYPE (a choice), CUTOFF (a value, ENV DEPTH's arc); AMP: PAN
+8000 btn 8
+8100 btn 3
+8200 enc 2 1
+8300 shot
+8400 enc 4 -20
+8500 shot
+8600 btn 7
+8700 btn 7
+8800 btn 7
+8900 btn 7
+9000 btn 7
+9100 btn 7
+9200 shot
+# GLOBAL 2/2: the seven themes, then COLOUR BY TYPE
+9300 enc 2 1
+9400 shot
+9500 enc 2 1
+9600 shot
+9700 enc 2 1
+9800 shot
+9900 enc 2 1
+10000 shot
+10100 enc 2 1
+10200 shot
+10300 enc 2 1
+10400 shot
+10500 enc 3 1
+10600 shot
+10700 enc 2 -6
+10800 enc 3 -1
+# HOME: a chord playing, then the programs' list after PRESETS, then quiet (the fan)
+10900 btn 8
+11000 keys 0x91
+11400 shot
+11500 keys 0
+11600 enc 6 1
+11700 shot
+14000 shot
+# SAVE: the name and its cursor
+14100 btn 9
+14200 enc 3 2
+14300 shot
+14500 end

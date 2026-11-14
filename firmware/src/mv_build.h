@@ -43,8 +43,20 @@
                                the line's length; RAM 2 x 2 B x (44.1 x ms + 3) */
 #endif
 
+#ifndef MV_UI_KIT
+#define MV_UI_KIT 1         /* the screens (Kris 14 Nov: fm1-port/mvance-kit-ui-plan-2026-11-14.md, 2a). 0: the panel's
+                               own screens (mv_ui.c, mv_home.c, mv_debug.c), bit for bit as before. 1: the screen kit
+                               from M-Vsynth2 (mv_kit.c: knobs, a graph a page, seven themes; mv_kui.c: M-vance's
+                               screens on it) and GLOBAL 2/2 (THEME, COLOUR). Drawing only: the pages, the knobs, the
+                               edits, the MIDI and the sound are the same either way. 0 until the kit has run on the
+                               FM-1; then the default flips. Try it:  DINGHY_DEFS=-DMV_UI_KIT=1 ./build.sh */
+#endif
+
 #if (MV_DEBUG != 0 && MV_DEBUG != 1) || (MV_XFER != 0 && MV_XFER != 1) || (MV_SEQ != 0 && MV_SEQ != 1)
 #error "mv_build.h: MV_DEBUG, MV_XFER and MV_SEQ are 0 or 1"
+#endif
+#if MV_UI_KIT != 0 && MV_UI_KIT != 1
+#error "mv_build.h: MV_UI_KIT is 0 or 1"
 #endif
 #if MV_PARTS != 1 && MV_PARTS != 2
 #error "mv_build.h: MV_PARTS is 1 or 2"

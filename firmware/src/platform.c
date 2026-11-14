@@ -57,6 +57,9 @@ enum { ENC_SELECT = 0, ENC_ALGORITHM = 1, ENC_KNOB1 = 2, ENC_KNOB2 = 3, ENC_KNOB
 #include "fm1_sys.h"
 #include "fm1_irq.h"
 #include "fm1_guard.h"
+#include "fm1_power.h"                         /* the stock supplies (Melodee) */
+#include "fm1_dual.h"
+int mv_core1_start(uint32_t power_ok, uint32_t early);   /* mv_dsp.c (the second core) */
 #if BOARD_SMK37
 #include "smk_input.h"                          /* keys with velocity, buttons, 8 encoders, LEDs, pads, faders, wheels */
 static void fm1_led_key_glow(uint32_t id, int on) { (void)id; (void)on; }   /* (no key LEDs: the pads glow) */
@@ -510,6 +513,8 @@ void fm1_cstart(void)
 {
     extern uint32_t _data_start[], _data_end[], _data_load[], _bss_start[], _bss_end[];
     extern uint32_t _pool_start[], _pool_end[], _rt_start[], _rt_end[], _rt_load[];
+    extern uint32_t _dsp_start[], _dsp_end[], _dsp_load[];   /* CPU1's polling loop (app.ld) */
+    uint32_t power_ok, early;
     uint32_t *s, *d, p3, boot_mode;
     fm1_time_init();
     fm1_reset_reason();
@@ -525,8 +530,15 @@ void fm1_cstart(void)
     for (d = _pool_start; d < _pool_end; d++) *d = 0;
     for (s = _data_load, d = _data_start; d < _data_end; s++, d++) *d = *s;
     for (s = _rt_load, d = _rt_start; d < _rt_end; s++, d++) *d = *s;
+    for (s = _dsp_load, d = _dsp_start; d < _dsp_end; s++, d++) *d = *s;
+    fm1_code_sync();                            /* (the copied code published before its first use) */
     fm1_mailbox_clear();
-    fm1_guard_enable(FM1_GUARD_STACK | FM1_GUARD_WRITE | FM1_GUARD_BUS | FM1_GUARD_PC);
+    /* the stock V15 supplies (Melodee's fm1_power.h): IRQs off, CPU1 held, before the peripherals and CPU1. A failed
+     * setup keeps one core */
+    power_ok = (uint32_t)fm1_power_init();
+    early = fm1_crash.magic == FM1_CRASH_MAGIC && fm1_crash.early;   /* crashing at boot: one core until power-off */
+    /* the PC guard waits for CPU1: it starts through the mask ROM before it reaches our RAM loop (Melodee) */
+    fm1_guard_enable(FM1_GUARD_STACK | FM1_GUARD_WRITE | FM1_GUARD_BUS);
     fm1_boot.p3_rst = (uint8_t)p3;
     if (boot_mode == BOOT_RECOVERY || recovery_key())
         recovery_main();                        /* OCT- at power-on: the USB rescue */
@@ -545,6 +557,12 @@ void fm1_cstart(void)
     smk_trim_read();                            /* (after fm1_input_init: it sets the defaults first) */
     smk_owner_check();
 #endif
+#if MELODEE_DUAL_CORE
+    mv_core1_start(power_ok, early);            /* CPU1: half the voices (mv_dsp.c); bounded, falls back to one core */
+#else
+    (void)power_ok; (void)early;
+#endif
+    fm1_guard_enable(FM1_GUARD_PC);
     fm1_audio_init(abuf, HALF_WORDS, isr_alnk0, 3);   /* (abuf is zero: .bss) */
     usb_start();
 #if FELUCCA_UART

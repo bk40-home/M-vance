@@ -17,6 +17,37 @@
 #define RL_CROW RGB(64, 64, 64)                 /* the line under a C */
 #define RL_WKEY RGB(120, 120, 120)              /* the strip's keys */
 static const uint8_t RL_BLACK[12] = {0, 1, 0, 1, 0, 0, 1, 0, 1, 0, 1, 0};
+/* the colours a part of the roll is drawn in. MV_UI_KIT 1 (Kris 14 Nov, fm1-port/mvance-kit-ui-plan-2026-11-14.md 6b):
+ * the screen kit's theme (mv_kit.c KT), the foot line in its footer; MV_UI_KIT 0: as before, token for token */
+#if MV_UI_KIT
+#define RL_C_BG KT.bg                           /* behind the rows */
+#define RL_C_LANE KT.surf                       /* a white key's row */
+#define RL_C_CROW KT.line                       /* the line under a C */
+#define RL_C_GSTEP KT.grid                      /* a 1/16 line */
+#define RL_C_GBEAT KT.line                      /* a beat line */
+#define RL_C_UP KT.theme                        /* the selected track's notes (UPPER's with BOTH) */
+#define RL_C_LO KT.accent                       /* LOWER's under UPPER's (BOTH) */
+#define RL_C_HEAD KT.text                       /* the playhead */
+#define RL_C_CNAME KT.dim                       /* the C names in the strip */
+#define RL_C_KLIT KT.theme                      /* a key whose note sounds */
+#define RL_C_KBLK KT.line                       /* a black key */
+#define RL_C_KWHT KT.dim                        /* a white key */
+#define RL_FOOT(s) kit_foot("", (s), KT.dim, "", KT.dim)
+#else
+#define RL_C_BG C_BLACK
+#define RL_C_LANE RL_LANE
+#define RL_C_CROW RL_CROW
+#define RL_C_GSTEP RL_GSTEP
+#define RL_C_GBEAT RL_GBEAT
+#define RL_C_UP C_ACC
+#define RL_C_LO RL_BLUE
+#define RL_C_HEAD C_WHITE
+#define RL_C_CNAME C_GRAY
+#define RL_C_KLIT C_ACC
+#define RL_C_KBLK C_DIM
+#define RL_C_KWHT RL_WKEY
+#define RL_FOOT(s) draw_text_box(0, RL_FOOT_Y, 240, &FONT_S, (s), C_AMB, 1)
+#endif
 
 /* what is shown now: the track(s), the bar, the column playing */
 typedef struct {
@@ -172,16 +203,16 @@ static void span_piece(const rl_view_t *w, const mv_roll_span_t *s, uint32_t a, 
 static void roll_strip(const mv_roll_t *r, const rl_view_t *w, int32_t x, int32_t wd)
 {
     uint32_t i, rw, k;
-    cv_begin((uint32_t)wd, (uint32_t)RL_H, C_BLACK);
+    cv_begin((uint32_t)wd, (uint32_t)RL_H, RL_C_BG);
     for (rw = 0; rw < MV_ROLL_ROWS; rw++) {     /* the lanes: white keys shaded, a line under each C */
         uint32_t n = w->lo + MV_ROLL_ROWS - 1u - rw;
         int32_t y = (int32_t)rw * RL_RH;
-        if (!RL_BLACK[n % 12u]) cv_rect(0, y, wd, RL_RH, RL_LANE);
-        if (n % 12u == 0u) cv_rect(0, y + RL_RH - 1, wd, 1, RL_CROW);
+        if (!RL_BLACK[n % 12u]) cv_rect(0, y, wd, RL_RH, RL_C_LANE);
+        if (n % 12u == 0u) cv_rect(0, y + RL_RH - 1, wd, 1, RL_C_CROW);
     }
     for (i = 0; i <= 16u; i++) {                /* the 1/16 lines, the beats brighter */
         int32_t gx = RL_X0 + (int32_t)i * RL_CW;
-        if (gx >= x && gx < x + wd) cv_rect(gx - x, 0, 1, RL_H, i % 4u ? RL_GSTEP : RL_GBEAT);
+        if (gx >= x && gx < x + wd) cv_rect(gx - x, 0, 1, RL_H, i % 4u ? RL_C_GSTEP : RL_C_GBEAT);
     }
     for (k = 0; k < 2u; k++) {                  /* the other track (BOTH) first, under; then the selected one */
         uint32_t trk = k ? w->trk : w->trk ^ 1u;
@@ -189,7 +220,7 @@ static void roll_strip(const mv_roll_t *r, const rl_view_t *w, int32_t x, int32_
         for (i = 0; i < r->nsp; i++) {
             const mv_roll_span_t *s = &r->sp[i];
             uint32_t len = w->len[trk], row;
-            uint16_t c = k ? C_ACC : RL_BLUE;
+            uint16_t c = k ? RL_C_UP : RL_C_LO;
             if (s->trk != trk) continue;
             if (s->note < w->lo) row = MV_ROLL_ROWS - 1u;   /* below the rows: a mark on the bottom edge */
             else if (s->note >= w->lo + MV_ROLL_ROWS) row = 0;   /* above: on the top edge */
@@ -211,7 +242,7 @@ static void roll_strip(const mv_roll_t *r, const rl_view_t *w, int32_t x, int32_
     }
     if (w->col >= 0) {                          /* the playhead: a white line mid-column */
         int32_t px = RL_X0 + w->col * RL_CW + 6;
-        if (px >= x && px < x + wd) cv_rect(px - x, 0, 1, RL_H, C_WHITE);
+        if (px >= x && px < x + wd) cv_rect(px - x, 0, 1, RL_H, RL_C_HEAD);
     }
     cv_blit((uint32_t)x, (uint32_t)RL_Y0);
 }
@@ -227,12 +258,12 @@ static void roll_keys(const rl_view_t *w, uint32_t lit)
 {
     uint32_t rw;
     char nb[8];
-    cv_begin((uint32_t)RL_X0, (uint32_t)RL_H, C_BLACK);
+    cv_begin((uint32_t)RL_X0, (uint32_t)RL_H, RL_C_BG);
     for (rw = 0; rw < MV_ROLL_ROWS; rw++) {
         uint32_t n = w->lo + MV_ROLL_ROWS - 1u - rw, blk = RL_BLACK[n % 12u];
         int32_t y = (int32_t)rw * RL_RH;
-        if (n % 12u == 0u) { note_txt(nb, n); cv_text(0, y - 5, &FONT_S, nb, C_GRAY); }   /* (on its row's line) */
-        cv_rect(RL_KX, y, blk ? 5 : 8, RL_RH - 1, lit >> rw & 1u ? C_ACC : blk ? C_DIM : RL_WKEY);
+        if (n % 12u == 0u) { note_txt(nb, n); cv_text(0, y - 5, &FONT_S, nb, RL_C_CNAME); }   /* (on its row's line) */
+        cv_rect(RL_KX, y, blk ? 5 : 8, RL_RH - 1, lit >> rw & 1u ? RL_C_KLIT : blk ? RL_C_KBLK : RL_C_KWHT);
     }
     cv_blit(0, (uint32_t)RL_Y0);
 }
@@ -292,6 +323,6 @@ void mv_roll_draw(mv_roll_t *r, mv_ui_t *u, const mv_engine_t *e, int all)
                                                    ROOT C#-1 -24 TR L+U": in practice 27) */
         key = 2166136261u;
         for (a = s; *a; a++) key = (key ^ (uint8_t)*a) * 16777619u;
-        if (key != r->foot_key) { r->foot_key = key; draw_text_box(0, RL_FOOT_Y, 240, &FONT_S, s, C_AMB, 1); }
+        if (key != r->foot_key) { r->foot_key = key; RL_FOOT(s); }
     }
 }

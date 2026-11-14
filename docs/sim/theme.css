@@ -1,0 +1,47 @@
+/* SPDX-License-Identifier: GPL-3.0-only
+ * fm1-kit: the web pages' look (simulators, editors, the library), from the FM-1 screen's six themes. One file, the
+ * same in every firmware's pages; theme.js picks the theme and remembers it ("fm1-theme", per site).
+ *   <html data-theme="sea">   <link rel="stylesheet" href="theme.css">   <script src="theme.js"></script>
+ *   <select data-theme-picker></select>  is filled and wired by theme.js */
+:root, [data-theme="sea"] {
+  --bg: #0B0F10; --surf: #141A1C; --raised: #232C2F; --line: #34424A; --dim: #8FA0A6; --text: #E8F0F0;
+  --theme: #00C8A0; --accent: #FFB454; --warn: #FF8C28; --on-theme: #0B0F10; --ok: #48D17A;
+}
+[data-theme="ember"] { --bg: #100D0B; --surf: #1B1613; --raised: #2D2520; --line: #463A32; --dim: #A8988C; --text: #F3EAE2; --theme: #FF7A3D; --accent: #5CD6FF; --warn: #FFD166; --on-theme: #100D0B; }
+[data-theme="ice"] { --bg: #0A0D12; --surf: #131822; --raised: #212A38; --line: #33405A; --dim: #8E9BB3; --text: #E6ECF7; --theme: #4DB8FF; --accent: #FFD166; --warn: #FF8C28; --on-theme: #0A0D12; }
+[data-theme="orchid"] { --bg: #0E0B12; --surf: #18141F; --raised: #282233; --line: #3F3652; --dim: #A297B5; --text: #EEE8F7; --theme: #D07BFF; --accent: #7DFFB0; --warn: #FF8C28; --on-theme: #0E0B12; }
+[data-theme="crt"] { --bg: #060A06; --surf: #0D140D; --raised: #182418; --line: #27402A; --dim: #7FA884; --text: #D8F5D8; --theme: #7CFF6B; --accent: #FFFFFF; --warn: #FFAA28; --on-theme: #060A06; }
+[data-theme="paper"] { --bg: #F2EFE8; --surf: #E7E3D9; --raised: #FBFAF6; --line: #BDB7A9; --dim: #5C584F; --text: #1A1917; --theme: #06614F; --accent: #A8330A; --warn: #A8330A; --on-theme: #FFFFFF; --ok: #1E7A3C; }
+:root {
+  --fill: color-mix(in srgb, var(--theme) 20%, var(--surf));
+  --grid: color-mix(in srgb, var(--line) 55%, var(--surf));
+  --font: "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+}
+body { background: var(--bg); color: var(--text); font: 400 14px var(--font); }
+button, select, input { font: inherit; color: inherit; }
+button, .btn {
+  background: transparent; border: 1px solid var(--line); border-radius: 6px; padding: 6px 12px; cursor: pointer;
+  color: var(--text); text-decoration: none; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap;
+}
+button:hover:not(:disabled), .btn:hover { border-color: var(--theme); }
+button:disabled { opacity: 0.45; cursor: default; }
+button.primary, .btn.primary { background: var(--theme); border-color: var(--theme); color: var(--on-theme); font-weight: 600; }
+select, input[type="text"], input[type="search"], input:not([type]) {
+  background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px;
+}
+select { background: var(--raised); }
+input[type="checkbox"], input[type="radio"] { accent-color: var(--theme); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+a { color: var(--theme); }
+.badge { font-size: 10px; font-weight: 700; letter-spacing: 1px; color: var(--theme); border: 1.5px solid var(--theme); border-radius: 4px; padding: 2px 6px; }
+.lab { font-size: 10px; font-weight: 700; letter-spacing: 1.2px; color: var(--dim); text-transform: uppercase; }
+.chip { border: none; border-radius: 11px; padding: 3px 9px; font-size: 11px; font-weight: 700; background: var(--raised); color: var(--dim); }
+.chip.on { background: var(--theme); color: var(--on-theme); }
+.panel { background: var(--surf); border: 1px solid var(--line); border-radius: 10px; }
+.kit-top {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; padding: 8px 14px;
+  background: var(--surf); border-bottom: 1px solid var(--line);
+}
+.kit-top .name { font-size: 16px; font-weight: 700; }
+.kit-top .spacer { flex: 1; }
+.kit-top label { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--dim); }
