@@ -5,7 +5,7 @@
   python3 tools/make_bank.py [tools/bank/factory.txt]   the hand-made list (the default)
   python3 tools/make_bank.py --auto                      a list from every file in docs/presets (tools/auto_bank.py
                                                          writes tools/bank/auto.txt), then the bank from it
-  python3 tools/make_bank.py --from-device FILE.syx      the FM-1's own programs (pulled with docs/library.html: Read, then Download) become
+  python3 tools/make_bank.py --from-device FILE.syx      the FM-1's own programs (pulled with docs/library.html: Read, then Save…) become
                                                          the factory bank: FILE is kept as tools/bank/device.syx,
                                                          factory.txt is rewritten to take every slot from it (the
                                                          old list kept in tools/bank/history/), then the bank is
@@ -212,7 +212,7 @@ def from_device(path):
     perfs = bank_patches(src)
     missing = [s for s in range(1, NPROG + 1) if not isinstance(perfs.get(f"P{s}"), tuple)]
     if missing:
-        fail(f"{src.name}: performances missing: {missing} (pull all 64 with docs/library.html: Read, then Download)")
+        fail(f"{src.name}: performances missing: {missing} (pull all 64 with docs/library.html: Read, then Save…)")
     bank = ROOT / "tools/bank"
     old = (bank / "factory.txt").read_text()
     stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M")

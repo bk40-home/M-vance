@@ -13,6 +13,16 @@ cd third_party/fm1-kit && git init && git add . && git commit -m "fm1-kit 0.1.0:
 git rm -r --cached third_party/fm1-kit && git submodule add <url> third_party/fm1-kit
 ```
 
+## The library page, 0.3.0 (15 Nov 2026)
+
+- **Save…** on both panes: the bank shown as one file (the adapter's `bankFile`, else a zip). Download is now Save….
+- **Export library** takes the banks read from the device too ("From PROGRAMS"), so it is never empty after a Read.
+- **+ New bank:** an empty bank of your own. Drop patches on its slots, move them about (Alt copies), Del clears;
+  double-click its name to rename it. **Undo** takes back source edits too (no redo for them).
+- **Hold** in the details panel keeps that patch there while you click others (to drag patches onto its layers).
+- **Layers** (`adapter.layers`, adapters/README.md): M-vance's UPPER / LOWER in the details panel.
+- A built-in bank is read only everywhere (a rename or colour in the details panel used to change it).
+
 ## The firmware page (0.2.0)
 
 ```

@@ -36,7 +36,9 @@ __CSS__
       <span id="src-pick-total" class="info"></span>
       <button type="button" id="open-files">+ Open files…</button>
       <button type="button" id="open-folder">+ Folder…</button>
-      <button type="button" id="export" title="Your opened sources, tags and categories, as one zip">Export library</button>
+      <button type="button" id="src-new" title="An empty bank of your own: drag patches onto its slots (double-click its name to rename it)">+ New bank</button>
+      <button type="button" id="src-save" title="Save the bank shown as a file">Save…</button>
+      <button type="button" id="export" title="Your banks, the banks read from the device, tags and categories, as one zip">Export library</button>
       <input id="file-in" type="file" multiple hidden>
       <input id="folder-in" type="file" webkitdirectory multiple hidden>
       <span class="spacer"></span>
@@ -67,7 +69,7 @@ __CSS__
       <button type="button" id="undo" title="Ctrl+Z">Undo</button>
       <button type="button" id="restore" hidden title="The bank as it was before this session's first send">Restore</button>
       <button type="button" id="read">Read</button>
-      <button type="button" id="download">Download</button>
+      <button type="button" id="download" title="Save this bank as a file (with any changes not yet sent)">Save…</button>
       <button type="button" id="send" class="primary">Send</button>
     </div>
     <div id="dev-grid" class="grid" role="grid" tabindex="0" aria-label="Device bank"></div>
@@ -80,13 +82,14 @@ __CSS__
   <span><kbd>/</kbd> search · <kbd>↑↓←→</kbd> move · <kbd>Space</kbd> select · <kbd>Enter</kbd> audition · <kbd>S</kbd> send down · <kbd>Del</kbd> clear · <kbd>I</kbd> details · <kbd>Ctrl+Z</kbd> undo</span>
 </footer>
 <aside id="details" hidden aria-label="Patch details">
-  <div class="head"><span class="lab">Patch</span><button type="button" id="d-close" aria-label="Close details">×</button></div>
+  <div class="head"><span class="lab">Patch</span><span class="sp"></span><button type="button" id="d-hold" aria-pressed="false" title="Keep this patch in the panel while you click others">Hold</button><button type="button" id="d-close" aria-label="Close details">×</button></div>
   <p id="d-empty" class="info">Click a patch to see it here.</p>
   <div id="d-body">
     <label class="vh" for="d-name">Name</label>
     <input id="d-name" autocomplete="off">
     <span id="d-where"></span>
     <div class="bar"><button type="button" id="d-play" class="primary">▶ Audition</button></div>
+    <div id="d-layers" hidden></div>
     <span class="lab">Colour</span>
     <div id="d-colours"></div>
     <label class="lab" for="d-cat">Category</label>

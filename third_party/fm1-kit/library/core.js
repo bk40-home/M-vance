@@ -2,7 +2,12 @@
  * fm1-kit library: the page. Sources (what you have opened) above, the device's banks below; drag one patch or many
  * from one to the other; search, categories, tags; send only what changed, acknowledged and read back.
  * Everything firmware-specific comes from FK.adapter (adapters/README.md). The look: ui.css, the device's six themes.
- * Nothing leaves the page but MIDI; the library stays in this browser (IndexedDB) and goes out as zip files. */
+ * Nothing leaves the page but MIDI; the library stays in this browser (IndexedDB) and goes out as zip files.
+ * 0.3.0 (Kris 15 Nov 2026, fm1-port/library-save-blank-layers-proposal-2026-11-15.md, all as recommended):
+ *   Save… on both panes (a bank as one file, the adapter's bankFile, else a zip); Export library takes the banks read
+ *   from the device too; + New bank (an empty bank of your own: drop patches on its slots, move them about, Delete,
+ *   double-click its name to rename); Undo covers source edits as well; Hold keeps a patch in the details panel
+ *   while you click others; Layers (A.layers: M-vance's UPPER / LOWER) in the details panel. */
 (function (G) {
   "use strict";
   const FK = G.FK;
@@ -18,6 +23,8 @@
     banks: new Map(),                /* device bank id -> slots as read (null: not read) */
     devTab: A.deviceBanks.find(b => !b.readOnly).id,
     pend: new FK.Pending(),
+    hist: [],                        /* (0.3.0) the undo order: "dev" (S.pend has it) or a source's state before a change */
+    pin: null,                       /* (0.3.0) Hold: the details panel stays on this slot, {dev, s} or {src, s} */
     backup: new Map(),               /* bank -> slots as they were before this session's first send */
     meta: {},                        /* fingerprint -> {cat, tags} */
     sel: {pane: null, set: new Set(), anchor: -1},
@@ -35,6 +42,8 @@
   const catOf = p => (S.meta[fp(p)] && S.meta[fp(p)].cat) || FK.guessCategory(A.nameOf(p));
   const tagsOf = p => (S.meta[fp(p)] && S.meta[fp(p)].tags) || [];
   const bankDef = id => A.deviceBanks.find(b => b.id === id);
+  /* (0.3.0) a source you can change: a bank you made or opened; the built-in one is read only */
+  const editable = s => !!s && s.kind !== "factory";
 
   /* ---- persistence (IndexedDB: this browser only) */
   let db = null, saveT = 0;
@@ -321,6 +330,8 @@
     $("#src-pick").title = S.srcTab === "all" ? "All sources" : cur ? srcLabel(cur) : "";
     $("#src-prev").disabled = S.srcTab === "all" || S.srcTab <= 0;
     $("#src-next").disabled = S.srcTab === "all" || S.srcTab >= S.sources.length - 1;
+    $("#src-save").disabled = S.srcTab === "all" || !cur;
+    $("#src-pick").classList.toggle("own", S.srcTab !== "all" && editable(cur));
     $("#src-all").setAttribute("aria-pressed", S.srcTab === "all" ? "true" : "false");
     $("#src-all").textContent = S.srcTab === "all" ? "Back to " + (S.lastBank != null && S.sources[S.lastBank] ? S.sources[S.lastBank].name : "the bank") : "All sources";
     const nGroups = new Set(S.sources.map(x => x.group)).size;
@@ -360,7 +371,7 @@
     $("#send").disabled = !n || S.busy;
     $("#read").disabled = !S.io || S.busy;
     $("#restore").hidden = !S.backup.has(S.devTab);
-    $("#undo").disabled = !S.pend.undo.length;
+    $("#undo").disabled = !S.pend.undo.length && !S.hist.some(h => h !== "dev");
     $("#conn").textContent = S.ident ? "Disconnect" : "Connect";
     $("#conn").classList.toggle("on", !!S.ident);
     $("#dev-dot").classList.toggle("on", !!S.ident);
@@ -503,6 +514,7 @@
     else if (e.key === "i" || e.key === "I") { S.details = !S.details; render(); }
     else if ((e.key === "s" || e.key === "S") && !ctrl && pane === "src") { e.preventDefault(); dropInto(S.focus.dev, "src", srcSlots().slots, selected("src"), false); }
     else if ((e.key === "Delete" || e.key === "Backspace") && pane === "dev") { e.preventDefault(); clearSlots(selected("dev")); }
+    else if ((e.key === "Delete" || e.key === "Backspace") && pane === "src") { e.preventDefault(); clearSource(selected("src")); }
     else if (ctrl && (e.key === "z" || e.key === "Z")) { e.preventDefault(); if (e.shiftKey) redo(); else undo(); }
     else if (ctrl && (e.key === "y" || e.key === "Y")) { e.preventDefault(); redo(); }
     else if (ctrl && (e.key === "a" || e.key === "A")) { e.preventDefault(); const sl = paneSlots(pane); S.sel = {pane, set: new Set(sl.map((p, i) => p ? i : -1).filter(i => i >= 0)), anchor: 0}; render(); }
@@ -513,6 +525,7 @@
     const bd = bankDef(bank);
     if (bd.readOnly) { say(bd.name + " is read only", "bad"); return false; }
     S.pend.apply(bank, changes, devLoaded(bank), same);
+    S.hist.push("dev");
     say(what + " · Ctrl+Z undoes · nothing reaches the " + A.deviceName + " until Send");
     save();
     render();
@@ -541,13 +554,55 @@
     const ch = new Map(idx.map(i => [i, null]));
     changeDev(S.devTab, ch, "Cleared " + idx.length);
   }
-  function undo() { if (S.pend.back() !== null) { say("Undone"); save(); render(); } }
-  function redo() { if (S.pend.forward() !== null) { say("Redone"); save(); render(); } }
+  /* ---- (0.3.0) changes to a source bank of your own. Undo takes back the latest change, a source's or the device's
+   * (S.hist keeps the order); a source change has no redo */
+  function changeSrc(s, changes, what) {
+    if (!editable(s)) { say((s ? s.name : "That bank") + " is built in (read only): drag the patches into a bank of your own (+ New bank)", "bad"); return false; }
+    if (!changes.size) return false;
+    S.hist.push({src: s.id, name: s.name, slots: s.slots.slice()});
+    for (const [i, p] of changes) s.slots[i] = p;
+    touch(s); save();
+    say(what + " · Ctrl+Z undoes");
+    render();
+    return true;
+  }
+  function dropIntoSource(s, start, d, copy) {    /* d: S.drag. Within the same bank a move (Alt: a copy) */
+    if (d.pane === "src" && d.srcId === s.id) {
+      const ch = FK.planMove(s.slots, d.idx, start, copy, S.emptyOnly);
+      changeSrc(s, ch, (copy ? "Copied " : "Moved ") + d.idx.length + " to " + s.name + " " + FK.slotName(start));
+      return;
+    }
+    const items = d.idx.map(i => d.slots[i]).filter(Boolean);
+    const plan = FK.planDrop(s.slots, start, items.length, S.emptyOnly);
+    if (!plan.slots.length) { say("No room from " + FK.slotName(start), "bad"); return; }
+    const ch = new Map();
+    plan.slots.forEach((k, j) => ch.set(k, items[j]));
+    changeSrc(s, ch, "Put " + plan.slots.length + " into " + s.name + " " + FK.slotName(plan.slots[0]) +
+      (plan.slots.length > 1 ? "–" + FK.slotName(plan.slots[plan.slots.length - 1]) : "") +
+      (plan.replaces ? " · replaced " + plan.replaces : "") + (plan.overflow ? " · " + plan.overflow + " did not fit" : ""));
+  }
+  function clearSource(idx) {
+    const s = S.sources[S.srcTab];
+    if (S.srcTab === "all" || !idx.length) return;
+    changeSrc(s, new Map(idx.map(i => [i, null])), "Cleared " + idx.length + " in " + (s ? s.name : ""));
+  }
+  function undo() {
+    let h;
+    do h = S.hist.pop(); while (h === "dev" && !S.pend.undo.length);   /* (a send ends the device's undo) */
+    if (h && h !== "dev") {
+      const s = S.sources.find(x => x.id === h.src);
+      if (!s) { say("That bank was closed: nothing to undo there", "bad"); render(); return; }
+      s.slots = h.slots; s.name = h.name; touch(s); save(); say("Undone in " + s.name); render();
+      return;
+    }
+    if (S.pend.back() !== null) { say("Undone"); save(); render(); }
+  }
+  function redo() { if (S.pend.forward() !== null) { S.hist.push("dev"); say("Redone"); save(); render(); } }
 
   /* ---- drag and drop */
-  function markTargets(slots, text) {
-    document.querySelectorAll("#dev-grid .target").forEach(c => c.classList.remove("target"));
-    for (const s of slots) { const c = $('#dev-grid .cell[data-i="' + s + '"]'); if (c) c.classList.add("target"); }
+  function markTargets(slots, text, grid) {
+    document.querySelectorAll(".grid .target").forEach(c => c.classList.remove("target"));
+    for (const s of slots) { const c = $((grid || "#dev-grid") + ' .cell[data-i="' + s + '"]'); if (c) c.classList.add("target"); }
     if (text) say(text); 
   }
   function bindGrid(grid, pane) {
@@ -560,7 +615,8 @@
       const i = +c.dataset.i;
       const idx = S.sel.pane === pane && S.sel.set.has(i) ? [...S.sel.set].sort((a, b) => a - b) : [i];
       const slots = paneSlots(pane);
-      S.drag = {pane, bank: pane === "dev" ? S.devTab : null, idx, slots: slots.slice()};
+      S.drag = {pane, bank: pane === "dev" ? S.devTab : null, idx, slots: slots.slice(),
+        srcId: pane === "src" && S.srcTab !== "all" && S.sources[S.srcTab] ? S.sources[S.srcTab].id : null};
       e.dataTransfer.effectAllowed = "copyMove";
       e.dataTransfer.setData("text/plain", idx.map(k => slots[k] ? A.nameOf(slots[k]) : "").join("\n"));
     });
@@ -611,7 +667,21 @@
     });
   }
   function bindSourceDrop(pane) {
+    /* (0.3.0) a slot of the bank shown, when it is your own and the drag is a patch: the drop goes there */
+    const slotAt = e => {
+      const c = e.target.closest("#src-grid .cell"), s = S.srcTab === "all" ? null : S.sources[S.srcTab];
+      return c && S.drag && editable(s) ? {s, start: +c.dataset.i} : null;
+    };
     pane.addEventListener("dragover", e => {
+      const t = slotAt(e);
+      if (t) {
+        e.preventDefault();
+        const same = S.drag.pane === "src" && S.drag.srcId === t.s.id;
+        e.dataTransfer.dropEffect = same && !e.altKey ? "move" : "copy";
+        const p = same ? null : FK.planDrop(t.s.slots, t.start, S.drag.idx.length, S.emptyOnly);
+        markTargets(p ? p.slots : [t.start], (same ? (e.altKey ? "Copy " : "Move ") : "Dropping ") + S.drag.idx.length + " into " + t.s.name + " " + FK.slotName(t.start), "#src-grid");
+        return;
+      }
       if (S.drag && S.drag.pane === "src") return;
       e.preventDefault();
       e.dataTransfer.dropEffect = "copy";
@@ -621,7 +691,9 @@
     pane.addEventListener("drop", async e => {
       e.preventDefault();
       pane.classList.remove("drop-here");
-      const d = S.drag;
+      markTargets([]);
+      const d = S.drag, t = slotAt(e);
+      if (t) { dropIntoSource(t.s, t.start, d, e.altKey); S.drag = null; return; }
       if (d && d.pane === "dev") {      /* taken from the device into the library */
         const pats = d.idx.map(i => d.slots[i]).filter(Boolean);
         const bd = bankDef(d.bank);
@@ -721,6 +793,7 @@
       } catch (e) { bad++; say("Checking stopped: " + e.message, "bad"); break; }
     }
     S.pend.undo = []; S.pend.redo = [];
+    S.hist = S.hist.filter(h => h !== "dev");
     S.busy = false; progress(0, 0); save();
     if (!bad) say("Sent " + ok + ", every one acknowledged and read back the same" + (S.sandbox ? " (sandbox)" : ""));
     render();
@@ -750,19 +823,54 @@
     setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
   }
   function metaFor(pats) { const m = {}; for (const p of pats) if (S.meta[fp(p)]) m[fp(p)] = S.meta[fp(p)]; return m; }
+  /* a bank as a file (0.3.0: Save… on both panes): the adapter's own bank file when it gives one (0.2.0 bankFile:
+   * slots with nulls in, {name, bytes, note?} or null), else a zip of one file a patch */
+  function saveSlots(label, slots, note) {
+    const files = [];
+    slots.forEach((p, s) => { if (p) files.push({name: A.fileName(p, s), data: A.serialise(p)}); });
+    if (!files.length) { say(label + " is empty", "bad"); return; }
+    const one = A.bankFile && A.bankFile(slots), base = (A.id + "-" + label).replace(/[\\/:*?"<>|]/g, "_");
+    if (one) download(base + "-" + one.name, one.bytes);
+    else download(base + ".zip", FK.zip(files));
+    say("Saved " + label + " (" + files.length + (files.length === 1 ? " patch" : " patches") + (note || "") + ")" + (one && one.note ? " · " + one.note : ""));
+  }
   function downloadBank() {
-    const bd = bankDef(S.devTab), v = devView(S.devTab), files = [];
-    v.forEach((p, s) => { if (p) files.push({name: A.fileName(p, s), data: A.serialise(p)}); });
-    if (!files.length) { say(bd.name + " is empty", "bad"); return; }
-    const one = A.bankFile && A.bankFile(v);      /* (0.2.0) the adapter's own whole-bank file, when it has one */
-    if (one) download(A.id + "-" + bd.name + "-" + one.name, one.bytes);
-    else download(A.id + "-" + bd.name + ".zip", FK.zip(files));
-    say("Downloaded " + bd.name + " (" + files.length + " patches" + (S.pend.count(S.devTab) ? ", with the changes not yet sent" : "") + ")");
+    const bd = bankDef(S.devTab);
+    if (!S.banks.get(S.devTab) && !S.pend.count(S.devTab)) { say(bd.name + " has not been read: Connect, then Read", "bad"); return; }
+    saveSlots(bd.name, devView(S.devTab), S.pend.count(S.devTab) ? ", with the changes not yet sent" : "");
+  }
+  function saveSource() {
+    if (S.srcTab === "all") { say("Pick one bank to save: All sources is a list, not a bank", "bad"); return; }
+    const s = S.sources[S.srcTab];
+    if (!s) { say("Nothing open to save", "bad"); return; }
+    saveSlots(s.name, s.slots, "");
+  }
+  /* (0.3.0) + New bank: an empty bank of your own, the device's bank size, kept in this browser like any other */
+  function newBank() {
+    let name = "New bank", n = 1;
+    while (S.sources.some(s => s.name === name)) name = "New bank " + (++n);
+    S.sources.push({id: "s" + (++srcN) + "-" + Date.now(), name, kind: "new", slots: new Array(SIZE).fill(null), group: "My banks"});
+    const k = S.sources.length - 1;
+    touch(S.sources[k]); save();
+    pickSource(k);
+    say("Made " + name + ": drag patches onto its slots (from a bank above or from the " + A.deviceName + "); double-click its name to rename it");
+  }
+  function renameSource() {
+    const s = S.srcTab === "all" ? null : S.sources[S.srcTab];
+    if (!editable(s)) { if (s) say(s.name + " is built in: its name stays", "bad"); return; }
+    const n = (prompt("Name this bank", s.name) || "").trim();
+    if (!n || n === s.name) return;
+    S.hist.push({src: s.id, name: s.name, slots: s.slots.slice()});
+    if (s.group === s.name) s.group = n;
+    s.name = n; touch(s); save(); render();
+    say("Renamed to " + n + " · Ctrl+Z undoes");
   }
   function exportLibrary() {
     const files = [], lib = {app: A.id, made: new Date().toISOString(), sources: [], meta: {}};
     const used = new Set();
-    S.sources.filter(s => s.kind !== "factory").forEach(s => {
+    /* (0.3.0) the device's banks as read (with the changes not yet sent) go in too, as "From <bank>" */
+    const fromDev = A.deviceBanks.filter(b => S.banks.get(b.id)).map(b => ({name: "From " + b.name, group: A.deviceName, kind: "device", slots: devView(b.id)}));
+    [...S.sources.filter(s => s.kind !== "factory"), ...fromDev].forEach(s => {
       let dir = ((s.group && s.group !== s.name ? s.group + " - " : "") + s.name).replace(/[\\/:*?"<>|]/g, "_");
       while (used.has(dir)) dir += "_";
       used.add(dir);
@@ -771,7 +879,7 @@
       lib.sources.push(ent);
       Object.assign(lib.meta, metaFor(s.slots.filter(Boolean)));
     });
-    if (!lib.sources.length) { say("Nothing opened to export yet", "bad"); return; }
+    if (!lib.sources.length) { say("Nothing to export yet: open patches or a bank of your own, or Read the " + A.deviceName, "bad"); return; }
     files.push({name: "library.json", data: JSON.stringify(lib, null, 1)});
     download(A.id + "-library.zip", FK.zip(files));
     say("Exported " + lib.sources.length + " sources; open the zip here again to bring them back");
@@ -782,12 +890,29 @@
     const pane = S.lastPane, slots = paneSlots(pane), i = pane === "src" ? S.focus.src : S.focus.dev;
     return {pane, i, p: slots[i] || null};
   }
-  function replacePatch(pane, i, np) {
-    if (pane === "src") {
-      if (S.srcTab === "all") { say("Edit a patch from its own source tab", "bad"); return; }
-      S.sources[S.srcTab].slots[i] = np; touch(S.sources[S.srcTab]); save(); render();
-    } else changeDev(S.devTab, new Map([[i, np]]), "Changed " + bankDef(S.devTab).name + " " + FK.slotName(i));
+  /* (0.3.0) the patch the details panel shows: the held one (Hold), else the one in focus. ref: putAt's slot */
+  function resolve(ref) {
+    if (!ref) return null;
+    if (ref.dev != null) return devView(ref.dev)[ref.s] || null;
+    const s = S.sources.find(x => x.id === ref.src);
+    return s ? s.slots[ref.s] || null : null;
   }
+  function shown() {
+    if (S.pin) {
+      const p = resolve(S.pin);
+      if (p) return {ref: S.pin, p, where: refWhere(S.pin)};
+      S.pin = null;                              /* (its bank was closed or the slot emptied) */
+    }
+    const {pane, i, p} = focused();
+    return {ref: refOf(pane, i), p, where: pane === "src" && S.srcTab === "all" ? srcSlots().from[i] : refWhere(refOf(pane, i))};
+  }
+  function refWhere(ref) {
+    if (!ref) return "";
+    if (ref.dev != null) return bankDef(ref.dev).name + " " + FK.slotName(ref.s);
+    const s = S.sources.find(x => x.id === ref.src);
+    return (s ? s.name : "?") + " " + FK.slotName(ref.s);
+  }
+  function replaceShown(np, what) { const why = putAt(shown().ref, np, what); if (why) say(why, "bad"); }
   /* a slot, by what it is rather than what is shown now (0.2.0: an adapter's action puts a patch back later, after
    * the tabs may have changed): {dev: bank, s} or {src: source id, s}; null for the "All sources" list */
   function refOf(pane, i) {
@@ -795,21 +920,22 @@
     return S.srcTab === "all" || !S.sources[S.srcTab] ? null : {src: S.sources[S.srcTab].id, s: i};
   }
   /* put np into that slot as an ordinary change (a device slot: pending until Send, undoable). The reason when not */
-  function putAt(ref, np) {
+  function putAt(ref, np, what) {
     if (!ref) return "that patch was picked in All sources: pick it from its own bank";
     if (ref.dev != null) {
       if (bankDef(ref.dev).readOnly) return bankDef(ref.dev).name + " is read only";
-      changeDev(ref.dev, new Map([[ref.s, np]]), "Put " + A.nameOf(np) + " into " + bankDef(ref.dev).name + " " + FK.slotName(ref.s));
+      changeDev(ref.dev, new Map([[ref.s, np]]), what || "Put " + A.nameOf(np) + " into " + bankDef(ref.dev).name + " " + FK.slotName(ref.s));
       return "";
     }
     const src = S.sources.find(x => x.id === ref.src);
     if (!src) return "that bank was closed";
-    if (src.kind === "factory") return src.name + " is built in (read only): drag the patch into a bank first";
-    src.slots[ref.s] = np; touch(src); save(); render();
-    say("Put " + A.nameOf(np) + " into " + src.name + " " + FK.slotName(ref.s));
+    if (!editable(src)) return src.name + " is built in (read only): drag the patch into a bank of your own first";
+    changeSrc(src, new Map([[ref.s, np]]), what || "Put " + A.nameOf(np) + " into " + src.name + " " + FK.slotName(ref.s));
     return "";
   }
   FK.lib = {putAt, say: (t, k) => say(t, k)};
+  /* (for the tests, 0.3.0) */
+  FK.lib._t = {newBank, saveSlots, dropIntoSource, changeSrc, clearSource, undo, putAt, editable, renameSource, exportLibrary, saveSource, shown};
   function setMeta(p, fn) {
     const k = fp(p), m = S.meta[k] || {cat: catOf(p), tags: tagsOf(p).slice()};
     fn(m);
@@ -821,15 +947,16 @@
     d.hidden = !S.details;
     $("#details-btn").setAttribute("aria-pressed", S.details ? "true" : "false");
     if (!S.details) return;
-    const {pane, i, p} = focused();
+    const {ref, p, where} = shown();
     $("#d-empty").hidden = !!p;
     $("#d-body").hidden = !p;
+    $("#d-hold").hidden = !p;
+    $("#d-hold").setAttribute("aria-pressed", S.pin ? "true" : "false");
     if (!p) return;
     const nm = $("#d-name");
     if (document.activeElement !== nm) nm.value = A.nameOf(p);
     nm.maxLength = A.nameLength;
-    const where = pane === "src" ? (S.srcTab === "all" ? srcSlots().from[i] : S.sources[S.srcTab].name + " " + FK.slotName(i)) : bankDef(S.devTab).name + " " + FK.slotName(i);
-    $("#d-where").textContent = where + (A.describe ? " · " + A.describe(p) : "");
+    $("#d-where").textContent = where + (A.describe ? " · " + A.describe(p) : "") + (S.pin ? " · held" : "");
     const cs = $("#d-colours");
     cs.replaceChildren();
     cs.hidden = cs.previousElementSibling.hidden = A.colours.length < 2;   /* (one colour: nothing to pick) */
@@ -840,7 +967,7 @@
       b.style.background = "var(--pc-" + c + ")";
       b.setAttribute("aria-label", "Colour " + c);
       b.title = c;
-      b.onclick = () => replacePatch(pane, i, A.withColour(p, c));
+      b.onclick = () => replaceShown(A.withColour(p, c));
       cs.appendChild(b);
     }
     const cat = $("#d-cat");
@@ -861,6 +988,66 @@
     $("#d-filter-cap").textContent = "FILTER · " + pv.filter.label;
     drawFilter($("#d-filter"), pv.filter);
     drawEnv($("#d-env"), pv.env);
+    renderLayers(ref, p);
+  }
+  /* (0.3.0) Layers, when the adapter has them (A.layers, adapters/README.md; M-vance: UPPER / LOWER): the key mode
+   * (and what goes with it), each layer's name, ▶ to hear it alone, a drop target (a patch dropped there gives its
+   * first layer, with Alt its second), Swap and Copy. Every change is an ordinary one through putAt: pending on the
+   * device until Send, undoable, refused on a built-in bank */
+  function renderLayers(ref, p) {
+    const box = $("#d-layers"), L = A.layers;
+    box.hidden = !L;
+    if (!L) return;
+    box.replaceChildren();
+    const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+    const put = (np, what) => { const why = putAt(ref, np, what); if (why) say(why, "bad"); };
+    box.appendChild(el("span", "lab", "Layers"));
+    const head = el("div", "lay-head");
+    const ms = el("select");
+    ms.setAttribute("aria-label", L.modeLabel);
+    L.modes.forEach((m, k) => ms.add(new Option(m, k)));
+    ms.value = String(L.mode(p));
+    ms.onchange = () => put(L.withMode(p, +ms.value), L.modeLabel + " " + L.modes[+ms.value] + " in " + refWhere(ref));
+    head.append(el("span", "k", L.modeLabel), ms);
+    for (const q of L.params || []) {
+      if (q.show && !q.show(p)) continue;
+      const inp = el("input");
+      inp.type = "number"; inp.min = q.min; inp.max = q.max; inp.value = q.get(p);
+      inp.setAttribute("aria-label", q.label);
+      const shownV = el("span", "v", q.fmt ? q.fmt(q.get(p)) : "");
+      inp.onchange = () => { const v = Math.max(q.min, Math.min(q.max, Math.round(+inp.value || 0))); put(q.set(p, v), q.label + " " + (q.fmt ? q.fmt(v) : v) + " in " + refWhere(ref)); };
+      head.append(el("span", "k", q.label), inp, shownV);
+    }
+    box.appendChild(head);
+    L.names.forEach((nm, k) => {
+      const row = el("div", "lay" + (L.heard && !L.heard(p, k) ? " silent" : ""));
+      row.append(el("span", "k", nm), el("span", "nm", L.nameOf(p, k)));
+      if (L.heard && !L.heard(p, k)) row.title = nm + " is not heard in " + L.modes[L.mode(p)];
+      const play = el("button", null, "▶");
+      play.type = "button"; play.title = "Hear " + nm + " alone (nothing saved)"; play.setAttribute("aria-label", play.title);
+      play.onclick = () => audition(L.solo(p, k));
+      row.appendChild(play);
+      row.ondragover = e => { if (!S.drag) return; e.preventDefault(); e.dataTransfer.dropEffect = "copy"; row.classList.add("over");
+        say("Drop: " + nm + " takes the patch's " + L.names[e.altKey ? 1 : 0] + (e.altKey ? "" : " (hold Alt for its " + L.names[1] + ")")); };
+      row.ondragleave = () => row.classList.remove("over");
+      row.ondrop = e => {
+        e.preventDefault(); e.stopPropagation(); row.classList.remove("over");
+        const d = S.drag, from = d && d.slots[d.idx[0]];
+        S.drag = null;
+        if (!from) return;
+        const fk = e.altKey ? 1 : 0;
+        put(L.take(p, k, from, fk), nm + " of " + refWhere(ref) + " from " + A.nameOf(from) + (fk ? " (its " + L.names[1] + ")" : "") +
+          (L.heard && !L.heard(p, k) ? " · " + nm + " is heard in " + L.modes.filter((_, m) => m).join(" or ") : ""));
+      };
+      box.appendChild(row);
+    });
+    const bar = el("div", "bar");
+    const b1 = el("button", null, "Swap ⇅"), b2 = el("button", null, "Copy " + L.names[0] + " → " + L.names[1]);
+    b1.type = b2.type = "button";
+    b1.onclick = () => put(L.swap(p), "Swapped " + L.names.join(" and ") + " in " + refWhere(ref));
+    b2.onclick = () => put(L.copy(p, 0, 1), "Copied " + L.names[0] + " to " + L.names[1] + " in " + refWhere(ref));
+    bar.append(b1, b2);
+    box.appendChild(bar);
   }
   function tok(n) { return getComputedStyle(document.documentElement).getPropertyValue("--" + n).trim(); }
   function prepCanvas(c) {
@@ -939,6 +1126,10 @@
     $("#file-in").onchange = async e => { await readEntries(await filesFromInput(e.target.files)); e.target.value = ""; };
     $("#folder-in").onchange = async e => { await readEntries(await filesFromInput(e.target.files)); e.target.value = ""; };
     $("#export").onclick = exportLibrary;
+    $("#src-save").onclick = saveSource;
+    $("#src-new").onclick = newBank;
+    $("#src-pick").ondblclick = e => { e.preventDefault(); openMenu(false); renameSource(); };
+    $("#d-hold").onclick = () => { S.pin = S.pin ? null : shown().ref; render(); };   /* (0.3.0) Hold: keep this patch here */
     $("#src-pick").onclick = () => openMenu(!S.menu.open);
     $("#src-prev").onclick = () => { if (S.srcTab > 0) pickSource(S.srcTab - 1); };
     $("#src-next").onclick = () => { if (S.srcTab < S.sources.length - 1) pickSource(S.srcTab + 1); };
@@ -975,26 +1166,26 @@
     $("#details-btn").onclick = () => { S.details = !S.details; render(); };
     $("#d-close").onclick = () => { S.details = false; render(); };
     $("#d-name").addEventListener("change", e => {
-      const {pane, i, p} = focused();
+      const {p} = shown();
       if (!p) return;
       const name = e.target.value.replace(/[^\x20-\x7e]/g, "?").slice(0, A.nameLength);
       const np = A.withName(p, name), old = S.meta[fp(p)];
       if (old) S.meta[fp(np)] = old;
-      replacePatch(pane, i, np);
+      replaceShown(np, "Renamed to " + name.trim());
     });
-    $("#d-cat").onchange = e => { const {p} = focused(); if (p) setMeta(p, m => { m.cat = e.target.value; }); };
+    $("#d-cat").onchange = e => { const {p} = shown(); if (p) setMeta(p, m => { m.cat = e.target.value; }); };
     $("#d-tag-in").addEventListener("keydown", e => {
       if (e.key !== "Enter") return;
       const t = e.target.value.trim().toLowerCase().replace(/\s+/g, "-");
-      const {p} = focused();
+      const {p} = shown();
       if (t && p) setMeta(p, m => { if (!m.tags.includes(t)) m.tags.push(t); });
       e.target.value = "";
     });
-    $("#d-play").onclick = () => { const {p} = focused(); if (p) audition(p); };
+    $("#d-play").onclick = () => { const {p} = shown(); if (p) audition(p); };
     for (const act of A.actions || []) {         /* the adapter's buttons (0.2.0): run(patch, ref, where) */
       const b = document.createElement("button");
       b.type = "button"; b.textContent = act.label; if (act.title) b.title = act.title;
-      b.onclick = () => { const {pane, i, p} = focused(); if (p) act.run(p, refOf(pane, i), $("#d-where").textContent); };
+      b.onclick = () => { const {ref, p} = shown(); if (p) act.run(p, ref, $("#d-where").textContent); };
       $("#d-play").parentNode.appendChild(b);
     }
     bindGrid($("#src-grid"), "src");

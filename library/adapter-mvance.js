@@ -8,8 +8,13 @@
  *              (mv_perf.h MV_PF_*). Held as the firmware would store it (norm: mv_patch_sanitize's clamps, the
  *              performance bytes in mv_prog_perf_ok's ranges), so what is sent reads back the same
  *   files      .syx and .mid of JP-8000 / JP-8080 DT1s: performances (03 pp ..) and user patches (02 ..), parsed by
- *              sim/bank/bank-model.js (FK.mvb: the one copy of that code, tools/make_bank.py's rules). Download
- *              writes the whole bank as ONE .syx, as tools/make_bank.py writes it (make_bank.py --from-device reads it)
+ *              sim/bank/bank-model.js (FK.mvb: the one copy of that code, tools/make_bank.py's rules). Save… writes
+ *              the bank as ONE .syx: all 64 as tools/make_bank.py writes it (make_bank.py --from-device reads it);
+ *              a bank with empty slots (0.3.0, 2b' i) as only its programs, each at its own slot (03 pp), so sending
+ *              it changes only those slots. A file of performances reopens with each at its own slot
+ *   layers     (0.3.0, 3a) UPPER and LOWER in the details panel: KEY MODE (and SPLIT POINT), a patch dropped on a
+ *              layer gives its UPPER (Alt: its LOWER), with that part's sync bytes (LFO1 / DELAY / CHORUS SYNC go
+ *              with the part); the program's name stays (it is the UPPER patch's bytes 0..15)
  *   the wire   firmware/src/mv_xfer.h: no acknowledgement, so every message is followed by GAP_MS (the FM-1 holds
  *              one received message at a time) and the page reads each slot back (core.js) and compares
  *                identify   MIDI Universal Device Inquiry F0 7E 7F 06 01 F7; M-vance answers 7D (non-commercial),
@@ -167,7 +172,38 @@
   const v127 = x => Math.max(0, Math.min(1, x / 127));
   const MODES = ["SINGLE", "DUAL", "SPLIT"];
 
-  FK.mvance = {sanitize, norm, nameOf, itemOf, fromHex, toHex, rq1, identityReply, PF_MAX, GAP_MS};   /* (the mock, the tests) */
+  /* ---- layers (0.3.0, 3a). A part's own performance bytes: LFO1 SYNC 7/8, DELAY SYNC 9/10, CHORUS SYNC 11/12
+   * (MV_PF_SYNCUP + part, part 0 UPPER, 1 LOWER): they go with the patch when a layer moves */
+  const PF_MODE = 0, PF_SPLIT = 1, PART_PF = [7, 9, 11];
+  const NOTES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+  const noteName = n => NOTES[n % 12] + (Math.floor(n / 12) - 1);        /* 60: C4 (the JP's own display) */
+  const layerOf = (p, k) => k ? p.lo : p.up;
+  function copyProg(p) { return {up: Uint8Array.from(p.up), lo: Uint8Array.from(p.lo), pf: Uint8Array.from(p.pf)}; }
+  function withPf(p, i, v) { const q = copyProg(p); q.pf[i] = v; return norm(q); }
+  /* layer k of p becomes layer fk of from; UPPER keeps p's name (the program's) */
+  function take(p, k, from, fk) {
+    const q = copyProg(p), src = Uint8Array.from(layerOf(from, fk));
+    if (k === 0) src.set(p.up.subarray(0, NAME), 0);
+    if (k) q.lo = src; else q.up = src;
+    for (const b of PART_PF) q.pf[b + k] = from.pf[b + fk];
+    return norm(q);
+  }
+  function swap(p) {
+    const q = copyProg(p), up = Uint8Array.from(p.lo);
+    up.set(p.up.subarray(0, NAME), 0);                 /* (the program's name stays on top) */
+    q.up = up; q.lo = Uint8Array.from(p.up);
+    for (const b of PART_PF) { q.pf[b] = p.pf[b + 1]; q.pf[b + 1] = p.pf[b]; }
+    return norm(q);
+  }
+  /* one layer alone, as a SINGLE program on its UPPER (for ▶) */
+  function solo(p, k) {
+    const q = copyProg(p), l = Uint8Array.from(layerOf(p, k));
+    q.up = l; q.lo = Uint8Array.from(l); q.pf[PF_MODE] = 0;
+    for (const b of PART_PF) q.pf[b] = q.pf[b + 1] = p.pf[b + k];
+    return norm(q);
+  }
+
+  FK.mvance = {sanitize, norm, nameOf, itemOf, fromHex, toHex, rq1, identityReply, PF_MAX, GAP_MS, take, swap, solo};   /* (the mock, the tests) */
   FK.adapter = {
     id: "mvance",
     name: "M-vance",
@@ -188,12 +224,25 @@
     soundKey: p => toHex(p.up.subarray(NAME)) + toHex(p.lo.subarray(NAME)) + toHex(p.pf),   /* (names aside) */
     parseFile(name, bytes) {
       if (!/\.(syx|mid)$/i.test(name)) return null;
-      return B.parseBankFile(bytes).map(it => norm(B.soundOf(it)));
+      const its = B.parseBankFile(bytes), out = [];
+      /* (0.3.0) performances keep their own slots (03 pp): a part bank saved here reopens where it was; the holes
+       * are empty slots (core.js skips them). User patches (02 ..) in order, as before */
+      const placed = its.length > 0 && its.every(it => it.kind === "P" && it.no >= 1 && it.no <= NPROG);
+      its.forEach((it, k) => { out[placed ? it.no - 1 : k] = norm(B.soundOf(it)); });
+      return out;
     },
     fileName: (p, slot) => FK.slotName(slot) + ".syx",
     serialise: p => { const ms = B.perfMsgs(itemOf(p), 0x03, 0x00), out = new Uint8Array(ms.reduce((a, m) => a + m.length, 0)); let o = 0; for (const m of ms) { out.set(m, o); o += m.length; } return out; },
-    /* (0.2.0) Download: the whole bank as one .syx, tools/make_bank.py's own bytes; null while a slot is empty */
-    bankFile: slots => slots.length === NPROG && slots.every(Boolean) ? {name: "bank.syx", bytes: B.makeBankSyx(slots.map(itemOf))} : null,
+    /* Save…: the bank as one .syx. All 64: tools/make_bank.py's own bytes. Fewer (0.3.0, 2b' i): only those, each
+     * at its own slot (03 pp), so a send changes only them; make_bank.py --from-device wants all 64 and says so */
+    bankFile(slots) {
+      const filled = slots.map((p, s) => p ? s : -1).filter(s => s >= 0);
+      if (!filled.length) return null;
+      if (filled.length === NPROG && slots.length === NPROG) return {name: "bank.syx", bytes: B.makeBankSyx(slots.map(itemOf))};
+      const ms = filled.flatMap(s => B.perfMsgs(itemOf(slots[s]), 0x03, s)), out = new Uint8Array(ms.reduce((a, m) => a + m.length, 0));
+      let o = 0; for (const m of ms) { out.set(m, o); o += m.length; }
+      return {name: filled.length + "-programs.syx", bytes: out, note: filled.length + " of " + NPROG + " programs, each at its own slot (make_bank.py --from-device needs all 64)"};
+    },
     describe: p => "program · " + (MODES[p.pf[0]] || "SINGLE"),
     preview(p) {
       const type = pv(p, "FLT_TYPE"), kind = ["hp", "bp", "lp"][type] || "lp", order = pv(p, "FLT_SLOPE") ? 4 : 2;
@@ -209,6 +258,17 @@
     factory() {
       const slots = D.factory.map(([u, l, f]) => ({up: fromHex(u), lo: fromHex(l), pf: fromHex(f)}));
       return [{name: "M-vance factory", slots}];
+    },
+    layers: {
+      names: ["UPPER", "LOWER"],
+      modeLabel: "KEY MODE", modes: MODES,
+      mode: p => Math.min(p.pf[PF_MODE], 2),
+      withMode: (p, m) => withPf(p, PF_MODE, m),
+      params: [{label: "SPLIT", min: 0, max: 127, show: p => p.pf[PF_MODE] === 2, get: p => p.pf[PF_SPLIT], set: (p, v) => withPf(p, PF_SPLIT, v), fmt: noteName}],
+      heard: (p, k) => k === 0 || p.pf[PF_MODE] !== 0,       /* LOWER plays in DUAL and SPLIT only */
+      nameOf: (p, k) => B.nameOf(layerOf(p, k)),
+      take, swap, solo,
+      copy: (p, a, b) => take(p, b, p, a),
     },
     actions: [{label: "Edit ▸", title: "Open this sound in the editor (sim/editor.html); Keep there puts it back here", run: edit}],
     device: {

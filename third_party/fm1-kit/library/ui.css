@@ -133,12 +133,29 @@ kbd { font: 11px ui-monospace, monospace; background: var(--raised); border-radi
 #d-name { font-size: 17px; font-weight: 700; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; width: 100%; }
 #d-where, #d-dups { font-size: 12px; color: var(--dim); }
 #d-colours { display: flex; gap: 6px; }
+#d-colours[hidden] { display: none; }                  /* (0.3.0: one colour, the row is hidden: 0.2.0 left the swatch showing) */
 .sw { width: 22px; height: 22px; border-radius: 11px; padding: 0; border: 2px solid transparent; }
 .sw.on { border-color: var(--accent); }
 #d-cat { background: var(--raised); border: 1px solid var(--line); border-radius: 6px; padding: 4px 6px; }
 #d-tags { display: flex; flex-wrap: wrap; gap: 4px; }
 .chip { border: none; border-radius: 11px; padding: 3px 9px; font-size: 11px; font-weight: 600; background: var(--raised); color: var(--dim); }
 #d-tag-in { background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; }
+/* (0.3.0) Hold, a bank of your own, Layers */
+#details .head .sp { flex: 1; }
+#d-hold { margin-right: 6px; }
+#d-hold[aria-pressed="true"] { border-color: var(--theme); color: var(--theme); }
+#src-pick.own .t { font-style: italic; }
+#d-layers { display: flex; flex-direction: column; gap: 5px; }
+#d-layers[hidden] { display: none; }
+#d-layers .lay-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; font-size: 12px; }
+#d-layers .k { color: var(--dim); font-size: 11px; font-weight: 700; letter-spacing: 1px; }
+#d-layers select, #d-layers input { background: var(--raised); border: 1px solid var(--line); border-radius: 6px; padding: 3px 5px; }
+#d-layers input { width: 4.5em; }
+#d-layers .lay { display: grid; grid-template-columns: 4.2em 1fr auto; align-items: center; gap: 6px; padding: 5px 6px;
+  border: 1px dashed var(--line); border-radius: 6px; font-size: 13px; }
+#d-layers .lay .nm { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#d-layers .lay.silent .nm { color: var(--dim); }
+#d-layers .lay.over { border-color: var(--theme); border-style: solid; background: var(--fill); }
 #d-facts { display: grid; grid-template-columns: 1fr 1fr; gap: 3px 10px; font-size: 12px; }
 #d-facts div { display: flex; justify-content: space-between; gap: 6px; }
 #d-facts span { color: var(--dim); }
