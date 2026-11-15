@@ -1,0 +1,70 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# The web pages on GitHub Pages: docs/ as committed (the simulator is built on a computer: sim/build.sh), plus the
+# firmware page (docs/flash: flash/build.sh) with the latest release's packages beside it, and the page counter.
+# Settings > Pages > Source: "GitHub Actions" (in place of "Deploy from a branch"; the address stays the same).
+# Runs on every push to main, on a published release (release.yml starts it after a tag's release: a release made
+# with the workflow's token starts nothing by itself), or by hand (Actions > pages > Run workflow).
+# The page counter: bk40.goatcounter.com (shared with M-Vsynth2's site; GoatCounter tells them apart by path), or
+# Settings > Secrets and variables > Actions > Variables, GOATCOUNTER_URL = https://CODE.goatcounter.com/count.
+name: pages
+
+on:
+  push:
+    branches: [main]
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}   # (a release event would check out the tag)
+
+      - name: The firmware page (docs/flash)
+        run: sh flash/build.sh
+
+      - name: The latest release's packages for the firmware page (none yet - the page offers a file instead)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          R="--repo $GITHUB_REPOSITORY"
+          mkdir -p /tmp/rel
+          if gh release download $R --pattern 'mvance-*.fwsc' --dir /tmp/rel; then
+            TAG=$(gh release view $R --json tagName -q .tagName)
+            python3 tools/flash_manifest.py --version "${TAG#v}" --tag "$TAG" \
+              --url "$(gh release view $R --json url -q .url)" \
+              --published "$(gh release view $R --json publishedAt -q .publishedAt)" /tmp/rel/*.fwsc
+          else
+            echo "no release with packages yet: docs/flash/ has no firmware/"
+          fi
+
+      - name: The page counter (bk40.goatcounter.com, or the repo variable GOATCOUNTER_URL)
+        env:
+          COUNT: ${{ vars.GOATCOUNTER_URL || 'https://bk40.goatcounter.com/count' }}
+        run: grep -rl "__COUNT__" docs --include='*.html' | xargs -r sed -i "s|__COUNT__|${COUNT}|g"
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

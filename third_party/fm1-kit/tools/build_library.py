@@ -7,7 +7,8 @@ works from any host and offline).
     build(out_path, data={...}, adapter_js=[paths], stamp="M-Vsynth2 0.9")
 
 The page = library/shell.html with library/ui.css, then the scripts in this order: the data (window.FK_DATA),
-model.js, zip.js, the firmware's adapter files (they set FK.adapter, and FK.mockDevice for the Sandbox), core.js.
+model.js, zip.js, the firmware's adapter files (they set FK.adapter, and FK.mockDevice for the Sandbox), core.js,
+web/count.js (the page counter: off until the host fills the fm1-count meta, see count.js).
 It fails if the page would reach out (an http(s) src, href, url() or @import)."""
 import json
 import re
@@ -22,7 +23,7 @@ def build(out, data, adapter_js, stamp=""):
     shell = (LIB / "shell.html").read_text()
     css = (LIB / "ui.css").read_text()
     parts = ["window.FK_DATA = " + json.dumps(data, separators=(",", ":")) + ";"]
-    for f in [LIB / "model.js", LIB / "zip.js", *map(Path, adapter_js), LIB / "core.js"]:
+    for f in [LIB / "model.js", LIB / "zip.js", *map(Path, adapter_js), LIB / "core.js", KIT / "web/count.js"]:
         parts.append("/* ---- " + f.name + " */\n" + f.read_text())
     js = "\n".join(parts).replace("</script", "<\\/script")
     html = (shell.replace("__CSS__", css).replace("__JS__", js)

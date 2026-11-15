@@ -17,7 +17,7 @@ OUT=docs/sim
 mkdir -p "$OUT"
 cp sim/index.html sim/sim.js sim/pages.js sim/engine.js sim/audio-worklet.js "$OUT"/
 cp sim/editor.html sim/editor.js "$OUT"/                 # the sound editor (Kris 15 Nov; the banks: docs/library.html)
-cp third_party/fm1-kit/web/theme.css third_party/fm1-kit/web/theme.js third_party/fm1-kit/web/sim.css "$OUT"/   # the look (fm1-kit)
+cp third_party/fm1-kit/web/theme.css third_party/fm1-kit/web/theme.js third_party/fm1-kit/web/count.js third_party/fm1-kit/web/sim.css "$OUT"/   # the look and the page counter (fm1-kit)
 BUILD=$(date +%Y%m%d%H%M%S)                            # the build stamp: index.html and sim.js ask for
 sed -i "s/__BUILD__/$BUILD/g" "$OUT/index.html" "$OUT/sim.js" "$OUT/editor.html" "$OUT/editor.js"   # ?v=<stamp>, so no stale cached script survives
 mkdir -p "$OUT/bank"                                   # the SysEx code the editor imports; the old bank editor (no

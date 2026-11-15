@@ -18,7 +18,7 @@
 import { parseBankFile, nameOf, soundOf, soundCopy, soundEqual, itemFromSound, perfMsgs } from './bank/bank-model.js?v=20261115135400';
 import { FM1 } from './bank/fm1-midi.js?v=20261115135400';
 import { Link, GAP_MS } from './bank/link.js?v=20261115135400';
-import { mountPages } from './pages.js?v=20261115135400';
+import { mountPages } from './pages.js?v=20261115135400b';
 import { startEngine } from './engine.js?v=20261115135400';
 
 const NPROG = 64;                          // program slots on the FM-1

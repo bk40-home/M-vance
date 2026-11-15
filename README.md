@@ -12,7 +12,7 @@ arpeggiator, a two-track sequencer and 64 programs, on eight voices.
 
 <p align="center"><img src="docs/img/home.png" width="240" alt="The M-vance home screen: the name, the program, the note, a keyboard with the keys that sound"></p>
 
-- **Web page:** <https://bk40-home.github.io/M-vance/> (from `docs/`)
+- **Web page:** <https://bk40-home.github.io/M-vance/> (from `docs/`, published by `.github/workflows/pages.yml`)
 - **Cheat sheet:** [docs/cheatsheet.html](docs/cheatsheet.html): two A4 pages to print and keep by the FM-1
 
 > **Status: in development, not yet released.** Builds are tested on the FM-1 as they go; the first release will be
@@ -73,11 +73,22 @@ table (`tests/run_docs.sh`), so it shows the panel exactly as the build has it.
 
 ## Install
 
+- **From the browser:** the site's firmware page (`docs/flash/`, Chrome or Edge on a computer): find the FM-1, install
+  the latest release or a `.fwsc` of your own. The same update as `tools/fm1_install.py` (fm1-kit's `web/fm1ota.js`):
+  the package is checked first, another model's is refused, and a cut-off install is finished by running it again.
+  On Windows close the library, the editor's link and any DAW first: one program at a time on the FM-1's MIDI port.
 - **The FM-1 Firmware Hub** (once listed): [thefirmwarehub.com](https://thefirmwarehub.com) in Chrome or Edge, the FM-1
   on USB, pick M-vance. Going back to another firmware, or the official one, works the same way.
 - **From the command line:** `python3 tools/fm1_install.py mvance-X.Y.fwsc` (from a release, or your own build).
 - **If it won't start:** hold **OCT-** while switching on: the USB rescue, no sound, only the updater. Install a
   working build (or another firmware from the hub) from there. Installing firmware is at your own risk.
+
+**The site and its traffic.** `.github/workflows/pages.yml` publishes `docs/`, with the latest release's packages and
+`firmware/latest.json` (`tools/flash_manifest.py`) beside the firmware page; a tag's release starts it. Page views and
+installs are counted with [GoatCounter](https://www.goatcounter.com) (open source, no cookies) at
+<https://bk40.goatcounter.com>, shared with M-Vsynth2's site (told apart by path; the repo variable `GOATCOUNTER_URL`
+points this site elsewhere). Local copies never count. The firmware page sends `M-vance/flash/start/<identity>`,
+`.../done/<identity>` and `.../fail/<reason>`. GitHub's own figures: *Insights > Traffic* and each release's download counts.
 
 ## Build and run
 

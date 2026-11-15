@@ -23,6 +23,7 @@ python3 tests/xfer_test.py                     # the program transfer (mv_xfer.h
 # factory bank and clamps, the pretend FM-1, and the host build's own dump (xfer_test.py writes it). Needs Node
 if command -v node >/dev/null 2>&1; then
     node third_party/fm1-kit/library/test/model_test.js
+    node third_party/fm1-kit/web/test/fm1ota_test.mjs .   # the firmware page's installer, and as tools/fm1_install.py
     python3 tools/gen_library_page.py --data "$OUT/library_data.json" >/dev/null
     node tests/library_test.js "$OUT/library_data.json"
     node sim/bank/bank-test.mjs && node sim/bank/link-test.mjs   # (the SysEx and link code the editor and library use)

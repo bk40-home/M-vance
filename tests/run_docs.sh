@@ -18,4 +18,5 @@ sh tests/run_host.sh tests/scripts/debug.txt > /dev/null   # the DEBUG page (GLO
 cp build/host/mvance-1700.png docs/img/debug.png
 cp build/host/mvance-1290.png docs/img/midi.png
 cp build/host/mvance-1260.png docs/img/themes.png   # GLOBAL 2/2: THEME, COLOUR (the screen kit)
-echo "run_docs: docs/cheatsheet.html, docs/img/ (11 screens)"
+sh flash/build.sh                                  # the firmware page (docs/flash: fm1-kit's flash.js, fm1ota.js)
+echo "run_docs: docs/cheatsheet.html, docs/img/ (11 screens), docs/flash/"

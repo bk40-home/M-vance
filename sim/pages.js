@@ -129,10 +129,16 @@ export function mountPages(M, host, { editable = () => true, pageEditable = () =
   }
 
   // ---- drawing: RGB565 -> RGBA, only the tiles whose key changed ----
+  // -> false when there was nothing to show: a tile drawn before the app has started (the page mounts as soon as the
+  // module loads) comes out one flat colour, and its key would not change again until an edit. Such a tile is tried
+  // again on the next tick, until the app draws it (a real page is never one colour: it has its header).
   function paint(t) {
     const ptr = api.tile(t.i);
-    if (!ptr) return;
+    if (!ptr) return false;
     const px = M.HEAPU16.subarray(ptr >> 1, (ptr >> 1) + TILE_W * TILE_H);   // (read fresh: memory can grow)
+    let flat = true;
+    for (let k = 0; k < px.length; k += 97) if (px[k] !== px[0]) { flat = false; break; }
+    if (flat) return false;
     const d = t.img.data;
     for (let k = 0, o = 0; k < px.length; k++, o += 4) {
       const v = px[k];
@@ -142,6 +148,7 @@ export function mountPages(M, host, { editable = () => true, pageEditable = () =
       d[o + 3] = 255;
     }
     t.ctx.putImageData(t.img, 0, 0);
+    return true;
   }
   function tick() {
     if (document.hidden) return;                 // nothing to see: nothing computed
@@ -149,7 +156,7 @@ export function mountPages(M, host, { editable = () => true, pageEditable = () =
     host.classList.toggle('readonly', !editable());
     for (const t of tiles) {
       const k = api.key(t.i);
-      if (k !== t.key) { t.key = k; paint(t); }
+      if (k !== t.key) t.key = paint(t) ? k : null;   // (null: not drawn yet, try again)
       t.el.classList.toggle('live', t.i === live);
       t.el.classList.toggle('locked', !pageEditable(t.title, t.btn));
     }
