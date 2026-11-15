@@ -66,6 +66,27 @@ static int xf_apply(mv_patch_t *up, mv_patch_t *lo, uint8_t *pf, uint32_t area, 
     return 0;                                   /* (08, 10, 11 ..: the JP's parts we do not have) */
 }
 
+uint32_t mv_xfer_ident(const uint8_t *body, uint32_t n, const char *ver, uint8_t *out, uint32_t cap)
+{
+    uint32_t i, k = 0, v = 0;
+    uint8_t num[3] = {0, 0, 0};                 /* the version's numbers: "a.b.c" (a missing one: 0) */
+    if (n != 4u || body[0] != 0x7Eu || body[2] != 0x06u || body[3] != 0x01u || cap < MV_XF_IDENT_LEN) return 0;
+    if (body[1] != 0x7Fu && body[1] != MV_XF_DEV) return 0;   /* (all devices, or ours) */
+    for (i = 0; ver && ver[i] && k < 3u; i++) {
+        if (ver[i] >= '0' && ver[i] <= '9') { v = v * 10u + (uint32_t)(ver[i] - '0'); if (v > 127u) v = 127u; }
+        else if (ver[i] == '.') { num[k++] = (uint8_t)v; v = 0; }
+        else break;                             /* ("0.9-dev": the numbers before) */
+    }
+    if (k < 3u) num[k] = (uint8_t)v;
+    out[0] = 0xF0u; out[1] = 0x7Eu; out[2] = MV_XF_DEV; out[3] = 0x06u; out[4] = 0x02u;   /* identity reply */
+    out[5] = 0x7Du;                             /* manufacturer: non-commercial */
+    out[6] = 'M'; out[7] = 'V';                 /* family */
+    out[8] = 'A'; out[9] = 'N';                 /* member: M-vance */
+    out[10] = num[0]; out[11] = num[1]; out[12] = num[2]; out[13] = 0x00u;
+    out[14] = 0xF7u;
+    return MV_XF_IDENT_LEN;
+}
+
 uint32_t mv_xfer_rx(mv_xfer_t *x, mv_prog_t *g, mv_engine_t *e, const uint8_t *body, uint32_t n)
 {
     /* body: 41 dev 00 06 cmd a3 a2 a1 a0 [data..] sum */

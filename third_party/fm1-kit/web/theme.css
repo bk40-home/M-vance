@@ -12,6 +12,8 @@
 [data-theme="orchid"] { --bg: #0E0B12; --surf: #18141F; --raised: #282233; --line: #3F3652; --dim: #A297B5; --text: #EEE8F7; --theme: #D07BFF; --accent: #7DFFB0; --warn: #FF8C28; --on-theme: #0E0B12; }
 [data-theme="crt"] { --bg: #060A06; --surf: #0D140D; --raised: #182418; --line: #27402A; --dim: #7FA884; --text: #D8F5D8; --theme: #7CFF6B; --accent: #FFFFFF; --warn: #FFAA28; --on-theme: #060A06; }
 [data-theme="paper"] { --bg: #F2EFE8; --surf: #E7E3D9; --raised: #FBFAF6; --line: #BDB7A9; --dim: #5C584F; --text: #1A1917; --theme: #06614F; --accent: #A8330A; --warn: #A8330A; --on-theme: #FFFFFF; --ok: #1E7A3C; }
+/* AMBER (0.2.0): M-vance's screen theme, the JP-8080's orange display */
+[data-theme="amber"] { --bg: #0E0A06; --surf: #1A140C; --raised: #2C2214; --line: #4A3820; --dim: #A89070; --text: #F5E8D6; --theme: #FF8000; --accent: #FFECC8; --warn: #FF4D3D; --on-theme: #0E0A06; }
 :root {
   --fill: color-mix(in srgb, var(--theme) 20%, var(--surf));
   --grid: color-mix(in srgb, var(--line) 55%, var(--surf));

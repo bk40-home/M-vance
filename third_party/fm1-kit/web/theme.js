@@ -3,7 +3,7 @@
 // library on one site share it). Fills and wires every <select data-theme-picker>. A plain script, run in <head>.
 (function () {
   "use strict";
-  var THEMES = ["sea", "ember", "ice", "orchid", "crt", "paper"];
+  var THEMES = ["sea", "ember", "ice", "orchid", "crt", "paper", "amber"];   /* (amber: 0.2.0) */
   function get() { try { var t = localStorage.getItem("fm1-theme"); return THEMES.indexOf(t) >= 0 ? t : "sea"; } catch (e) { return "sea"; } }
   function set(t) {
     document.documentElement.dataset.theme = t;

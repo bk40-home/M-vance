@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en" data-theme="amber">
+<!-- SPDX-License-Identifier: GPL-3.0-only -->
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M-vance editor</title>
+<!-- The sound editor (Kris 15 Nov 2026: fm1-port/mvance-library-editor-proposal-2026-11-15.md, 5a 6a): the sound
+     editing of the old bank editor (Part B, 13 Nov) on a page of its own. It edits what plays: the simulator on this
+     page (its screen, every page as a tile you turn, the computer keys), or, with Link FM-1 on, the FM-1's sound (the
+     two kept the same both ways: bank/link.js over the firmware's link, mvance.c link_*).
+     The banks are the patch library's (../library.html): its Edit sends a program here, and Keep puts the edit back
+     into that library slot (BroadcastChannel "mvance-edit"; Send in the library writes it to the FM-1). Write to
+     slot puts the edit straight into a program slot on a connected FM-1.
+     WebMIDI with SysEx: Chrome or Edge, on https (GitHub Pages) or localhost. ?v=20261115135400: sim/build.sh stamps it. -->
+<link rel="stylesheet" href="theme.css?v=20261115135400">
+<script src="theme.js?v=20261115135400"></script>
+<style>
+  body { background:var(--bg); color:var(--text); font-family:var(--font); margin:0; padding:16px; }
+  .kit-top { margin:-16px -16px 12px; }
+  .bar { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:8px; }
+  .help { color:var(--dim); font-size:.85rem; margin:4px 0 12px; }
+  .help.bad { color:var(--warn); }
+  .help.ok { color:var(--ok, var(--theme)); }
+  button:disabled { opacity:.4; cursor:default; }
+  .fm1 { background:var(--surf); border:1px solid var(--line); border-radius:8px; padding:8px 10px; }
+  .fm1 select { background:var(--raised); color:var(--text); border:1px solid var(--line); border-radius:6px; padding:.3rem; max-width:220px; }
+  .fm1 .lbl { font-size:.8rem; color:var(--dim); }
+  progress { width:140px; }
+  /* the sound: the sim's screen and the edit's buttons */
+  .sound { display:flex; gap:14px; align-items:flex-start; background:var(--surf); border:1px solid var(--line);
+           border-radius:8px; padding:10px; margin:10px 0; }
+  #screen { width:200px; height:200px; image-rendering:pixelated; border-radius:6px; background:#000; flex:none; }
+  .sound .ctl { flex:1; display:flex; flex-direction:column; gap:6px; }
+  #editing { font-weight:600; }
+  #editing .mod { color:var(--theme); }
+  #from { color:var(--dim); font-size:.85rem; }
+  .tog { display:flex; align-items:center; gap:5px; font-size:.9rem; }
+  .tog input { accent-color:var(--theme); }
+  #linkState { font-size:.8rem; color:var(--dim); }
+  #linkState.on { color:var(--ok, var(--theme)); }
+  .nm-in { font-size:.85rem; color:var(--dim); display:flex; align-items:center; gap:6px; }
+  .nm-in input { width:13em; font:inherit; font-family:ui-monospace,monospace; background:var(--bg); color:var(--text);
+                 border:1px solid var(--line); border-radius:6px; padding:.3rem .5rem; }
+  .nm-in input:focus { border-color:var(--theme); outline:none; }
+  details.pages summary { cursor:pointer; color:var(--theme); font-size:.8rem; letter-spacing:.12em; text-transform:uppercase;
+                          display:flex; gap:12px; align-items:center; }
+  details.pages summary label { color:var(--dim); text-transform:none; letter-spacing:0; }
+  #pages { margin-top:8px; }
+  #nosim { display:none; }
+</style>
+<header class="kit-top">
+  <span class="badge">EDITOR</span>
+  <span class="name">M-vance</span>
+  <span class="spacer"></span>
+  <a class="btn" href="../library.html" target="mvance-library">Library</a>
+  <a class="btn" href="index.html">Simulator</a>
+  <label>Theme <select data-theme-picker aria-label="Theme"></select></label>
+</header>
+<div class="bar fm1">
+  <button id="connect" class="primary">Connect FM-1</button>
+  <span class="lbl">to</span><select id="outSel" disabled aria-label="MIDI out to the FM-1"></select>
+  <span class="lbl">from</span><select id="inSel" disabled aria-label="MIDI in from the FM-1"></select>
+  <label class="tog" title="keep the FM-1's sound and this page's the same, both ways (connect first)">
+    <input type="checkbox" id="link" disabled> Link FM-1</label>
+  <span id="linkState">sim only</span>
+  <progress id="prog" max="1" value="0" hidden></progress>
+</div>
+<section class="sound" id="sound">
+  <canvas id="screen" width="240" height="240" title="the simulator's screen"></canvas>
+  <div class="ctl">
+    <div class="bar">
+      <button id="audio">&#9654; Start audio</button>
+      <span id="editing">Editing: the sim's program</span>
+    </div>
+    <div class="bar"><span id="from"></span></div>
+    <div class="bar" title="the patch names (16 characters): Name is the upper patch's, which is the program's">
+      <label class="nm-in">Name <input type="text" id="nameUp" maxlength="16" spellcheck="false" autocomplete="off"></label>
+      <label class="nm-in">Lower <input type="text" id="nameLo" maxlength="16" spellcheck="false" autocomplete="off"></label>
+    </div>
+    <div class="bar">
+      <button id="keep" class="primary" disabled title="put the edit back into the library slot it came from (Send there writes it to the FM-1)">Keep in library</button>
+      <button id="write" disabled title="write the edit into a program slot on the connected FM-1">Write to slot&hellip;</button>
+      <button id="revert" disabled title="back to the sound as it was opened">Revert</button>
+      <button id="compare" disabled title="hear the sound as it was opened; press again for the edit">Compare</button>
+      <button id="save" title="the edit as a .syx file (one program; the library opens it)">Download .syx</button>
+    </div>
+    <p class="help" id="status">Turn the tiles below (scroll or drag over a column), play with the computer keys
+      (Z S X D C V &hellip;). Edit a program from the Library to keep it there; Link FM-1 to edit the FM-1's sound.</p>
+  </div>
+</section>
+<p class="help bad" id="nosim">The simulator is not built here (sim/build.sh), so there is nothing to edit.</p>
+<details class="pages" open>
+  <summary>All pages <label>size <input id="tileSize" type="range" min="168" max="480" step="24" value="240" title="240: the screen's own size (sharpest)"></label></summary>
+  <div id="pages"></div>
+</details>
+<script src="mvance.js?v=20261115135400"></script>   <!-- the simulator (built by sim/build.sh) -->
+<script type="module" src="editor.js?v=20261115135400"></script>

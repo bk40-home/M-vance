@@ -458,11 +458,12 @@ static void platform_poll(void)
     fm1_wdt_feed();
     usb_retry(fm1_ms);
 #ifdef APP_SYSEX
-    {   /* a SysEx for the app (Roland's: 41 ..; M-vance's program transfer): it takes it, the frame is freed. The
-         * updater's own (packed, never 41 first) stay for ota_service below */
+    {   /* a SysEx for the app (Roland's: 41 ..; M-vance's program transfer; and 7E .., the Universal Device Inquiry
+         * the library page asks: Kris 15 Nov): it takes it, the frame is freed. The updater's own stay for
+         * ota_service below: packed, their first byte the high bits of 00 59 .., so never 41 or 7E */
         const uint8_t *p;
         uint32_t n;
-        if (ota_frame_get(&p, &n) && n && p[0] == 0x41u) { APP_SYSEX(p, n); ota_frame_done(); }
+        if (ota_frame_get(&p, &n) && n && (p[0] == 0x41u || p[0] == 0x7Eu)) { APP_SYSEX(p, n); ota_frame_done(); }
     }
 #endif
     ota_service();

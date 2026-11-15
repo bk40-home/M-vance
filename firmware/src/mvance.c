@@ -366,7 +366,14 @@ static void link_report(void)
 }
 static void app_sysex(const uint8_t *p, uint32_t n)   /* platform_poll: main loop */
 {
-    uint32_t r = mv_xfer_rx(&xfer, &prog, &eng, p, n);
+    uint32_t r;
+    if (p[0] == 0x7Eu) {                        /* who is there (the library page asks first): the identity reply */
+        static uint8_t id[MV_XF_IDENT_LEN];
+        uint32_t len = mv_xfer_ident(p, n, APP_VER, id, sizeof id);
+        if (len) (void)sysex_send(id, len);
+        return;
+    }
+    r = mv_xfer_rx(&xfer, &prog, &eng, p, n);
     if (!(r & (MV_XF_SLOT | MV_XF_TEMP | MV_XF_REQ))) return;   /* (not ours, or refused: nothing changed) */
     if (!xfer_busy()) {                         /* a new transfer: its counts from here */
         xfer.rx_n = (uint16_t)(r & MV_XF_REQ ? 0u : 1u);
@@ -682,6 +689,7 @@ pass:
         }
         if (bank_dirty || seqf_dirty) { bank_dirty = 0; seqf_dirty = 0; dirty = 1; t_change = fm1_ms; }   /* the
                                                    bank's id, LENGTH's conversion: kept in flash */
+        ui.clk_ext = clk_bpm != 0u;             /* SELECT: TEMPO unless a MIDI clock sets the tempo (mv_ui_input) */
         if (!bank_ask) {
             uint32_t r = mv_ui_input(&ui, &eng, b, rel, &set.ch, out_ch) | (r_oct & MV_UI_PAGE);   /* the panel */
             if (r & MV_UI_PROG) r_prog = 1;     /* (done below, with the programs) */
@@ -765,11 +773,18 @@ pass:
 
         oct = (int8_t)set.oct;
         base = (uint32_t)((int32_t)KEY0 + 12 * oct);
-        for (k = 0; k < 27u; k++)               /* what sounds, on the keys of this octave */
-            if (mv_engine_sounding(&eng, base + k))
-                lit |= 1u << k;
-        for (k = 0; k < 27u; k++)
-            fm1_led_key(KEY_LED(k), lit >> k & 1u);
+        {   /* the keys (Kris 15 Nov, as M-Vsynth2): lit while pressed or while a voice holds the note (a key, MIDI,
+             * the arp, the sequencer); glowing (fm1_led_key_glow, ~1/24) while it rings on in its release, so a key
+             * follows its note's envelope */
+            uint32_t on[4], rl[4], n;
+            mv_engine_lit(&eng, on, rl);
+            for (k = 0; k < 27u; k++) {
+                n = base + k;
+                if ((keys >> k & 1u) || (n < 128u && (on[n >> 5] >> (n & 31u) & 1u))) lit |= 1u << k;
+                fm1_led_key(KEY_LED(k), lit >> k & 1u);
+                fm1_led_key_glow(KEY_LED(k), !(lit >> k & 1u) && n < 128u && (rl[n >> 5] >> (n & 31u) & 1u));
+            }
+        }
         fm1_led_key(BTN_OCT_DOWN, oct < 0);
         fm1_led_key(BTN_OCT_UP, oct > 0);
 #if MV_SEQ

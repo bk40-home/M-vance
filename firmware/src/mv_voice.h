@@ -201,6 +201,10 @@ void mv_engine_sync(mv_engine_t *e);
  * never this (at most 2^32 x 24 / (6 x a 240 BPM beat), about 1.6 M) */
 #define MV_FX_MINC_LFO1 0xFFFFFFFFu
 int mv_engine_sounding(const mv_engine_t *e, uint32_t note);            /* a key held for this note */
+/* the key LEDs (main loop; Kris 15 Nov, as M-Vsynth2's vs_engine_lit): on, a bit a note (on[n >> 5] bit n & 31), a
+ * voice with its gate open (a key, MIDI, the arp, the sequencer); rel, a voice sounding on in its release. A read of
+ * the voices without a lock: a stale bit only lights a key one pass late */
+void mv_engine_lit(const mv_engine_t *e, uint32_t on[4], uint32_t rel[4]);
 int mv_engine_quiet(const mv_engine_t *e);                              /* nothing sounds, not even a release */
 uint32_t mv_engine_active(const mv_engine_t *e);                        /* voices sounding now (for the meter) */
 /* the TONE stage on a mono bus (Q15), BASS / TREBLE bytes (64 = flat). Used by render; public for the tests */

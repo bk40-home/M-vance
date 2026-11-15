@@ -172,6 +172,11 @@ static void kui_knob(uint32_t p, const char *lab, int hot, kit_knob_t *k)
     }
 }
 static int hot_of(const mv_ui_t *u, uint32_t c) { return u->last == c && fm1_ms - u->t_touch < 1500u; }   /* (8a) */
+/* SELECT turned the tempo in the last 1.5 s (and no knob since): its readout instead of the knob's */
+static int tempo_hot(void)
+{
+    return ui.t_tempo && fm1_ms - ui.t_tempo < 1500u && (int32_t)(ui.t_tempo - ui.t_touch) >= 0;
+}
 
 static uint32_t kui_voices(void)                /* the header's voice cells: 2 held, 1 releasing, 0 idle */
 {
@@ -204,7 +209,7 @@ static void kui_foot(void)
     kname(eng.patch.b, nm);
     if (ui.midi & MV_MIDI_LOCALOFF) { ks(r, "LOCAL OFF"); rc = KT.warn; }
     else if (clk_bpm) { p = ku(r, clk_bpm); ks(p, " BPM"); rc = KT.accent; }
-    else { p = ku(r, eng.tempo); ks(p, " BPM"); }
+    else { p = ku(r, eng.tempo); ks(p, " BPM"); if (tempo_hot()) rc = KT.accent; }   /* (SELECT turning it) */
     kit_foot(l, nm, KU.edited ? KT.warn : KT.text, r, rc);
 }
 
@@ -1058,7 +1063,12 @@ static void kui_render(uint32_t kind)
 #endif
     default: break;
     }
-    if (kind < G_GLOB2 && kind != G_PERF2 && KU.hot < 4u) {   /* the knob in hand */
+    if (kind != G_OVL && kind != G_LIST && kind != G_BANK && kind != G_XFER && kind != G_HOME && tempo_hot()) {
+        /* SELECT: TEMPO (on HOME the footer's BPM lights instead: the readout would cover the name) */
+        char v[8];
+        ku(v, eng.tempo);
+        readout("TEMPO", v);
+    } else if (kind < G_GLOB2 && kind != G_PERF2 && KU.hot < 4u) {   /* the knob in hand */
         const uint32_t p = hot_p();
         char v[8];
         uint32_t m;
@@ -1115,7 +1125,7 @@ static uint32_t state_key(void)
     for (i = 0; i < MV_ARP_N; i++) h = hsh(h, eng.arpb[i]);
     for (i = 0; i < MV_SQ_N; i++) h = hsh(h, eng.seqb[i]);
     h = hsh(h, (uint32_t)u->panel | (uint32_t)u->midi << 8 | eng.nv << 16 | (uint32_t)eng.tempo << 24);
-    h = hsh(h, KU.hot << 8 | u->page);
+    h = hsh(h, KU.hot << 8 | u->page | (uint32_t)tempo_hot() << 31);
     return hsh(h, (uint32_t)u->theme << 8 | u->colour);
 }
 

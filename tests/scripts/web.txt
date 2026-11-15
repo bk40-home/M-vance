@@ -1,28 +1,29 @@
 # The screens for the web page (docs/img/, tests/run_docs.sh): home with a chord, then a page of each section.
-# Program 8 (LD Saw Crown, a supersaw lead) for the home screen. FM-1 ids: FX 2, SEL 3, ENV 4, LFO 5, EDIT 6, GLO 7, HOME 8, SAVE 9, ARP 10; enc ALGORITHM 1, KNOB1..4 2..5, PRESETS 6.
+# Program 8 (LD Saw Crown, a supersaw lead) for the home screen; the shots start 2 s after PRESETS (its program
+# list shows for 2 s with the screen kit). FM-1 ids: FX 2, SEL 3, ENV 4, LFO 5, EDIT 6, GLO 7, HOME 8, SAVE 9, ARP 10; enc ALGORITHM 1, KNOB1..4 2..5, PRESETS 6.
 50 enc 6 7
-100 keys 0x91
-1000 shot
-1100 btn 6
-1200 shot
-1300 btn 3
-1400 shot
-1500 btn 4
-1600 btn 4
-1700 shot
-1800 btn 2
-1900 btn 2
-2000 shot
-2100 btn 2
-2200 shot
-2300 btn 2
-2350 btn 2
-2400 shot
-2500 btndown 10
-3100 btnup 10
+2100 keys 0x91
+3000 shot
+3100 btn 6
 3200 shot
-3300 btn 9
+3300 btn 3
 3400 shot
-3500 btn 8
-3600 keys 0
-4000 end
+3500 btn 4
+3600 btn 4
+3700 shot
+3800 btn 2
+3900 btn 2
+4000 shot
+4100 btn 2
+4200 shot
+4300 btn 2
+4350 btn 2
+4400 shot
+4500 btndown 10
+5100 btnup 10
+5200 shot
+5300 btn 9
+5400 shot
+5500 btn 8
+5600 keys 0
+6000 end

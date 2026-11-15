@@ -13,7 +13,7 @@ It is M-vance with the switches in `firmware/src/mv_build.h` set to fit a module
 | The engine: oscillators, sync, filters, envelopes, LFOs | LOWER, DUAL / SPLIT, PERFORM, part select: every program plays SINGLE |
 | FX, the delay (lines of 900 ms), the plate reverb, the limiter | The sequencer, clips and piano roll (PLAY, REC and SEQ do nothing) |
 | The arp, the LFO / delay / chorus sync, MIDI clock in over USB | The DEBUG page (fm1-dock shows the render load itself) |
-| The panel pages, the home screen, SAVE | The SysEx program transfer (`bank.html`) |
+| The panel pages and the home screen on the screen kit (knobs, graphs, themes), SAVE; SELECT as the tempo | The SysEx program transfer (the patch library and the editor's Link FM-1) |
 | All 64 factory programs (UPPER only), and your saves | USB audio playback from the computer. USB *recording* is fm1-dock's, and stays. |
 
 - **Storage.** The programs live in two of the module's flash banks: programs 1–32 in bank 3, 33–64 in bank 4, 8064 B each. A SAVE writes only the bank it changed. The settings live in the module's settings record.

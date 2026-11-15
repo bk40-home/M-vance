@@ -1,0 +1,21 @@
+# SELECT is TEMPO while no MIDI clock sets it; with a clock coming it single-steps the last knob (Kris 15 Nov).
+# FM-1 ids: HOME 8, SEL 3, GLO 7; encoders SELECT 0, KNOB3 4. (GLO walk to GLOBAL 1/2: PLAY MODE 1, 2, PERFORM 1, 2, GLOBAL.)
+# Expected: the shots at 700 and 1300 show TEMPO 130 (the edit line / the kit's readout, then GLOBAL's TEMPO); no
+# MIDI out from SELECT before the clock; with the clock, SELECT moves CUTOFF one step: one CC 74 out after 3000.
+100 shot
+200 enc 0 5
+400 enc 0 5
+700 shot
+800 btn 7
+850 btn 7
+900 btn 7
+950 btn 7
+1000 btn 7
+1300 shot
+1400 btn 3
+1500 enc 4 1
+1600 shot
+2000 clock 120 200
+3000 enc 0 1
+3200 shot
+4000 end

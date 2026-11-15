@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Kris (bk40-home)
 //
 // M-vance FM-1 over WebMIDI — connect, audition, send programs, read the 64 back. The transfer half of the
-// bank tool (docs/bank.html, Kris 4 Nov, T1: fm1-port/mvance-bank-transfer-proposal-2026-11-04.md), moved here
+// bank tool (Kris 4 Nov, T1: fm1-port/mvance-bank-transfer-proposal-2026-11-04.md), moved here
 // so the bank editor builds AND sends in one place (Kris 12 Nov, B1). The protocol is firmware/src/mv_xfer.h:
 //   audition   the 4 messages of a performance to the temporary area 01 00 (plays at once, nothing saved)
 //   send       the 4 messages of each program to its slot 03 pp (the FM-1 saves them once the transfer is over)

@@ -8,7 +8,7 @@
 //    hear the FM-1); its knobs and buttons still drive the sim, whose edits go to the FM-1 as they happen, and the
 //    FM-1's own edits show here. The keys (and a MIDI keyboard) play the FM-1, OCT moves their octave, PRESETS sends
 //    the FM-1 a Program Change (its new sound then comes here).
-//  (Every page at once lives on the bank editor: bank/editor.html.)
+//  (Every page at once lives on the sound editor: editor.html; the banks on the library: ../library.html.)
 import { Link, GAP_MS } from './bank/link.js?v=__BUILD__';   // ?v: build.sh's stamp
 
 let M, pull, ctx, node, fbPtr, pullBuf;

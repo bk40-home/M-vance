@@ -6,14 +6,15 @@
 <title>M-vance simulator</title>
 <!-- The look: fm1-kit's (theme.css: the FM-1 screen's six themes; sim.css: the panel), the same in every firmware's
      simulator, the bank editor and the patch library. The theme is remembered for the site (theme.js) -->
-<link rel="stylesheet" href="theme.css?v=20261115002115">
-<link rel="stylesheet" href="sim.css?v=20261115002115">
-<script src="theme.js?v=20261115002115"></script>
+<link rel="stylesheet" href="theme.css?v=20261115135400">
+<link rel="stylesheet" href="sim.css?v=20261115135400">
+<script src="theme.js?v=20261115135400"></script>
 <header class="kit-top">
   <span class="badge">SIMULATOR</span>
   <span class="name">M-vance</span>
   <span class="spacer"></span>
-  <a class="btn" href="bank/editor.html" target="_blank" rel="noopener">Bank editor</a>
+  <a class="btn" href="../library.html" target="mvance-library">Library</a>
+  <a class="btn" href="editor.html" target="mvance-editor">Editor</a>
   <label>Theme <select data-theme-picker aria-label="Theme"></select></label>
 </header>
 <div class="page">
@@ -70,11 +71,11 @@
 <p class="help">Z&ndash;' Q&ndash;0 keys &nbsp;|&nbsp; turn the knobs: drag, scroll or &larr;&rarr;&uarr;&darr; &nbsp;|&nbsp;
   [ ] octave &nbsp;|&nbsp; a MIDI keyboard works too &nbsp;|&nbsp; click &#9654; Start audio first<br>
   Link FM-1 (an FM-1 on USB): the sim shows the FM-1's sound and its knobs edit it; the keys play the FM-1;
-  PRESETS changes the FM-1's program. Every page at once: the Bank editor.</p>
+  PRESETS changes the FM-1's program. Every page at once, to edit a sound: the Editor; the banks: the Library.</p>
 </div>
 
-<!-- ?v=20261115002115: sim/build.sh stamps the build id into the docs/ copy, so a browser never mixes a cached old
+<!-- ?v=20261115135400: sim/build.sh stamps the build id into the docs/ copy, so a browser never mixes a cached old
      script with a new page (Kris 13 Nov: tiles missing until a hard reload). Unstamped (served from sim/) it is a
      constant: harmless -->
-<script src="mvance.js?v=20261115002115"></script>
-<script type="module" src="sim.js?v=20261115002115"></script>
+<script src="mvance.js?v=20261115135400"></script>
+<script type="module" src="sim.js?v=20261115135400"></script>

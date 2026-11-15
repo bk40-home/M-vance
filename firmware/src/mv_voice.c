@@ -793,6 +793,18 @@ int mv_engine_sounding(const mv_engine_t *e, uint32_t note)
     return 0;
 }
 
+void mv_engine_lit(const mv_engine_t *e, uint32_t on[4], uint32_t rel[4])
+{
+    uint32_t i;
+    for (i = 0; i < 4u; i++) on[i] = rel[i] = 0;
+    for (i = 0; i < MV_NV; i++) {
+        const mv_voice_t *v = &e->v[i];
+        const uint32_t w = (uint32_t)(v->note >> 5) & 3u, b = 1u << (v->note & 31u);
+        if (v->gate) on[w] |= b;                /* held: lit */
+        else if (mv_env_active(&v->aenv)) rel[w] |= b;   /* ringing on in its release: the glow */
+    }
+}
+
 uint32_t mv_engine_active(const mv_engine_t *e)
 {
     uint32_t v, n = 0;

@@ -61,6 +61,9 @@ typedef struct {
     uint8_t last;                               /* the column last touched (0..3), 0xFF none */
     uint8_t redraw;                             /* the whole page (header and columns) on the next draw */
     uint32_t t_touch;                           /* fm1_ms of the last edit (the edit line shows it for 3 s) */
+    uint8_t clk_ext;                            /* the caller's: a MIDI clock sets the tempo now (SELECT steps the
+                                                   last knob then; else SELECT is TEMPO: Kris 15 Nov) */
+    uint32_t t_tempo;                           /* fm1_ms SELECT last turned the tempo (0 never): the readout */
     uint32_t t_knob[4];                         /* fm1_ms of each knob's last detent (acceleration) */
     uint32_t drawn[4];                          /* what each column shows (key of label, value, selection) */
     uint32_t drawn_line;                        /* what the edit line shows */

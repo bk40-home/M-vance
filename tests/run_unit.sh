@@ -19,6 +19,16 @@ for t in mv_fixed_test mv_patch_test mv_pitch_test mv_env_test mv_lfo_test mv_jv
     "$OUT/$t"
 done
 python3 tests/xfer_test.py                     # the program transfer (mv_xfer.h) on the host build
+# the patch library page (docs/library.html, Kris 15 Nov): fm1-kit's model, and M-vance's adapter against the firmware's
+# factory bank and clamps, the pretend FM-1, and the host build's own dump (xfer_test.py writes it). Needs Node
+if command -v node >/dev/null 2>&1; then
+    node third_party/fm1-kit/library/test/model_test.js
+    python3 tools/gen_library_page.py --data "$OUT/library_data.json" >/dev/null
+    node tests/library_test.js "$OUT/library_data.json"
+    node sim/bank/bank-test.mjs && node sim/bank/link-test.mjs   # (the SysEx and link code the editor and library use)
+else
+    echo "note: the library tests skipped (no node)"
+fi
 python3 tests/mid2clip_test.py                 # the factory clips tool (tools/mid2clip.py): loops, coding
 python3 tests/fx_sync_import_test.py           # DELAY / CHORUS SYNC through the three importers (Kris 7 Nov)
 # the USB audio output (firmware/src/uac_out.c: integer port of felucca-bsp's, against its float law) and the USB

@@ -108,6 +108,18 @@ def main():
         out, dump = run(exe, tmp, "bad", f"100 syx $T/b.syx\n1000 syx $T/rq.syx\n4000 end\n",
                         {"b.syx": bytes(bad), "rq.syx": rq1([0x03, 0, 0, 0], [0, 1, 0, 0])})
         check(msgs(dump) == fac[0:4], "a bad checksum: refused (slot 1 as the factory's)")
+        # 5. who is there (Kris 15 Nov, 2a): the Universal Device Inquiry, to all (7F) and to us (10h), answered
+        # 7D "MV" "AN" and the version (APP_VER "xfer": no digits, 0.0.0); another device id: no answer
+        ident = bytes([0xF0, 0x7E, 0x10, 0x06, 0x02, 0x7D, 0x4D, 0x56, 0x41, 0x4E, 0, 0, 0, 0, 0xF7])
+        for dev in (0x7F, 0x10):
+            _, dump = run(exe, tmp, f"id{dev:02x}", "100 syx $T/i.syx\n1000 end\n", {"i.syx": bytes([0xF0, 0x7E, dev, 0x06, 0x01, 0xF7])})
+            check(dump == ident, f"the identity reply to device {dev:02X}h ({dump.hex()})")
+        _, dump = run(exe, tmp, "idother", "100 syx $T/i.syx\n1000 end\n", {"i.syx": bytes([0xF0, 0x7E, 0x05, 0x06, 0x01, 0xF7])})
+        check(dump == b"", "another device id: no answer")
+        # the factory dump for tests/library_test.js: the library page's adapter reads the firmware's own bytes
+        out = ROOT / "build/unit/host_factory_dump.syx"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_bytes(facdump)
     print(f"xfer_test: {checks} checks, {fails} failed")
     return fails != 0
 

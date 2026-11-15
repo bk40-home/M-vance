@@ -490,6 +490,7 @@ void mv_ui_init(mv_ui_t *u, const mv_prog_t *prog)
     u->prog = prog; u->cur = 0; u->sv_to = 0; u->sv_pos = 0; u->sv_mode = 0; u->act = MV_SV_NONE; u->act_to = 0;
     u->drawn_sv = ~0u; u->arp_down = 0; u->arp_did = 0; u->arp_t = 0;
     u->page = 0; u->last = 0xFF; u->redraw = 1; u->t_touch = 0; u->drawn_line = ~0u;
+    u->clk_ext = 0; u->t_tempo = 0;            /* SELECT: TEMPO until a clock comes */
     u->panel = MV_UI_UPPER; u->drawn_tag = 0; u->learned = 0;
     u->ovl = MV_OV_NONE; u->ovl_t = 0; u->drawn_ovl = ~0u; u->ovl_track = MV_PART_UP;
     u->oct_held = 0; u->oct_undo = 0; u->rec_t = 0; u->rec_down = 0; u->rec_did = 0;
@@ -806,8 +807,15 @@ uint32_t mv_ui_input(mv_ui_t *u, mv_engine_t *e, uint32_t pressed, uint32_t rele
         u->t_knob[k] = fm1_ms;
         r |= edit(u, e, k, d, midi_ch, out_ch);
     }
-    if ((d = fm1_enc_take(ENC_SELECT)) != 0 && u->last < 4u)   /* SELECT: single steps (decision 6) */
-        r |= edit(u, e, u->last, d, midi_ch, out_ch);
+    if ((d = fm1_enc_take(ENC_SELECT)) != 0) {
+        if (!u->clk_ext) {                      /* SELECT is TEMPO while no MIDI clock sets it (Kris 15 Nov): on every
+                                                   screen, fast turns x4 as the knobs, kept in flash as GLOBAL TEMPO */
+            const int32_t v0 = e->tempo, v = mv_clamp(v0 + (fm1_ms - u->t_tempo < 40u ? d * 4 : d), TEMPO_MIN, TEMPO_MAX);
+            u->t_tempo = fm1_ms ? fm1_ms : 1u;
+            if (v != v0) { e->tempo = (uint8_t)v; r |= MV_UI_SETTING; }
+        } else if (u->last < 4u)                /* a clock rules the tempo: single steps on the last knob (decision 6) */
+            r |= edit(u, e, u->last, d, midi_ch, out_ch);
+    }
     return r;
 }
 
@@ -1009,7 +1017,12 @@ void mv_ui_draw(mv_ui_t *u, const mv_engine_t *e, uint32_t midi_ch)
     }
 #endif
     line[0] = 0;                                /* the edit line: "FILTER CUTOFF 96" */
-    if (fresh && u->last < 4u) {
+    if (u->t_tempo && fm1_ms - u->t_tempo < 3000u && (int32_t)(u->t_tempo - u->t_touch) >= 0) {   /* SELECT's tempo */
+        static const char T[] = "TEMPO ";
+        uint32_t i;
+        for (i = 0; T[i]; i++) line[i] = T[i];
+        num(line + i, e->tempo, 0);             /* ("TEMPO 120") */
+    } else if (fresh && u->last < 4u) {
         const char *a;
         uint32_t i = 0, p = pg->p[u->last];
         col_value(e, p, midi_ch, val, &mode, &fill);

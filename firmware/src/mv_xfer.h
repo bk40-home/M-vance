@@ -17,6 +17,11 @@
  *   answered with 4 DT1s a performance: common (20 bytes), upper (248, one message), lower (248), 70 (16), device
  *   id 10h; the same messages tools/make_bank.py writes, so a dump is a bank file as it stands.
  *
+ * Who is there (Kris 15 Nov, 2a: fm1-port/mvance-library-editor-proposal-2026-11-15.md): the MIDI Universal Device
+ * Inquiry F0 7E dev 06 01 F7 (dev 7F, all, or ours, 10h) is answered F0 7E 10 06 02 7D 4D 56 41 4E v1 v2 v3 00 F7:
+ * manufacturer 7D (non-commercial), family "MV", member "AN", the firmware's version (APP_VER "a.b.c": a b c).
+ * The patch library page (docs/library.html) asks first, and writes only to a device that answers M-vance.
+ *
  * No flow control (DT1 has none): USB holds one received message at a time, so a sender waits ~30 ms between them
  * (docs/bank.html does). Main loop only. */
 #pragma once
@@ -37,6 +42,11 @@ typedef struct {
     uint8_t dump_pp, dump_n, dump_k, dump_temp; /* a dump to send: performance dump_pp on, dump_n left, its message
                                                    dump_k (0 common, 1 upper, 2 lower, 3 own bytes); temp: what plays */
 } mv_xfer_t;
+
+#define MV_XF_IDENT_LEN 15u                     /* the identity reply: F0 .. F7 */
+/* the Universal Device Inquiry (body: 7E dev 06 01) -> the identity reply in out (at least MV_XF_IDENT_LEN), its
+ * length; 0 when body is not the inquiry, or for another device id. ver: APP_VER ("1.2", "0.9.3"; digits else 0) */
+uint32_t mv_xfer_ident(const uint8_t *body, uint32_t n, const char *ver, uint8_t *out, uint32_t cap);
 
 /* one received SysEx (body: the bytes between F0 and F7). A slot written goes through mv_prog_write (marked, to
  * flash when the caller flushes); the temporary area writes the engine's sound. Returns MV_XF_* bits */

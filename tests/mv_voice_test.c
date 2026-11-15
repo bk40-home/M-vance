@@ -63,6 +63,23 @@ int main(void)
     mv_engine_note_off(&e, 69);
     run(3000, 0);
     CHECK(mv_engine_quiet(&e), "release ends");
+    {   /* the key LEDs (mv_engine_lit, Kris 15 Nov): held -> on; let go -> rel while the release rings; then neither */
+        uint32_t on[4], rl[4];
+        const uint8_t a57 = e.patch.b[57];
+        e.patch.b[57] = 60;                     /* AMP RELEASE: long enough to catch it ringing */
+        mv_engine_note_on(&e, 69, 100);         /* (69 = 2 x 32 + 5: on[2] bit 5) */
+        run(50, 0);
+        mv_engine_lit(&e, on, rl);
+        CHECK((on[2] >> 5 & 1u) && !(rl[2] >> 5 & 1u), "lit: held");
+        mv_engine_note_off(&e, 69);
+        run(20, 0);
+        mv_engine_lit(&e, on, rl);
+        CHECK(!(on[2] >> 5 & 1u) && (rl[2] >> 5 & 1u), "lit: ringing in its release");
+        run(10000, 0);
+        mv_engine_lit(&e, on, rl);
+        CHECK(!(on[0] | on[1] | on[2] | on[3] | rl[0] | rl[1] | rl[2] | rl[3]) && mv_engine_quiet(&e), "lit: none after it");
+        e.patch.b[57] = a57;
+    }
     /* the corners: every mode at reso 127, cutoff 0 / 127, full depths, wheel up, four voices + a steal */
     for (m = 0; m < 6; m++)
         for (w = 0; w < 2; w++) {
