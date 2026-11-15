@@ -181,7 +181,9 @@ static const uint8_t UI_LED_BTN[8] = {BTN_HOME, BTN_LFO, BTN_EDIT, BTN_ENV, BTN_
 #endif
 #if MV_SEQ
 #include "mv_roll.c"                           /* the piano roll (SEQ 2/2, Kris 6 Nov: sequencer phase 2) */
-static mv_roll_t roll;                          /* what it shows (main loop only) */
+static mv_roll_t roll __attribute__((section(".pool")));   /* what it shows (main loop only). In the pool
+                                                   (zeroed at boot, as .bss): 6 KiB of RAM for the
+                                                   second core's stacks (Kris 15 Nov) */
 #endif
 
 /* ---- MIDI in: from the main loop, and from app_idle while the screen draws (idle_ok) */
@@ -707,10 +709,12 @@ pass:
                 lcd_fill(0, 0, 240, 240, C_BLACK);  /* the whole screen (no footer now: it is the DEBUG page) */
 #endif
                 dbg_all = 1;
+#if !MV_UI_KIT
                 if (mv_ui_home(&ui) && !mv_ui_overlay(&ui)) {   /* back home: everything there drawn again */
                     home_header();
                     prog_drawn = ~0u; knobs_drawn = ~0u; voices_drawn = ~0u; scope_live = 1;
                 }
+#endif
             }
         }
         if ((e = fm1_enc_take(ENC_PRESETS)) != 0) {   /* PRESETS: the programs (wrapping 64 -> 1) */

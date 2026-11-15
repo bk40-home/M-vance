@@ -2,6 +2,9 @@
 /* M-vance home screen: implementation (layout and timing in mv_home.h). */
 #include "mv_home.h"
 
+/* MV_UI_KIT 1 (the screen kit, mv_kui.c, draws HOME): only category() and name_of() below are used, so the
+ * rest is left out, with the 1 KiB scope buffer (Kris 15 Nov: RAM for the second core's stacks) */
+#if !MV_UI_KIT
 /* ---- the header: the saw fan and the plate (the same numbers as tools/gen_logo.py) */
 #define FAN_P0 64                               /* the period, px */
 #define FAN_DET 30                              /* the detune a strand, 1/1000 of the period */
@@ -38,6 +41,8 @@ void home_header(void)
     cv_blit(0, 0);
 }
 
+#endif /* !MV_UI_KIT */
+
 /* ---- the program: PROGRAM nn, EDITED, the category chip, the name big */
 
 /* the category from the name's first two letters (tools/bank/factory.txt's prefixes); 0 when there is none */
@@ -62,6 +67,7 @@ static void name_of(const uint8_t *name, char *s)
     s[j] = 0;
 }
 
+#if !MV_UI_KIT
 /* "LOCAL OFF" (x 96) fits left of the chip? A SPLIT chip (SPLIT C#4) is the widest and reaches left past it; the
  * category chips and DUAL do not. Short form otherwise */
 static int cat_fits_local(const uint8_t *name, uint32_t mode)
@@ -264,3 +270,4 @@ void home_xfer(int sending, uint32_t n, uint32_t slot, int full)
     draw_text_box(0, 128, 240, &FONT_S, slot < MV_NPROG ? a : "", C_HI, 1);
     draw_text_box(0, 152, 240, &FONT_S, b, C_GRAY, 1);
 }
+#endif /* !MV_UI_KIT */
