@@ -30,6 +30,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          submodules: recursive            # third_party/fm1-kit (the look, the library, the firmware page)
           ref: ${{ github.event.repository.default_branch }}   # (a release event would check out the tag)
 
       - name: The firmware page (docs/flash)
