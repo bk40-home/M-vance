@@ -5,8 +5,10 @@
  *   boot + boot guard   a firmware that crashes at boot falls back to the USB rescue, then to the ROM
  *   USB rescue          OCT- held at power-on: no audio, only the updater (the web installer still works)
  *   updater             the M-UPGRADE SysEx path: the web installer / the hub can always reach the FM-1
- *   MIDI                USB in and out, the FM-1's TRS jack in (midi_get: 1 USB, 2 TRS; midi_send); clock and
- *                       transport (F8 FA FB FC) reach the app too
+ *   MIDI                USB in and out, the FM-1's TRS jack in, Bluetooth in and out (midi_get: 1 USB, 2 TRS,
+ *                       3 Bluetooth; midi_send: USB and Bluetooth); clock and transport (F8 FA FB FC) reach the app too
+ *   Bluetooth MIDI      fm1-kit's fk_ble (the own BLE stack, no JieLi library): the app calls fk_ble_enable(on) and
+ *                       fk_ble_state(); FK_BLE 0 builds without it (tools/build.py --no-ble)
  *   USB audio           the output as a class-compliant 16-bit stereo input, 44.1 or 48 kHz; and a 44.1 kHz
  *                       stereo output: the computer plays through the FM-1 (FELUCCA_UAC_OUT, uac_out.h)
  *   keys, knobs, LEDs   fm1_in.notes / buttons, fm1_input_edges, fm1_enc_take, fm1_led_key, fm1_led_key_glow
@@ -156,6 +158,22 @@ static int st_read(uint32_t off, void *dst, uint32_t n)
     }
     return 0;
 }
+
+/* ---- Bluetooth MIDI (fm1-kit firmware/fk_ble, Kris 19 Nov): the own BLE stack, in the radio's two interrupts at
+ * priority 2 (below the audio and TIMER5). The FM-1 is a BLE-MIDI peripheral named APP_NAME XXXX */
+#ifndef FK_BLE
+#define FK_BLE (!BOARD_SMK37)                   /* (the SMK-37 has the same radio: not tried there yet) */
+#endif
+#if FK_BLE
+#ifndef FK_BLE_NAME
+#define FK_BLE_NAME APP_NAME                   /* (the app may name itself: at most 19 characters) */
+#endif
+#include "fk_ble_uid.h"                         /* the flash's unique ID: the same address on every boot */
+#include "fk_ble.c"
+#define FK_BLE_QUIET() fk_ble_quiet()           /* the radio's first second: the render holds (fk_ble.h) */
+#else
+#define FK_BLE_QUIET() 0
+#endif
 
 static uint8_t recovery_active;
 #if BOARD_SMK37
@@ -313,11 +331,20 @@ static void smk_trim_read(void)
 #endif
 
 /* ---- MIDI: USB and the TRS jack share one ring of 4-byte USB-MIDI packets (USB cable 0, the jack cable 1) */
-static int midi_get(uint8_t *st, uint8_t *d1, uint8_t *d2)   /* 1 (USB) or 2 (TRS): a message; 0: none */
+static int midi_get(uint8_t *st, uint8_t *d1, uint8_t *d2)   /* 1 (USB), 2 (TRS) or 3 (Bluetooth): a message; 0: none */
 {
     uint32_t pk;
-    if (mi_r == mi_w)
+    if (mi_r == mi_w) {
+#if FK_BLE
+        if (fk_ble_get(&pk)) {                  /* (channel messages and F8..FF only: fk_ble.c fk_pass) */
+            *st = (uint8_t)(pk >> 8);
+            *d1 = (uint8_t)(pk >> 16);
+            *d2 = (uint8_t)(pk >> 24);
+            return 3;
+        }
+#endif
         return 0;
+    }
     pk = midi_in_q[mi_r % MQ];
     mi_r++;
     *st = (uint8_t)(pk >> 8);
@@ -325,9 +352,14 @@ static int midi_get(uint8_t *st, uint8_t *d1, uint8_t *d2)   /* 1 (USB) or 2 (TR
     *d2 = (uint8_t)(pk >> 24);
     return pk & 0xF0u ? 2 : 1;
 }
-static void midi_send(uint32_t st, uint32_t d1, uint32_t d2)   /* USB out, from the main loop only; F8 FA FB FC too */
+static void midi_send(uint32_t st, uint32_t d1, uint32_t d2)   /* USB and Bluetooth out, from the main loop only; F8 FA
+                                                   FB FC too (the clock from midi_rt_at goes to USB only) */
 {
-    midi_out_event((st >> 4) | st << 8 | (d1 & 0x7Fu) << 16 | (d2 & 0x7Fu) << 24);
+    const uint32_t pk = (st >> 4) | st << 8 | (d1 & 0x7Fu) << 16 | (d2 & 0x7Fu) << 24;
+    midi_out_event(pk);
+#if FK_BLE
+    (void)fk_ble_send(pk);                      /* (dropped while no computer listens) */
+#endif
 }
 
 /* ---- the timer: 10 kHz key scan, milliseconds, USB at 2 kHz. It outranks the audio ISR; nested in a
@@ -431,8 +463,10 @@ void fm1_alnk0_irq(void)                       /* via isr_alnk0 (hal/fm1_isr.S) 
         uint32_t i, b;
         for (i = 0; i < HALF_WORDS; i++)
             o[i] = 0;
-        UAC_ONLY(uac_render_start());
-        app_audio(o, HALF_FRAMES);
+        if (!FK_BLE_QUIET()) {                  /* (the radio's trim: nothing read from the flash, the half silent) */
+            UAC_ONLY(uac_render_start());
+            app_audio(o, HALF_FRAMES);
+        }
         for (i = 0; i < HALF_WORDS; i++) {
             int32_t v = (o[i] * master_q12) >> 12;
             o[i] = v > 32767 ? 32767 : v < -32767 ? -32767 : v;
@@ -457,6 +491,9 @@ static void platform_poll(void)
     int32_t a;
     fm1_wdt_feed();
     usb_retry(fm1_ms);
+#if FK_BLE
+    fk_ble_poll();
+#endif
 #ifdef APP_SYSEX
     {   /* a SysEx for the app (Roland's: 41 ..; M-vance's program transfer; and 7E .., the Universal Device Inquiry
          * the library page asks: Kris 15 Nov): it takes it, the frame is freed. The updater's own stay for
@@ -548,6 +585,12 @@ void fm1_cstart(void)
     flash_ok = FL_JEDEC_OK(smk_jedec);
 #else
     flash_ok = FL_JEDEC_OK(FL_FAR(fl_jedec_ram)());
+#endif
+#if FK_BLE
+    {
+        static uint8_t uid[16];                 /* (RAM: the flash is off while it is read) */
+        fk_ble_attach(flash_ok && FL_FAR(fk_ble_uid_ram)(uid) == 0 ? uid : 0);   /* masked; the app turns it on */
+    }
 #endif
     ota_boot_cleanup();
     lcd_init();

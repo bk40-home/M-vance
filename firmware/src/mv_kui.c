@@ -86,7 +86,7 @@ static uint32_t kui_choice(uint32_t p, uint32_t *idx)
     case P_PF + MV_PF_VSPLIT: *idx = eng.perf[MV_PF_VSPLIT]; return 7;
     case P_PF + MV_PF_ARP: *idx = eng.perf[MV_PF_ARP] & 3u; return 4;
     case P_PANEL: *idx = u->panel; return 3;
-    case P_LOCAL: case P_CLKSRC: case P_CLKOUT: *idx = midi_bit(u->midi, p); return 2;
+    case P_LOCAL: case P_CLKSRC: case P_CLKOUT: case P_BT: *idx = midi_bit(u->midi, p); return 2;
     case P_LSYNC: *idx = eng.perf[MV_PF_SYNC(ui_part(&eng, p, &both))]; return MV_LFO1_SYNC_N;
     case P_CSYNC: *idx = eng.perf[MV_PF_CSYNUP]; return MV_CSYNC_N;
     case P_DSYNC: *idx = eng.perf[MV_PF_DSYNUP]; return MV_DSYNC_N;
@@ -1227,6 +1227,7 @@ static void kui_page(const mv_ui_t *u, int live)
     if (kind == G_SEQ) { key = hsh(hsh(key, eng.seq_run ? eng.seq.ticks / 24u + 1u : 0u), eng.seq_arm); ms = 80u; }   /* the playhead */
 #endif
     if (kind == G_GLOB1 || kind == G_MIDI) key = hsh(key, clk_bpm);
+    if (kind == G_MIDI) key = hsh(key, (uint32_t)fk_ble_state());   /* (BT MIDI: ON / LINKED) */
     kit_panel(kui_render, kind, key, ms);
     if (live) kui_foot();
 }

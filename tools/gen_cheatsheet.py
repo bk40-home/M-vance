@@ -106,6 +106,7 @@ WHAT = {
     "MIDI|LOCAL": "OFF: the keys play only over MIDI (a DAW plays back)",
     "MIDI|CLOCK": "AUTO: follow a MIDI clock in; INT: own tempo",
     "MIDI|CLK OUT": "send MIDI clock and START / STOP on USB",
+    "MIDI|BT MIDI": "Bluetooth MIDI with a Mac, iPhone or iPad; LINKED: one is connected",
     "GLOBAL|THEME": "the screen's look: AMBER SEA EMBER ICE ORCHID CRT PAPER",
     "GLOBAL|COLOUR": "THEME, or BY TYPE: the name's category colour",
     "ARP|MODE": "",

@@ -48,6 +48,7 @@
  * tests/host.c runs this file on a computer: the screen as a PNG, the sound as a WAV.
  * What platform.c offers: docs/API.md. The chip's rules: docs/RULES.md. */
 #define APP_NAME "M-VANCE"                     /* the rescue and crash screens (platform.c) */
+#define FK_BLE_NAME "M-vance"                   /* Bluetooth MIDI: "M-vance XXXX" (platform.c, fm1-kit fk_ble) */
 #define STORE_MAGIC 0x434E564Du               /* "MVNC": our settings never read another fork's (store.h) */
 static void app_idle(void);
 #define LCD_IDLE app_idle                       /* while the screen's DMA runs: MIDI in (platform.c) */
@@ -61,6 +62,14 @@ static void app_sysex(const uint8_t *p, uint32_t n);
 #define APP_SYSEX app_sysex                     /* a Roland SysEx from USB: the program transfer (mv_xfer.h) */
 #endif
 #include "platform.c"
+#ifndef FK_BLE
+#define FK_BLE 0                                /* (platform.c sets it on the FM-1) */
+#endif
+#if !FK_BLE                                     /* (a computer, the browser, fm1-dock, --no-ble: no Bluetooth) */
+enum { FK_BLE_OFF, FK_BLE_ADV, FK_BLE_LINKED };
+static void fk_ble_enable(int on) { (void)on; }
+static int fk_ble_state(void) { return FK_BLE_OFF; }
+#endif
 #include "mv_patch.h"                          /* the JP-8080 patch: table, CC map, SysEx (Stage 4) */
 #include "mv_voice.h"                          /* the voice engine; its code is mv_dsp.c, built apart at -O2 */
 #include "mv_prog.c"                           /* the programs: in this unit, it saves with platform.c (static) */
@@ -413,7 +422,7 @@ static void midi_in(void)
 {
     uint8_t st, d1, d2;
     int src;
-    while ((src = midi_get(&st, &d1, &d2)) != 0) {   /* 1 USB, 2 the TRS jack */
+    while ((src = midi_get(&st, &d1, &d2)) != 0) {   /* 1 USB, 2 the TRS jack, 3 Bluetooth */
         uint32_t ty = st & 0xF0u;
         if (st >= 0xF8u && st <= 0xFCu && st != 0xF9u && (ui.midi & MV_MIDI_CLKINT))
             continue;                           /* CLOCK INT (Kris 7 Nov, 2a): clock and START / CONT / STOP ignored */
@@ -574,6 +583,8 @@ static void app_main(void)
     prog_to_engine(set.prog);                   /* the program last played (the ISR reads the bytes live) */
     mv_ui_init(&ui, &prog);
     ui.midi = set.midi;                         /* the MIDI page's settings (loaded above) */
+    fk_ble_enable(!(ui.midi & MV_MIDI_BTOFF));  /* BLUETOOTH ON (a record from before: ON): the radio calibrates (~0.5 s;
+                                                   the first second silent) and advertises */
 #if MV_SEQ
     mv_clip_init(&clips);                       /* the clips' directory (flash slot 1: 4 sector reads) */
     mv_ui_set_clips(&ui, &clips);
@@ -701,7 +712,9 @@ pass:
                 for (k = 0; k < MV_ARP_N; k++) set.arp[k] = eng.arpb[k];
                 set.tempo = eng.tempo;
                 for (k = 0; k < MV_SQ_N; k++) set.seq[k] = eng.seqb[k];
-                set.midi = (uint8_t)(ui.midi & MIDI_KEPT);   /* MIDI: CLOCK, CLK OUT (LOCAL is not kept) */
+                set.midi = (uint8_t)(ui.midi & MIDI_KEPT);   /* MIDI: CLOCK, CLK OUT, BLUETOOTH (LOCAL is not kept) */
+                fk_ble_enable(!(ui.midi & MV_MIDI_BTOFF));   /* (the first ON holds the main loop ~0.5 s: the radio's
+                                                   calibration; after that a switch is at once) */
 #if MV_UI_KIT
                 set.theme = ui.theme; set.colour = ui.colour;   /* GLOBAL 2/2 */
 #endif

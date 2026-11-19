@@ -14,7 +14,8 @@
 #define P_LOCAL 0x103u                          /* MIDI (Kris 7 Nov, DAW use): LOCAL ON / OFF (mv_ui_t.midi bits) */
 #define P_CLKSRC 0x104u                         /* MIDI: CLOCK AUTO / INT */
 #define P_CLKOUT 0x105u                         /* MIDI: CLK OUT OFF / ON */
-#define IS_MIDI(p) ((p) >= P_LOCAL && (p) <= P_CLKOUT)
+#define P_BT 0x106u                             /* MIDI: BLUETOOTH ON / OFF (Kris 19 Nov; LINKED shows a computer on it) */
+#define IS_MIDI(p) ((p) >= P_LOCAL && (p) <= P_BT)
 #define P_RV 0x110u                             /* REVERB: P_RV + MV_RV_* (global settings, mv_reverb.h) */
 #define P_ARP 0x120u                            /* ARP: P_ARP + MV_ARP_* (global settings, mv_arp.h) */
 #define P_SV 0x130u                             /* SAVE: P_SV + 0 TO, 1 CURSOR, 2 CHAR, 3 MODE */
@@ -81,7 +82,8 @@ static const ui_page_t PAGES[] = {
 #else
     {"GLOBAL", BTN_GLO, 0, 1, {P_MIDICH, P_VOICES, P_TEMPO, P_NONE}},
 #endif
-    {"MIDI", BTN_GLO, 0, 1, {P_LOCAL, P_CLKSRC, P_CLKOUT, P_NONE}},   /* DAW use (Kris 7 Nov): LOCAL, CLOCK, CLK OUT */
+    {"MIDI", BTN_GLO, 0, 1, {P_LOCAL, P_CLKSRC, P_CLKOUT, P_BT}},   /* DAW use (Kris 7 Nov): LOCAL, CLOCK, CLK OUT;
+                                                   BLUETOOTH (19 Nov) */
 #if MV_DEBUG
     {"DEBUG", BTN_GLO, 0, 1, {P_DEBUG, P_NONE, P_NONE, P_NONE}},   /* the meter and the status (Kris 3 Nov): the knobs
                                                                    do nothing here */
@@ -184,6 +186,7 @@ static const char *col_label(const mv_engine_t *e, uint32_t p)
     case P_LOCAL: return "LOCAL";
     case P_CLKSRC: return "CLOCK";
     case P_CLKOUT: return "CLK OUT";
+    case P_BT: return "BT MIDI";
     case P_SV + 0: return "TO";
     case P_SV + 1: return "CURSOR";
     case P_SV + 2: return "CHAR";
@@ -292,6 +295,7 @@ static const char *choice_name(uint32_t p, uint32_t v)
     case P_LOCAL: return LOCAL[v & 1u];
     case P_CLKSRC: return CSRC[v & 1u];
     case P_CLKOUT: return OFFON[v & 1u];
+    case P_BT: return LOCAL[v & 1u];            /* (the bit is BLUETOOTH OFF, as LOCAL's: 0 = ON) */
     case P_ARP + MV_ARP_MODE: return AMODE[v < MV_AM_N ? v : 0u];
     case P_ARP + MV_ARP_RATE: return ARATE[v < MV_ARP_NRATE ? v : 2u];
     case P_ARP + MV_ARP_ORDER: return AORDER[v & 1u];
@@ -337,7 +341,7 @@ static void num(char *s, int32_t v, int sign)
 /* the MIDI page: a parameter's bit in mv_ui_t.midi, and its value 0 / 1 */
 static uint32_t midi_mask(uint32_t p)
 {
-    return p == P_LOCAL ? MV_MIDI_LOCALOFF : p == P_CLKSRC ? MV_MIDI_CLKINT : MV_MIDI_CLKOUT;
+    return p == P_LOCAL ? MV_MIDI_LOCALOFF : p == P_CLKSRC ? MV_MIDI_CLKINT : p == P_BT ? MV_MIDI_BTOFF : MV_MIDI_CLKOUT;
 }
 static uint32_t midi_bit(uint32_t midi, uint32_t p) { return midi & midi_mask(p) ? 1u : 0u; }
 
@@ -358,6 +362,10 @@ static void col_value(const mv_engine_t *e, uint32_t p, uint32_t midi_ch, char *
         return;
     }
     if (p == P_PANEL) { copy7(s, choice_name(p, ui_self ? ui_self->panel : 0u)); return; }
+    if (p == P_BT && ui_self && !(ui_self->midi & MV_MIDI_BTOFF) && fk_ble_state() == FK_BLE_LINKED) {
+        copy7(s, "LINKED");                     /* (ON, and a computer connected with MIDI on) */
+        return;
+    }
     if (IS_MIDI(p)) { copy7(s, choice_name(p, midi_bit(ui_self ? ui_self->midi : 0u, p))); return; }   /* MIDI page */
 #if MV_UI_KIT
     if (p == P_THEME) { copy7(s, choice_name(p, ui_self ? ui_self->theme : 0u)); return; }
