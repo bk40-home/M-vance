@@ -70,6 +70,19 @@ PRODUCT = "FM-1_968080"             # M-vance: 96808N (FM-1_960 is taken on the 
 VERSION = None                      # APP_VER for release builds
 
 
+def git_version():
+    """A dev build's display/SysEx version from the nearest git tag (v2.6.3 -> '2.6.3'), used when no --release is
+    given. Only the digits reach the SysEx identity (mv_xfer.h), so keep it dotted-numeric; '0.0' if git is away."""
+    try:
+        r = subprocess.run(["git", "describe", "--tags", "--abbrev=0"],
+                           cwd=SRC, capture_output=True, text=True, timeout=5)
+        if r.returncode == 0 and r.stdout.strip():
+            return re.split(r"[-+]", r.stdout.strip().lstrip("vV"))[0] or "0.0"
+    except Exception:
+        pass
+    return "0.0"
+
+
 def toolchain():
     tc = os.environ.get("JIELI_TOOLCHAIN")
     if not tc or not (Path(tc) / "pi32v2" / "bin" / "clang").exists():
@@ -172,7 +185,7 @@ def build_loader():
 
 def build_app():
     flags = [*CFLAGS, *BOARD_DEFS[BOARD], "-Ifirmware/hal", "-Ifirmware/src", "-Ifirmware/gen", f'-DFELUCCA_ID="{PRODUCT}"',
-             f'-DAPP_VER="{VERSION or "0.0"}"']
+             f'-DAPP_VER="{VERSION or git_version()}"']
     flags += BLE_INC if BLE else ["-DFK_BLE=0"]   # (fk_ble.c and its headers; FK_BLE 0: platform.c leaves it out)
     if BOARD == "smk37":
         if not re.fullmatch(r"[A-Z0-9]{1,7}", DATA_FAMILY):

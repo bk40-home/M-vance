@@ -48,6 +48,12 @@ typedef struct {
  * length; 0 when body is not the inquiry, or for another device id. ver: APP_VER ("1.2", "0.9.3"; digits else 0) */
 uint32_t mv_xfer_ident(const uint8_t *body, uint32_t n, const char *ver, uint8_t *out, uint32_t cap);
 
+/* a received SysEx (body: the bytes between F0 and F7) checked as a JP-8080 message to us: its command (0x11 RQ1,
+ * 0x12 DT1, or another), 0 not a JP-8080 message, -1 one with a bad byte or sum. Shared with mv_seqx.c */
+int mv_xfer_check(const uint8_t *body, uint32_t n);
+/* a DT1 of len bytes (each sent & 7F) to addr (a3 a2 a1 a0, a byte each) into out (len + 12 bytes): its length */
+uint32_t mv_xfer_dt1(uint8_t *out, uint32_t addr, const uint8_t *d, uint32_t len);
+
 /* one received SysEx (body: the bytes between F0 and F7). A slot written goes through mv_prog_write (marked, to
  * flash when the caller flushes); the temporary area writes the engine's sound. Returns MV_XF_* bits */
 uint32_t mv_xfer_rx(mv_xfer_t *x, mv_prog_t *g, mv_engine_t *e, const uint8_t *body, uint32_t n);

@@ -500,7 +500,7 @@ void mv_ui_init(mv_ui_t *u, const mv_prog_t *prog)
     u->page = 0; u->last = 0xFF; u->redraw = 1; u->t_touch = 0; u->drawn_line = ~0u;
     u->clk_ext = 0; u->t_tempo = 0;            /* SELECT: TEMPO until a clock comes */
     u->panel = MV_UI_UPPER; u->drawn_tag = 0; u->learned = 0;
-    u->ovl = MV_OV_NONE; u->ovl_t = 0; u->drawn_ovl = ~0u; u->ovl_track = MV_PART_UP;
+    u->ovl = MV_OV_NONE; u->ovl_t = 0; u->drawn_ovl = ~0u; u->ovl_track = MV_PART_UP; u->ovl_clr = 0;
     u->oct_held = 0; u->oct_undo = 0; u->rec_t = 0; u->rec_down = 0; u->rec_did = 0;
     u->roll_bar = 0; u->roll_lo = 48; u->roll_fit = 1;
     u->clips = 0; u->cl_sel = 0; u->cl_pos = 0; u->cl_mode = MV_CL_LOAD; u->cl_act = 0; u->cl_msg = MV_CLM_NONE;
@@ -650,6 +650,13 @@ static uint32_t edit(mv_ui_t *u, mv_engine_t *e, uint32_t col, int32_t step, uin
         if (both) mv_param_set(&e->lower, id, mv_clamp(mv_param_get(&e->lower, id) + step, d->min, d->max));
         if (v == v0) return 0;                  /* at an end: nothing to send */
         mv_param_set(t, id, v);
+#if MV_SEQ
+        if (d->cc != MV_NONE) {                 /* the sequencer (automation, Kris 20 Nov): recorded into an armed
+                                                   track, else it takes the CC over from the playback until bar 1 */
+            (void)mv_engine_knob(e, t == &e->lower ? MV_PART_LO : MV_PART_UP, d->cc, mv_cc_value(id, v));
+            if (both) (void)mv_engine_knob(e, MV_PART_LO, d->cc, mv_cc_value(id, mv_param_get(&e->lower, id)));
+        }
+#endif
         if (d->cc != MV_NONE) {                 /* out on the edited part's channel (Kris 7 Nov, 3a: CH UP / CH LO,
                                                    or out_ch where it is GLOBAL); BOTH: LOWER's too, on its own
                                                    channel when that differs (one channel: once) */
@@ -744,7 +751,7 @@ uint32_t mv_ui_input(mv_ui_t *u, mv_engine_t *e, uint32_t pressed, uint32_t rele
     if (pressed >> BTN_REC & 1u) {
         u->rec_down = 1; u->rec_did = 0; u->rec_t = fm1_ms;
         if (u->ovl == MV_OV_CLEAR) {            /* yes: that track emptied (its notes end) */
-            e->seq_clear[u->ovl_track & 1u] = 1;
+            e->seq_clear[u->ovl_track & 1u] = (uint8_t)(MV_SQC_ALL + u->ovl_clr % 3u);   /* ALL / NOTES / AUTO */
             u->rec_did = 1;
             r |= ovl_close(u);
         }
@@ -752,6 +759,7 @@ uint32_t mv_ui_input(mv_ui_t *u, mv_engine_t *e, uint32_t pressed, uint32_t rele
     if (u->rec_down && !u->rec_did && fm1_ms - u->rec_t >= 1000u) {
         u->rec_did = 1;
         u->ovl = MV_OV_CLEAR; u->ovl_t = fm1_ms; u->drawn_ovl = ~0u; u->ovl_track = (uint8_t)mv_ui_track(u, e);
+        u->ovl_clr = 0;                         /* (ALL first: as before; a knob picks NOTES or AUTO) */
         r |= MV_UI_PAGE;
     }
     if (released >> BTN_REC & 1u) {
@@ -808,6 +816,12 @@ uint32_t mv_ui_input(mv_ui_t *u, mv_engine_t *e, uint32_t pressed, uint32_t rele
     for (k = 0; k < 4u; k++) {                  /* KNOB1..4; a fast turn (detents < 40 ms apart) x 4, not choices */
         uint32_t p = PAGES[u->page].p[k];
         if ((d = fm1_enc_take(ENC_KNOB1 + k)) == 0) continue;
+        if (u->ovl == MV_OV_CLEAR) {            /* the CLEAR question: a knob picks what goes (ALL / NOTES / AUTO) */
+            u->ovl_clr = (uint8_t)((u->ovl_clr + (d > 0 ? 1u : 2u)) % 3u);
+            u->ovl_t = fm1_ms;                  /* (its 3 s start again) */
+            r |= MV_UI_PAGE;
+            continue;
+        }
         if (u->ovl) r |= ovl_close(u);          /* a knob turned: the overlay goes, the page edits */
         if ((IS_PATCH(p) || p == P_TEMPO || (p >= P_RV && p < P_RV + MV_RV_N) || (p >= P_ARP && p < P_ARP + MV_ARP_N))
             && !choice_name(p, 0) && fm1_ms - u->t_knob[k] < 40u)
@@ -1061,9 +1075,11 @@ void mv_ui_overlay_draw(mv_ui_t *u, const mv_engine_t *e)
         val = u->ovl_track == MV_PART_LO ? "LOWER" : "UPPER";
         hint = "OVER 128 NOTES: PLAY ONLY";
     } else {
+        static const char *const WHAT[2][3] = {{"UPPER ALL", "UPPER NOTES", "UPPER AUTO"},
+                                               {"LOWER ALL", "LOWER NOTES", "LOWER AUTO"}};
         title = "CLEAR TRACK?";
-        val = u->ovl_track == MV_PART_LO ? "LOWER" : "UPPER";
-        hint = "REC CLEARS  OTHER KEEPS";
+        val = WHAT[u->ovl_track == MV_PART_LO][u->ovl_clr % 3u];
+        hint = "REC CLEARS  KNOB: WHAT";
     }
     key = show_key(title, val, (int32_t)u->ovl, 0);
     if (key == u->drawn_ovl) return;

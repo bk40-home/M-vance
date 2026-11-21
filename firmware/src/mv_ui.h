@@ -33,7 +33,8 @@
  *             LENGTH (the selected track's: PANEL's part, BOTH both) · QUANT · MUTE L · MUTE U, global settings.
  *             PLAY: the transport on / off (both tracks, from bar 1). REC: a tap arms / disarms the selected track
  *             (UPPER, or LOWER when PANEL says LOWER; starts the transport when stopped), held 1 s it asks to
- *             CLEAR that track (REC again: cleared; any other button, or 3 s: kept)
+ *             CLEAR that track (REC again: cleared; any other button, or 3 s: kept). A knob turned meanwhile picks
+ *             what goes: ALL, NOTES or AUTO (the automation points: Kris 20 Nov)
  *   ROLL      (Kris 6 Nov, phase 2) SEQ 2/2: the selected track's notes as a piano roll (mv_roll.h), one bar at a
  *             time; KNOB1 BAR (while stopped: running, it follows the playhead), KNOB2 PITCH (the rows; fitted to
  *             the notes when the page opens), KNOB3 TRANSPOSE (OFF / LOWER / UPPER / BOTH, global), KNOB4 ROOT (the
@@ -83,6 +84,7 @@ typedef struct {
     uint32_t ovl_t;                             /* fm1_ms it opened or was last touched (its time-out) */
     uint32_t drawn_ovl;                         /* what the overlay shows */
     uint8_t ovl_track;                          /* CLEAR: the track asked about (MV_PART_*) */
+    uint8_t ovl_clr;                            /* CLEAR: what goes, a knob picks it: 0 ALL, 1 NOTES, 2 AUTO (Kris 20 Nov) */
     uint8_t oct_held;                           /* OCT- (bit 0) / OCT+ (bit 1) held */
     int8_t oct_undo;                            /* the octave step the first OCT press made (undone by a chord) */
     uint32_t rec_t;                             /* fm1_ms REC went down */

@@ -62,6 +62,12 @@ void mv_debug_draw(const mv_debug_t *d, int all)
         p = dbg_str(s, "O"); p = dbg_u(p, d->osc_pc); p = dbg_str(p, " F"); p = dbg_u(p, d->flt_pc);
         p = dbg_str(p, " E"); p = dbg_u(p, d->etc_pc); p = dbg_str(p, " %"); *p = 0;
         dbg_row(7, "PROFILE", s, C_ACC, drawn);
+    } else if (d->cores >= 2u) {                /* the two cores: CPU1's render, CPU0's wait at the join */
+        p = dbg_str(s, "2  C1 "); p = dbg_u(p, d->c1_pc); p = dbg_str(p, "%  WAIT "); p = dbg_u(p, d->wait_pc); dbg_str(p, "%")[0] = 0;
+        dbg_row(7, "CORES", s, C_HI, drawn);
+    } else {
+        dbg_str(s, "1")[0] = 0;
+        dbg_row(7, "CORES", s, C_HI, drawn);
     }
     dbg_row(8, "FIRMWARE", APP_VER, C_DIM, drawn);
 }

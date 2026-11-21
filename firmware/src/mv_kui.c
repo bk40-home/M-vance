@@ -778,9 +778,14 @@ static void g_debug(void)
     if (d->prof) {
         p = ku(ks(s, "OSC "), d->osc_pc); p = ku(ks(p, "%  FLT "), d->flt_pc); p = ku(ks(p, "%  ETC "), d->etc_pc); ks(p, "%");
         txt(PX0 + 2, PY0 + 66, &FONT_LAB, s, KT.dim);
+    } else if (d->cores >= 2u) {                /* the two cores: CPU1's voice render, CPU0's wait at the join */
+        p = ku(ks(s, "2CPU  C1 "), d->c1_pc); p = ku(ks(p, "%  WAIT "), d->wait_pc); ks(p, "%");
+        txt(PX0 + 2, PY0 + 66, &FONT_LAB, s, KT.dim);
+    } else {
+        txt(PX0 + 2, PY0 + 66, &FONT_LAB, "1CPU", KT.dim);
     }
     ks(ks(s, "FIRMWARE "), APP_VER);
-    txt(PX0 + PW - 2 - text_w(&FONT_LAB, s), PY0 + 66, &FONT_LAB, s, KT.dim);
+    txt(PX0 + PW - 2 - text_w(&FONT_LAB, s), PY0 + 50, &FONT_LAB, s, KT.dim);   /* on the CLOCK row, right: the bottom row is the per-core CPU line */
 }
 #endif
 
@@ -898,7 +903,7 @@ static void g_clip(void)
 static void g_ovl(void)
 {
     /* PART SELECT, CLEAR TRACK?, TOO LONG TO RECORD: a card over the page (la: the title, lb: the value) */
-    static const char *const HINT[3] = {"OCT- L   OCT+ U   BOTH L+U", "REC CLEARS, ANOTHER KEEPS", "OVER 128 NOTES: PLAY ONLY"};
+    static const char *const HINT[3] = {"OCT- L   OCT+ U   BOTH L+U", "REC CLEARS, KNOB: WHAT", "OVER 128 NOTES: PLAY ONLY"};
     const uint32_t o = KU.u->ovl;
     rframe(20, PY0 - 4, 200, 82, 6, KT.theme, KT.raised);
     txt_fit(120, PY0 + 2, 190, &FONT_LAB, KU.la, KT.dim, 1);
@@ -954,33 +959,14 @@ static void kui_scope_take(int32_t mid, int32_t amp)
     for (x = 0; x < PW; x++) yv[x] = (int16_t)(mid * 16 - scope_ring[(w + t + (uint32_t)x) & M] * amp * 16 / pk);
 }
 
-/* the M-VANCE saw fan (the logo: seven saws, the middle one brightest) in HOME's box while nothing sounds (7a) */
-static void kui_fan(int32_t y0, int32_t h)
-{
-    const int32_t A = h - 22, pw = text_w(&FONT_TTL, "M-VANCE") + 16;
-    int32_t d, s, x;
-    for (d = 3; d >= 0; d--)                    /* dimmest first: the middle saw lands on top */
-        for (s = d ? -1 : 1; s <= 1; s += 2) {
-            const int32_t k = 3 + s * d;
-            for (x = 0; x <= PW; x++) {
-                const int32_t u = (x - PW / 2) * (1000 + (k - 3) * 30);
-                int32_t f = u * 256 / (1000 * 64) + 128;
-                f = ((f % 256) + 256) % 256;
-                yv[x] = (int16_t)((y0 + 6 + d * 3 + A - ((A * f) >> 8)) * 16);
-            }
-            curve(yv, PW + 1, PX0, 20, mix565(KT.raised, KT.theme, (uint32_t)(15 - d * 3)), 0);
-        }
-    rrect(120 - pw / 2, y0 + h / 2 - 11, pw, 22, 4, KT.raised);
-    txt(120 - pw / 2 + 8, y0 + h / 2 - 9, &FONT_TTL, "M-VANCE", KT.theme);
-}
-
 static void g_home(void)
 {
     static const char *const NN[12] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
     const uint32_t mode = eng.perf[MV_PF_MODE];
     const char *cat = category(eng.patch.b);
     char s[24], *p;
-    int32_t x;
+    int32_t x, lend, octw = 0;
+    char o[8];
     if (mode == MV_KEY_SINGLE) {
         name_of(eng.patch.b, s);
         txt_fit(PX0 + 2, PY0 - 10, 150, &FONT_BIG, s[0] ? s : "-", KU.edited ? KT.warn : KT.text, 0);
@@ -992,8 +978,9 @@ static void g_home(void)
     }
     p = k2(ks(s, "PROGRAM "), ui.cur + 1u); *p = 0;
     txt(PX0 + 2, PY0 + 18, &FONT_LAB, s, KT.dim);
-    if (ui.midi & MV_MIDI_LOCALOFF) txt(PX0 + 2 + text_w(&FONT_LAB, s) + 8, PY0 + 18, &FONT_LAB, "LOCAL OFF", KT.warn);
-    else if (KU.edited) txt(PX0 + 2 + text_w(&FONT_LAB, s) + 8, PY0 + 18, &FONT_LAB, "EDITED", KT.warn);
+    lend = PX0 + 2 + text_w(&FONT_LAB, s);      /* where the PROGRAM line ends (the OCT chip keeps clear of it) */
+    if (ui.midi & MV_MIDI_LOCALOFF) { txt(lend + 8, PY0 + 18, &FONT_LAB, "LOCAL OFF", KT.warn); lend += 8 + text_w(&FONT_LAB, "LOCAL OFF"); }
+    else if (KU.edited) { txt(lend + 8, PY0 + 18, &FONT_LAB, "EDITED", KT.warn); lend += 8 + text_w(&FONT_LAB, "EDITED"); }
     if (mode == MV_KEY_DUAL) cat = "DUAL";
     else if (mode == MV_KEY_SPLIT) {            /* SPLIT and its key */
         const uint32_t sp = eng.perf[MV_PF_SPLIT];
@@ -1010,18 +997,21 @@ static void g_home(void)
         chip(PX0 + PW - x, PY0 - 8, m, KT.dim, 2);
     }
     x = chip(PX0 + PW, PY0 + 10, eng.arpb[MV_ARP_ON] ? "ARP ON" : "ARP OFF", eng.arpb[MV_ARP_ON] ? KT.theme : KT.dim, 2);
-    if (set.oct) {
-        char o[8];
+    if (set.oct) {                              /* the octave: beside ARP, or (Kris 20 Nov) when that would cover the
+                                                   PROGRAM line's EDITED / LOCAL OFF, in the scope box's corner */
         p = ks(o, "OCT "); *p++ = (int8_t)set.oct < 0 ? '-' : '+'; *p = 0;
         ku(p, (uint32_t)((int8_t)set.oct < 0 ? -(int8_t)set.oct : (int8_t)set.oct));
-        chip(PX0 + PW - x - 4, PY0 + 10, o, KT.accent, 2);
+        octw = text_w(&FONT_LAB, o) + 8;        /* (chip()'s width) */
+        if (PX0 + PW - x - 4 - octw >= lend + 6) { chip(PX0 + PW - x - 4, PY0 + 10, o, KT.accent, 2); octw = 0; }
     }
     rrect(4, PY0 + 32, 232, PY1 + 6 - (PY0 + 32), 4, KT.raised);
-    if (!quiet()) {
+    {
         const int32_t mid = PY0 + 32 + (PY1 + 6 - (PY0 + 32)) / 2;
         fill(PX0, mid, PW, 1, KT.line);
-        curve(yv, PW, PX0, 24, KT.theme, 0);    /* (taken by kui_scope_take) */
-    } else kui_fan(PY0 + 32, PY1 + 6 - (PY0 + 32));
+        if (!quiet()) curve(yv, PW, PX0, 24, KT.theme, 0);   /* (taken by kui_scope_take) */
+        else fill(PX0, mid, PW, 1, KT.theme);   /* nothing sounds: a flat line (Kris 20 Nov: no logo) */
+    }
+    if (octw) chip(PX0 + PW, PY0 + 36, o, KT.accent, 2);   /* (the octave, moved clear of EDITED: over the scope) */
 }
 
 /* ---- the panel: the page's graph, then the knob in hand's readout over it (not on screens that say it already) */
@@ -1138,8 +1128,10 @@ static void kui_lines(const ui_page_t *pg)
     if (u->ovl) {
         static const char *const PART[3] = {"UPPER", "LOWER", "BOTH"};
         ks(KU.la, u->ovl == MV_OV_PART ? "PART SELECT" : u->ovl == MV_OV_LONG ? "TOO LONG TO RECORD" : "CLEAR TRACK?");
-        ks(KU.lb, u->ovl == MV_OV_PART ? (eng.perf[MV_PF_MODE] == MV_KEY_SINGLE ? "SINGLE" : PART[u->panel % 3u])
-                                       : u->ovl_track == MV_PART_LO ? "LOWER" : "UPPER");
+        static const char *const WHAT[3] = {" ALL", " NOTES", " AUTO"};   /* CLEAR: what goes (a knob picks it) */
+        char *q = ks(KU.lb, u->ovl == MV_OV_PART ? (eng.perf[MV_PF_MODE] == MV_KEY_SINGLE ? "SINGLE" : PART[u->panel % 3u])
+                                                 : u->ovl_track == MV_PART_LO ? "LOWER" : "UPPER");
+        if (u->ovl == MV_OV_CLEAR) ks(q, WHAT[u->ovl_clr % 3u]);
         return;
     }
     if (pg->btn == BTN_SAVE) {                  /* what SAVE will do, and what the slot holds (or will) */
@@ -1249,7 +1241,7 @@ static void kui_home(void)
     if (kind == G_HOME && !quiet()) {           /* sounding: the scope, 12 times a second */
         kui_scope_take(PY0 + 32 + (PY1 + 6 - (PY0 + 32)) / 2, 22);
         key = hsh(key, fm1_ms / 80u);
-    } else key = hsh(key, 1u);                  /* (quiet: the fan, drawn once) */
+    } else key = hsh(key, 1u);                  /* (quiet: the flat line, drawn once) */
     kit_panel(kui_render, kind, key, ms);
     kui_foot();
 }

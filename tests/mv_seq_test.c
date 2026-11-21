@@ -171,7 +171,7 @@ int main(void)
     start(); set[MV_SQ_QUANT] = MV_SQQ_OFF;
     run_ticks(10); note(0, 60, 300);
     run(pass - T2S(210));
-    nlog = 0; mv_seq_clear(&s, 0, emit, 0);
+    nlog = 0; mv_seq_clear(&s, 0, MV_SQC_ALL, emit, 0);
     CHECK(s.t[0].n == 0u && count(0, 0, 0) == 1u, "CLEAR: empty, its note ended (%u)", nlog);
     mv_seq_key(&s, set, 0, 65, 100); run_ticks(20); mv_seq_disarm(&s, 0);
     CHECK(s.t[0].n == 2u && s.t[0].nrec == 0u && !s.t[0].ev[1].vel, "disarm: the held key's note-off written");
@@ -230,7 +230,7 @@ int main(void)
     CHECK(nlog >= 1u && log_[0].note == 43u && log_[0].vel, "the next note-on at -12: G3 -> G2 (%u)", nlog ? log_[0].note : 0u);
     mv_seq_transpose(&s, 0, 127); CHECK(s.t[0].xpose == MV_SEQ_XMAX, "held to +24 (%d)", s.t[0].xpose);
     mv_seq_transpose(&s, 0, 0);   CHECK(s.t[0].xpose == -MV_SEQ_XMAX, "held to -24 (%d)", s.t[0].xpose);
-    i = s.ver; mv_seq_clear(&s, 0, emit, 0);
+    i = s.ver; mv_seq_clear(&s, 0, MV_SQC_ALL, emit, 0);
     CHECK(s.t[0].root == MV_SEQ_NOROOT && s.t[0].xpose == 0 && s.ver != i, "CLEAR: ROOT and offset forgotten, ver moved");
     i = s.ver; mv_seq_key(&s, set, 0, 60, 100);
     CHECK(s.ver != i && s.t[0].root == 60u, "a write moves ver; the new first note is ROOT");
@@ -281,7 +281,7 @@ int main(void)
         CHECK(!s.t[0].rom && s.t[0].n == MV_SEQ_NEV, "into RAM: %u events", s.t[0].n);
         /* CLEAR leaves flash; a RAM LOAD does too */
         mv_seq_load_rom(&s, 1, rom, nb, nev, 40, emit, 0);
-        mv_seq_clear(&s, 1, emit, 0);
+        mv_seq_clear(&s, 1, MV_SQC_ALL, emit, 0);
         CHECK(!s.t[1].rom && !s.t[1].n, "CLEAR: off flash, empty");
         /* TRANSPOSE applies from flash too */
         mv_seq_load_rom(&s, 1, rom, nb, nev, 40, emit, 0);

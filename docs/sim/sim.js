@@ -9,7 +9,7 @@
 //    FM-1's own edits show here. The keys (and a MIDI keyboard) play the FM-1, OCT moves their octave, PRESETS sends
 //    the FM-1 a Program Change (its new sound then comes here).
 //  (Every page at once lives on the sound editor: editor.html; the banks on the library: ../library.html.)
-import { Link, GAP_MS } from './bank/link.js?v=20261115135400';   // ?v: build.sh's stamp
+import { Link, GAP_MS } from './bank/link.js?v=20261121150209';   // ?v: build.sh's stamp
 
 let M, pull, ctx, node, fbPtr, pullBuf;
 let apiKeys, apiBtn, apiEnc, apiMidi, apiSysex, sxBuf;   // the cwrapped engine entry points (mv_websim.h)
@@ -31,7 +31,7 @@ const indOf = {}, knobAng = {};                    // enc id -> its indicator el
 async function boot() {
   // the Emscripten factory (build.sh: MODULARIZE, EXPORT_NAME=MVance); the .wasm fetched with the build stamp too,
   // so it always matches mvance.js
-  M = await MVance({ locateFile: (path) => path + '?v=20261115135400' });
+  M = await MVance({ locateFile: (path) => path + '?v=20261121150209' });
   pull    = M.cwrap('wsim_pull', 'number', ['number', 'number']);
   apiKeys = M.cwrap('wsim_keys', null, ['number']);
   apiBtn  = M.cwrap('wsim_btn',  null, ['number', 'number']);

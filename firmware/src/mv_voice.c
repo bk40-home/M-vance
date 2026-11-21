@@ -109,6 +109,9 @@ void mv_engine_init(mv_engine_t *e)
         P->v0 = 0; P->nvp = v ? 0u : MV_NV;
     }
     e->slice_key = MV_KEY_SINGLE | (uint32_t)MV_NV << 8;   /* SINGLE on all MV_NV: matches the parts above */
+    e->au_in_w = e->au_in_r = e->au_out_w = e->au_out_r = 0;
+    for (v = 0; v < 16u; v++) e->au_take[0][v] = e->au_take[1][v] = 0;
+    e->au_take_w[0] = e->au_take_w[1] = 0;
     e->bend14 = 0; e->wheel = 0; e->ev_w = e->ev_r = 0; e->ages = 0; e->tone_b = e->tone_t = 0;
     e->nv = MV_NV;                              /* 8: measured on the FM-1, 8 Super Saw voices peak at 76 % */
 }
@@ -394,10 +397,45 @@ static void arp_block(mv_engine_t *e, uint32_t n)
             if (on ? ap >> i & 1u : 1u) ev_play(e, i, ev[k] >> 7 & 127u, ev[k] >> 15);   /* (OFF's note-offs: to both) */
 }
 
-/* the sequencer's notes into a part (mv_seq's callback): straight to its voices, not through the arp (5a) */
+/* the sequencer's notes into a part (mv_seq's callback): straight to its voices, not through the arp (5a). An
+ * automation point (MV_SEQ_PT) goes to the main loop instead (au_out: it applies the CC) */
 static void seq_emit(void *ctx, uint32_t part, uint32_t note, uint32_t vel)
 {
-    ev_play((mv_engine_t *)ctx, part, note, vel != 0u);
+    mv_engine_t *e = (mv_engine_t *)ctx;
+    if (vel & MV_SEQ_PT) {
+        uint32_t w = e->au_out_w;
+        if (w - e->au_out_r < MV_AUQ) {         /* (full: dropped) */
+            e->au_out[w & (MV_AUQ - 1u)] = (uint16_t)((part & 1u) << 14 | (note & 127u) << 7 | (vel & 127u));
+            e->au_out_w = w + 1u;               /* published after the slot is written */
+        }
+        return;
+    }
+    ev_play(e, part, note, vel != 0u);
+}
+
+int mv_engine_knob(mv_engine_t *e, uint32_t part, uint32_t cc, uint32_t val)
+{
+    uint32_t w = e->au_in_w, p = part & 1u;
+    if (!e->seq_run || cc > 127u || val > 127u) return 0;
+    if (!(e->seq_arm >> p & 1u)) {              /* playing, not recording: the knob wins until bar 1 */
+        e->au_take[p][cc >> 3] |= (uint8_t)(1u << (cc & 7u));
+        e->au_take_w[p] = e->seq.t[p].wraps;
+        return 0;
+    }
+    if (w - e->au_in_r >= MV_AUQ) return 1;     /* (full: this move dropped; the next one carries on) */
+    e->au_in[w & (MV_AUQ - 1u)] = (uint16_t)((part & 1u) << 14 | cc << 7 | val);
+    e->au_in_w = w + 1u;
+    return 1;
+}
+
+int32_t mv_engine_point(mv_engine_t *e)
+{
+    uint32_t r = e->au_out_r;
+    int32_t v;
+    if (r == e->au_out_w) return -1;
+    v = e->au_out[r & (MV_AUQ - 1u)];
+    e->au_out_r = r + 1u;
+    return v;
 }
 
 /* the sequencer, a block at a time (beside the arp, before the voices render it): the main loop's requests
@@ -423,13 +461,18 @@ static void seq_block(mv_engine_t *e, uint32_t n)
         if (e->seq.t[i].rom && e->seq.t[i].rom_n > MV_SEQ_NEV)
             arm &= ~(1u << i);                  /* a flash clip too long for RAM: plays, never records (the panel
                                                    refuses it too: this only guards) */
-        if (e->seq_clear[i]) { mv_seq_clear(&e->seq, i, seq_emit, e); e->seq_clear[i] = 0; }
+        if (e->seq_clear[i]) { mv_seq_clear(&e->seq, i, e->seq_clear[i], seq_emit, e); e->seq_clear[i] = 0; }
         if ((e->seq_armed >> i & 1u) && !(arm >> i & 1u)) mv_seq_disarm(&e->seq, i);   /* held keys: note-offs */
         if (!(e->seq_armed >> i & 1u) && (arm >> i & 1u) && e->seq.t[i].rom)   /* REC on a factory clip: into RAM
                                                    first (the panel armed it only if it fits) */
             mv_seq_unrom(&e->seq, i);
     }
     e->seq_armed = (uint8_t)arm;
+    while (e->au_in_r != e->au_in_w) {          /* knob moves: into the armed track(s) as points */
+        uint32_t m = e->au_in[e->au_in_r & (MV_AUQ - 1u)], p = m >> 14 & 1u;
+        e->au_in_r++;
+        if (e->seq_live && (arm >> p & 1u)) mv_seq_point(&e->seq, p, m >> 7 & 127u, m & 127u);
+    }
     /* After a MIDI START the ticks are held to the clock's pulses: the first clock after START is beat 1 (MIDI's
      * rule), so bar 1 waits for it, and pulse p is tick (p - 1) x 4. Otherwise free (TEMPO, or the clock's tempo) */
     if (run && !(e->seq_ext && !e->seq_pulse))
@@ -710,12 +753,53 @@ void mv_engine_sync(mv_engine_t *e)
     }
 }
 
+/* ---- the second core (mv_dsp.c on the chip: Melodee's audio worker). Each block, every other sounding voice goes
+ * to CPU1, which sums it into the job's own lines while CPU0 renders the rest; CPU0 then adds them. The sums are
+ * integers, so the output is the same as one core's, whatever the split. A voice belongs to CPU1 only between the
+ * submit and the join; voice_block reads the engine and the part's bytes, writes only its voice and the bus it is
+ * given. Without a second core (the host, the dock, a retired CPU1) the submit says no and CPU0 renders them all.
+ * MV_PAR_TEST (the host's check) runs the job at once in the submit, to take the split path. */
+#ifndef MV_PAR_SUBMIT
+#ifdef MV_PAR_TEST
+#define MV_PAR_SUBMIT(fn, ctx) ((fn)(ctx), 1)
+#else
+#define MV_PAR_SUBMIT(fn, ctx) ((void)(fn), (void)(ctx), 0)
+#endif
+#define MV_PAR_JOIN() 1
+#define MV_PAR_CHECK() ((void)0)
+#endif
+#if MV_PROFILE && defined(MELODEE_DUAL_CORE) && MELODEE_DUAL_CORE
+#error "MV_PROFILE's prof_osc/prof_flt race across the two cores: profile one core (DINGHY_DEFS=-DMELODEE_DUAL_CORE=0)"
+#endif
+typedef struct {
+    mv_engine_t *e;
+    const uint8_t *pb[2];                       /* part_b(e, MV_PART_UP), part_b(e, MV_PART_LO) */
+    int32_t l1u[2], l1g[2], l2u[2], bend_q8[2];
+    uint32_t wheel, n, mix;
+    uint8_t idx[MV_NV];
+    int32_t bus[MV_CTL], lbus[MV_CTL];          /* CPU1's own lines: UPPER (and LOWER when mix) */
+} par_job_t;
+static par_job_t par_job __attribute__((aligned(32)));
+static void par_run(void *ctx)                  /* (CPU1) */
+{
+    par_job_t *j = (par_job_t *)ctx;
+    int32_t *ob[2] = {j->bus, j->mix ? j->lbus : j->bus};
+    uint32_t i;
+    for (i = 0; i < MV_CTL; i++) { j->bus[i] = 0; j->lbus[i] = 0; }
+    for (i = 0; i < j->n; i++) {
+        mv_voice_t *v = &j->e->v[j->idx[i]];
+        uint32_t pi = v->part;
+        voice_block(j->e, j->pb[pi], v, ob[pi], j->l1u[pi], j->l1g[pi], j->l2u[pi], j->wheel, j->bend_q8[pi]);
+    }
+}
+
 void mv_engine_render(mv_engine_t *e, int32_t *out, uint32_t n)
 {
     const uint8_t *b = e->patch.b;              /* UPPER: the shared FX chain's bytes */
     uint32_t k, v, i, wheel = e->wheel > 127u ? 127u : e->wheel;
     slice(e);                                   /* the parts' voices (only when the cut moved) */
     mv_ev_drain(e);
+    MV_PAR_CHECK();                             /* a CPU1 that faulted or misread since: one core from now */
     for (k = 0; k + MV_CTL <= n; k += MV_CTL) {
         int32_t l1u[2] = {0, 0}, l1g[2] = {0, 0}, l2u[2] = {0, 0}, bend_q8[2] = {0, 0};
         int any = 0;
@@ -759,11 +843,40 @@ void mv_engine_render(mv_engine_t *e, int32_t *out, uint32_t n)
             for (i = 0; i < MV_CTL; i++) bus[i] = 0;
             pbus[0] = bus; pbus[1] = bus;       /* at the centre both parts add straight into the bus */
             if (mix) { pbus[1] = lbus; for (i = 0; i < MV_CTL; i++) lbus[i] = 0; }
-            for (v = 0; v < MV_NV; v++)
-                if (mv_env_active(&e->v[v].aenv)) {
-                    uint32_t pi = e->v[v].part;
-                    voice_block(e, part_b(e, pi), &e->v[v], pbus[pi], l1u[pi], l1g[pi], l2u[pi], wheel, bend_q8[pi]);
+            {   /* the voices, split across the cores (mv_dsp.c): every other sounding one to CPU1, the rest here */
+                uint8_t own[MV_NV];
+                uint32_t no = 0, kk = 0;
+                int par = 0;
+                par_job.n = 0;
+                for (v = 0; v < MV_NV; v++)
+                    if (mv_env_active(&e->v[v].aenv)) {
+                        if (kk++ & 1u) par_job.idx[par_job.n++] = (uint8_t)v;
+                        else own[no++] = (uint8_t)v;
+                    }
+                if (par_job.n) {
+                    par_job.e = e;
+                    par_job.pb[0] = part_b(e, 0); par_job.pb[1] = part_b(e, 1);
+                    par_job.l1u[0] = l1u[0]; par_job.l1u[1] = l1u[1];
+                    par_job.l1g[0] = l1g[0]; par_job.l1g[1] = l1g[1];
+                    par_job.l2u[0] = l2u[0]; par_job.l2u[1] = l2u[1];
+                    par_job.bend_q8[0] = bend_q8[0]; par_job.bend_q8[1] = bend_q8[1];
+                    par_job.wheel = wheel; par_job.mix = (uint32_t)mix;
+                    par = MV_PAR_SUBMIT(par_run, &par_job);
                 }
+                for (kk = 0; kk < no; kk++) {
+                    uint32_t pi = e->v[own[kk]].part;
+                    voice_block(e, part_b(e, pi), &e->v[own[kk]], pbus[pi], l1u[pi], l1g[pi], l2u[pi], wheel, bend_q8[pi]);
+                }
+                if (!par)
+                    for (kk = 0; kk < par_job.n; kk++) {
+                        uint32_t pi = e->v[par_job.idx[kk]].part;
+                        voice_block(e, part_b(e, pi), &e->v[par_job.idx[kk]], pbus[pi], l1u[pi], l1g[pi], l2u[pi], wheel, bend_q8[pi]);
+                    }
+                else if (MV_PAR_JOIN()) {       /* (0: CPU1 retired mid-job; its voices' block is dropped) */
+                    for (i = 0; i < MV_CTL; i++) bus[i] += par_job.bus[i];
+                    if (mix) for (i = 0; i < MV_CTL; i++) lbus[i] += par_job.lbus[i];
+                }
+            }
             if (mix) {                          /* UPPER x its gain in place, + LOWER x its: each ramped over the
                                                    block from where it was (no zipper on a BALANCE sweep) */
                 int32_t gu = e->part[0].bal_g, gl = e->part[1].bal_g;

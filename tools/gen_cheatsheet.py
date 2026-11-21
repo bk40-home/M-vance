@@ -160,7 +160,7 @@ GETTING_AROUND = [
     ("SELECT", "TEMPO (BPM, x4 turned fast). While a MIDI clock sets the tempo: single steps on the knob touched last"),
     ("ALGORITHM", "Walks every page in panel order"),
     ("PRESETS", "Program 1-64 (sends a program change)"),
-    ("HOME", "The home screen: program, home knobs, scope (the M-VANCE fan when quiet)"),
+    ("HOME", "The home screen: program, home knobs, scope (a flat line when quiet)"),
     ("ARP", "Tap: the arp on / off (lit when on). Hold 0.5 s: its pages"),
     ("SAVE", "Tap: the SAVE page. SAVE again: do it. Any other button: leave"),
     ("OCT - / +", "Octave -2 .. +2. Hold one, press the other: PART SELECT (- LOWER, + UPPER, both BOTH)"),

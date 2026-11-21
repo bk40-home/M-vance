@@ -25,6 +25,17 @@ static uint32_t xf_dt1(uint8_t *out, uint32_t addr, const uint8_t *d, uint32_t l
     return n;
 }
 
+uint32_t mv_xfer_dt1(uint8_t *out, uint32_t addr, const uint8_t *d, uint32_t len) { return xf_dt1(out, addr, d, len); }
+
+int mv_xfer_check(const uint8_t *body, uint32_t n)
+{
+    uint32_t i;
+    if (n < 11u || body[0] != 0x41u || body[2] != 0x00u || body[3] != 0x06u) return 0;   /* not a JP-8080 */
+    for (i = 1; i < n; i++) if (body[i] > 0x7Fu) return -1;
+    if (xf_sum(body + 5, n - 6u) != body[n - 1u]) return -1;   /* address + data (+ size) against the sum */
+    return body[4];
+}
+
 /* one area's bytes into a performance (its two patches and its performance bytes), checked first: 1 taken */
 static int xf_apply(mv_patch_t *up, mv_patch_t *lo, uint8_t *pf, uint32_t area, uint32_t off, const uint8_t *d,
                     uint32_t len, const uint8_t *body, uint32_t n)
@@ -92,9 +103,9 @@ uint32_t mv_xfer_rx(mv_xfer_t *x, mv_prog_t *g, mv_engine_t *e, const uint8_t *b
     /* body: 41 dev 00 06 cmd a3 a2 a1 a0 [data..] sum */
     const uint8_t *a = body + 5;
     uint32_t i, len;
-    if (n < 11u || body[0] != 0x41u || body[2] != 0x00u || body[3] != 0x06u) return MV_XF_NONE;   /* not a JP-8080 */
-    for (i = 1; i < n; i++) if (body[i] > 0x7Fu) return MV_XF_BAD;
-    if (xf_sum(body + 5, n - 6u) != body[n - 1u]) return MV_XF_BAD;   /* address + data (+ size) against the sum */
+    int cmd = mv_xfer_check(body, n);
+    if (!cmd) return MV_XF_NONE;                /* not a JP-8080 */
+    if (cmd < 0) return MV_XF_BAD;
     if (body[4] == 0x11u) {                     /* RQ1: a dump to send (one at a time: a new one replaces it) */
         if (n != 14u) return MV_XF_BAD;
         if (a[0] == A_PERF && a[1] < MV_NPROG) {

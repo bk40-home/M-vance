@@ -79,6 +79,10 @@ static int fk_ble_state(void) { return FK_BLE_OFF; }
 #if MV_SEQ
 #include "mv_clip.c"                           /* the sequencer's clips (Kris 6 Nov, phase 3): saves with platform.c */
 #endif
+#define MV_SEQX (MV_XFER && MV_SEQ)            /* the editor page's sequence transfer (mv_seqx.h, Kris 20 Nov) */
+#if MV_SEQX
+#include "mv_seqx.c"                           /* the tracks and clips over SysEx: area 04 (uses mv_clip's rec) */
+#endif
 #include "mv_ui.c"                             /* the panel pages: in this unit, it draws with gfx.c (static) */
 #include "mv_home.h"                           /* the home screen (its code: after the colours, below) */
 #if MV_DEBUG
@@ -98,6 +102,7 @@ static mv_engine_t eng;
 /* render-time meter: the ISR times each buffer with the 24 MHz counter and keeps a sum, a count and the peak;
  * the main loop reads and clears them (the clear is a request the ISR carries out, so only the ISR writes) */
 static volatile uint32_t cpu_sum, cpu_n, cpu_peak, cpu_clear;
+static uint32_t dbg_c1_pc, dbg_wait_pc;         /* per core: CPU1's render, CPU0's wait at the join, % of the buffer */
 #endif
 
 /* the home scope's ring (mv_home.h): the ISR writes (L+R)/2 of every 2nd frame after the render, the main loop
@@ -281,9 +286,61 @@ static void key_off(uint32_t note, uint32_t chm)   /* a key up: its note ends, o
     for (c = 0; c < 16u; c++) if (chm >> c & 1u) midi_send(0x80u | c, note, 0);
 }
 static uint32_t sel_dirty;                      /* a program was selected: the settings (its number) to save */
+#if MV_SEQX
+static mv_seqx_t seqx;                          /* the editor page's sequence transfer (mv_seqx.h): a write, a read */
+static uint32_t seqx_dirty;                     /* a track it wrote: its LENGTH (the sequencer's settings) to save */
+#endif
 
 /* a program into the engine: its two patches and its performance bytes (the ISR reads them live; a new cut of the
  * voices, if the mode or VOICES moved, follows at the next buffer) */
+#if MV_SEQ
+/* ---- the sequencer's automation played (Kris 20 Nov: fm1-port/mvance-seq-automation-proposal-2026-11-20.md, 5a 6a):
+ * each point the ISR played (mv_engine_point) is applied here as the CC it is, through mv_cc_apply (the same path as
+ * a CC from MIDI: the screen and the editor page's link follow). A CC a live knob took over (eng.au_take) is skipped
+ * until its track's loop goes round. PLAY keeps the sound as it is (au_snap); STOP puts every parameter a point
+ * moved back to it (6a: the stored program, or the edit you had when you pressed PLAY). A program change while
+ * running takes the new program as the one to go back to */
+static mv_patch_t au_snap[2] __attribute__((section(".pool")));   /* both parts' sound at PLAY (main loop only) */
+static uint8_t au_moved[2][16];                 /* a bit a CC: a point moved it this run */
+static uint8_t au_run;                          /* the transport as last seen here */
+static void auto_forget(void)                   /* the sound as it is now: the one STOP goes back to */
+{
+    uint32_t i;
+    for (i = 0; i < 16u; i++) au_moved[0][i] = au_moved[1][i] = 0;
+    au_snap[0] = eng.patch; au_snap[1] = eng.lower;
+}
+static void auto_play(void)
+{
+    int32_t m;
+    uint32_t p, i;
+    if (eng.seq_run != au_run) {                /* started or stopped */
+        au_run = eng.seq_run;
+        if (!au_run)                            /* STOP: each moved parameter back (6a) */
+            for (p = 0; p < 2u; p++)
+                for (i = 0; i < 128u; i++)
+                    if (au_moved[p][i >> 3] >> (i & 7u) & 1u && MV_CC_PARAM[i] != MV_NONE)
+                        mv_param_set(p ? &eng.lower : &eng.patch, MV_CC_PARAM[i], mv_param_get(&au_snap[p], MV_CC_PARAM[i]));
+        auto_forget();
+        for (i = 0; i < 16u; i++) eng.au_take[0][i] = eng.au_take[1][i] = 0;
+        while (mv_engine_point(&eng) >= 0) {}   /* (anything left over from before: dropped) */
+        return;
+    }
+    for (p = 0; p < 2u; p++)                    /* a takeover ends when its track goes round (5a) */
+        if (eng.au_take_w[p] != eng.seq.t[p].wraps)
+            for (i = 0; i < 16u; i++) eng.au_take[p][i] = 0;
+    while ((m = mv_engine_point(&eng)) >= 0) {
+        uint32_t cc = (uint32_t)m >> 7 & 127u, v = (uint32_t)m & 127u, id = MV_CC_PARAM[cc];
+        mv_patch_t *t;
+        p = (uint32_t)m >> 14 & 1u;
+        if (eng.au_take[p][cc >> 3] >> (cc & 7u) & 1u || id == MV_NONE) continue;
+        t = p ? &eng.lower : &eng.patch;
+        au_moved[p][cc >> 3] |= (uint8_t)(1u << (cc & 7u));   /* (STOP puts it back) */
+        (void)mv_cc_apply(t, cc, v);
+    }
+}
+#else
+static void auto_forget(void) {}
+#endif
 static void prog_to_engine(uint32_t n)
 {
     const uint8_t *pf = mv_prog_perf(&prog, n);
@@ -291,6 +348,7 @@ static void prog_to_engine(uint32_t n)
     eng.patch = *mv_prog_get(&prog, n);
     eng.lower = *mv_prog_lower(&prog, n);
     for (i = 0; i < MV_PF_N; i++) eng.perf[i] = pf[i];
+    auto_forget();                              /* (the sequencer's automation: STOP goes back to this program) */
 }
 
 /* the factory bank question (A1): 1 while it shows (the panel waits; the keys play), and the bank to record */
@@ -348,6 +406,10 @@ static void link_took(const uint8_t *body, uint32_t n)
 }
 static void link_open(void)                     /* (the dump that follows brings the page up to date) */
 {
+#if MV_SEQX
+    if (!link_t) mv_seqx_link(&seqx, &eng);     /* a new link: the tracks as they are (only a change is reported; a
+                                                   renewal keeps a change still to report) */
+#endif
     link_t = fm1_ms | 1u;                       /* (never 0: 0 is "not linked") */
     link_sync();
 }
@@ -382,6 +444,16 @@ static void app_sysex(const uint8_t *p, uint32_t n)   /* platform_poll: main loo
         if (len) (void)sysex_send(id, len);
         return;
     }
+#if MV_SEQX
+    r = mv_seqx_rx(&seqx, &clips, &eng, p, n);  /* the sequencer's area 04 first (mv_seqx.h) */
+    if (r != MV_SX_NONE) {
+        /* a write or a read of the tracks: no transfer screen (as an audition), but the flash waits while it lasts
+         * (an erase would stall ~50 ms and lose the next message). A track loaded: its LENGTH kept (a setting) */
+        if (r != MV_SX_BAD) xfer_t = fm1_ms;
+        if (r == MV_SX_TRACK && mv_seqx_poll(&seqx, &clips, &eng)) seqx_dirty = 1;
+        return;
+    }
+#endif
     r = mv_xfer_rx(&xfer, &prog, &eng, p, n);
     if (!(r & (MV_XF_SLOT | MV_XF_TEMP | MV_XF_REQ))) return;   /* (not ours, or refused: nothing changed) */
     if (!xfer_busy()) {                         /* a new transfer: its counts from here */
@@ -477,8 +549,12 @@ static void midi_in(void)
         else if (ty == 0xB0u && d1 == 1u) eng.wheel = d2;                            /* mod wheel: LFO2 in */
         else if (ty == 0xB0u) {                 /* the JP MODE2 CCs: into the part(s) PANEL edits (not by channel, as the
                                                    JT: one keyboard on one channel can still edit either part) */
-            if (eng.perf[MV_PF_MODE] == MV_KEY_SINGLE || ui.panel != MV_UI_LOWER) mv_cc_apply(&eng.patch, d1, d2);
-            if (eng.perf[MV_PF_MODE] != MV_KEY_SINGLE && ui.panel != MV_UI_UPPER) mv_cc_apply(&eng.lower, d1, d2);
+            /* (the sequencer, Kris 20 Nov: a CC that moved a part's sound is a knob move to it: recorded into an
+             * armed track, else it takes the CC over from the playback until bar 1) */
+            if (eng.perf[MV_PF_MODE] == MV_KEY_SINGLE || ui.panel != MV_UI_LOWER)
+                if (mv_cc_apply(&eng.patch, d1, d2) >= 0 && MV_SEQ) (void)mv_engine_knob(&eng, MV_PART_UP, d1, d2);
+            if (eng.perf[MV_PF_MODE] != MV_KEY_SINGLE && ui.panel != MV_UI_UPPER)
+                if (mv_cc_apply(&eng.lower, d1, d2) >= 0 && MV_SEQ) (void)mv_engine_knob(&eng, MV_PART_LO, d1, d2);
         }
         else if (ty == 0xC0u) prog_req = d1 % MV_NPROG;   /* program change: the main loop selects it (0 = 1) */
     }
@@ -587,6 +663,9 @@ static void app_main(void)
                                                    the first second silent) and advertises */
 #if MV_SEQ
     mv_clip_init(&clips);                       /* the clips' directory (flash slot 1: 4 sector reads) */
+#if MV_SEQX
+    mv_seqx_init(&seqx);
+#endif
     mv_ui_set_clips(&ui, &clips);
     mv_roll_init(&roll);
 #endif
@@ -778,11 +857,22 @@ pass:
         (void)e;
 
         midi_in();
+#if MV_SEQ
+        auto_play();                            /* the sequencer's automation points: applied as CCs */
+#endif
         if (clk_bpm && fm1_ms - clk_t0 > 2000u) {   /* the clock has stopped coming: forget its tempo */
             clk_bpm = 0; clk_run = 0;
             clk_qi = clk_qn = clk_qsum = 0;     /* (a clock that comes back starts a new average) */
         }
         if (sel_dirty) { sel_dirty = 0; dirty = 1; t_change = fm1_ms; }   /* the program's number: kept in flash */
+#if MV_SEQX
+        if (mv_seqx_poll(&seqx, &clips, &eng)) seqx_dirty = 1;   /* a page's track LOAD the ISR was busy for */
+        if (seqx_dirty) {                       /* a page wrote a track: its LENGTH is a setting, kept (as LOAD) */
+            seqx_dirty = 0;
+            for (k = 0; k < MV_SQ_N; k++) set.seq[k] = eng.seqb[k];
+            dirty = 1; t_change = fm1_ms;
+        }
+#endif
 
         oct = (int8_t)set.oct;
         base = (uint32_t)((int32_t)KEY0 + 12 * oct);
@@ -879,7 +969,19 @@ pass:
             uint32_t len = mv_xfer_next(&xfer, &prog, &eng, msg, sizeof msg);
             if (len && sysex_send(msg, len)) xfer.dump_n = 0;   /* the computer stopped reading: the dump ends */
             xfer_t = fm1_ms;
-        } else if (link_t) link_report();       /* linked: what changed in what plays, to the page (after a dump) */
+#if MV_SEQX
+        } else if (mv_seqx_sending(&seqx)) {    /* a track or clip read (or a link report): one message a pass */
+            static uint8_t msg[MV_XF_MSG_MAX];
+            uint32_t len = mv_seqx_next(&seqx, &clips, &eng, msg, sizeof msg);
+            if (len && sysex_send(msg, len)) seqx.d_on = 0;   /* the computer stopped reading: the read ends */
+            if (!seqx.d_headonly) xfer_t = fm1_ms;   /* (a report's two heads do not hold the flash back) */
+#endif
+        } else if (link_t) {                    /* linked: what changed in what plays, to the page (after a dump) */
+            link_report();
+#if MV_SEQX
+            if (link_t) mv_seqx_report(&seqx, &eng, fm1_ms);   /* .. and the tracks' heads when they change (6a) */
+#endif
+        }
 #if !MV_UI_KIT
         if (xfer_shown && !xfer_busy()) {       /* the transfer is over: the screen as it was */
             xfer_shown = 0;
@@ -935,6 +1037,13 @@ pass:
             for (k = 0; k < 12u; k++) if (cpu_slot[k] > pk) pk = cpu_slot[k];
             cpu_t = fm1_ms;
             cpu_clear = 1;
+            {   /* per core, over the same window: CPU1's voice render and CPU0's wait at the join */
+                static uint32_t jt0, wt0;
+                uint32_t per = n ? n * BUF_US * FM1_TICKS_PER_US / 100u : 1u;
+                uint32_t jt = mv_core1_job_ticks(), wt = mv_core1_wait_ticks();
+                dbg_c1_pc = (jt - jt0) / per; dbg_wait_pc = (wt - wt0) / per;
+                jt0 = jt; wt0 = wt;
+            }
 #if MV_XFER
             if (mv_ui_debug(&ui) && !xfer_shown) {   /* the DEBUG page (GLO): the rows that changed */
 #else
@@ -945,6 +1054,7 @@ pass:
                 d.avg_pc = d.avg_us * 100u / BUF_US;
                 d.peak_pc = pk / FM1_TICKS_PER_US * 100u / BUF_US;
                 d.act = mv_engine_active(&eng); d.nv = eng.nv;
+                d.cores = mv_core1_online() ? 2u : 1u; d.c1_pc = dbg_c1_pc; d.wait_pc = dbg_wait_pc;
                 d.oct = oct; d.ch = set.ch; d.src = midi_src; d.bpm = clk_bpm; d.running = clk_run;
 #if MV_PROFILE
                 {   /* each stage's share of the buffer: ticks over (buffers x ticks per 1 %) */

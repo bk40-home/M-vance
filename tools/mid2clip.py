@@ -13,15 +13,25 @@ the 12 user clips on SEQ 3/3 (F1, F2 ..): LOAD puts one into the selected track,
            bar: note starts, lengths, pitches) through the whole part and is heard twice at least, else the whole part, in whole bars, 32 at most
            (a longer part: its first 32). No limit on notes: the firmware plays factory clips from flash. A note-off
            past the loop's end ends at its last tick
-  overrides  tools/clips/clips.txt (git-ignored, as the files), a line a track:  path | track | start | bars
+  the list tools/clips/clips.txt (git-ignored, as the files), a line a track:  path | track | start | bars [| name]
            path relative to DIR; track its name or number (1 = the first with notes, blank: all); start the first bar
            (1-based); bars the loop. Notes outside the loop fold into it (a pickup that spills past the end comes back
-           to the start); '#' starts a comment
+           to the start). start and bars both blank: the loop above. name (optional, 16 characters at most): the
+           clip's name, else the one below. '#' starts a comment
+  #!only   (Kris 21 Nov: mvance-factory-clip-picker-proposal-2026-11-21.md, 2a 3a 4a) a line "#!only" in the list:
+           only the parts the list names are built, in the list's order (F1 = its first line), not every track in
+           DIR. A line naming no file or part in DIR is reported and skipped; a part listed twice is built once. The
+           editor page's Factory clips dialog writes such a list. Without it, every track, in path order, as before
   events   note-offs before note-ons at the same tick (a repeated note retriggers, never cut by its own end); a note
            a tick long at least; the velocity as in the file. Coded as the firmware reads them (mv_seq.h FLASH): a
            varint of (ticks since the last event << 1 | velocity follows), note | on << 7, then the velocity when it
            changed (note-ons; 100 at the start): about 2 bytes an event
   ROOT     the first note-on (as a recorded track's: TRANSPOSE's reference)
+  automation (Kris 20 Nov) a track's CCs that move a sound parameter (tools/gen_seq_ccs.py: mv_cc_apply's table)
+           become points (mv_seq.h AUTOMATION): on the 4-tick grid, the last value of each 8 ticks a CC (at the
+           first tick of those 8 it was moved in), a repeated value dropped, a CC that never moves dropped (a setting,
+           as a file's volume at its start); inside the loop as the notes are (folded
+           by an override). Coded as a note-on whose velocity byte has bit 7 set (velocity | 128 always follows)
   name     16 characters: the song (the part after " - " in the file name, else the folder, else the file) and the
            track's name (its index when the name is a DAW's "MIDI Out")
 
@@ -32,10 +42,16 @@ import os
 import struct
 import sys
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from gen_seq_ccs import sound_ccs               # noqa: E402  (the CCs that move the sound)
+
 PPQN = 96                                       # the sequencer's ticks a quarter (mv_seq.h MV_SEQ_PPQN)
 BAR = 4 * PPQN
 MAX_BARS = 32                                   # LENGTH's top (mv_seq.h MV_SEQ_MAXBAR)
 NAME = 16
+PT_GRID = 4                                     # an automation point's tick: a multiple of this (MV_SEQ_PT_GRID)
+PT_GAP = 8                                      # one point a CC per this many ticks at most (MV_SEQ_PT_GAP)
+PT = 0x80                                       # a point's velocity flag (MV_SEQ_PT)
 
 
 def vlq(b, i):
@@ -97,6 +113,73 @@ def read_mid(path):
     return div, tracks
 
 
+def read_ccs(path):
+    """[[(tick, cc, value)]] a track (the same tracks as read_mid): the CCs of every channel, in file order"""
+    b = open(path, 'rb').read()
+    hl, _fmt, ntrk, _div = struct.unpack('>IHHH', b[4:14])
+    i, tracks = 8 + hl, []
+    while i + 8 <= len(b) and len(tracks) < ntrk:
+        tag, ln = b[i:i + 4], struct.unpack('>I', b[i + 4:i + 8])[0]
+        i += 8
+        if tag != b'MTrk':
+            i += ln
+            continue
+        j, end, t, rs, cc = i, i + ln, 0, 0, []
+        while j < end:
+            d, j = vlq(b, j)
+            t += d
+            st = b[j]
+            if st == 0xFF:
+                ml, k = vlq(b, j + 2)
+                j = k + ml
+                continue
+            if st in (0xF0, 0xF7):
+                ml, k = vlq(b, j + 1)
+                j = k + ml
+                continue
+            if st & 0x80:
+                rs = st
+                j += 1
+            hi = rs & 0xF0
+            if hi in (0xC0, 0xD0):
+                j += 1
+                continue
+            if hi == 0xB0:
+                cc.append((t, b[j], b[j + 1]))
+            j += 2
+        tracks.append(cc)
+        i = end
+    return tracks
+
+
+def points_of(ccs, div, sound):
+    """automation points (tick, cc, value) at 96 a quarter from a track's CCs: only the sound's (sound: {cc: ..});
+    on the 4-tick grid; each CC's events grouped by 8-tick window (from its first move in it): the window's last value
+    at its first tick; a value equal to the CC's last point dropped; a CC left with one point (it never moves: a
+    setting such as a file's volume at its start) dropped. Sorted by tick, then CC"""
+    out, last, win = [], {}, {}
+    for t0, c, v in ccs:
+        if c not in sound:
+            continue
+        t = (t0 * PPQN // div if div != PPQN else t0) // PT_GRID * PT_GRID
+        w = win.get(c)
+        if w is not None and t - w[0] < PT_GAP:
+            w[1] = v                            # (inside its window: the later value wins)
+            continue
+        if w is not None and w[1] != last.get(c):
+            out.append((w[0], c, w[1]))
+            last[c] = w[1]
+        win[c] = [t, v]
+    for c, w in win.items():
+        if w[1] != last.get(c):
+            out.append((w[0], c, w[1]))
+    n = {}
+    for _t, c, _v in out:
+        n[c] = n.get(c, 0) + 1
+    return sorted(x for x in out if n[x[1]] > 1)   # (a CC that never moves: a setting, as a file's volume
+                                                   # at its start, not automation: dropped)
+
+
 def notes_of(ev, div):
     """(on tick, off tick, note, velocity) at 96 a quarter, from on / off events (an unended note: a 1/16)"""
     out, held = [], {}
@@ -130,9 +213,11 @@ def period(notes, start, nbars):
     return nbars
 
 
-def clip_of(notes, over=None):
+def clip_of(notes, over=None, points=()):
     """(bars, events [(tick, note, vel)], notes kept, bars of the part, how) for one track's notes; over: an
-    override (start bar 0-based, bars): its notes fold into the loop"""
+    override (start bar 0-based, bars): its notes fold into the loop. points: its automation (points_of), kept
+    inside the loop as the notes are (folded by an override; a tick off the grid after a fold: down onto it), and
+    their events after the note-offs and before the note-ons at a tick"""
     span_bars = -(-(max(b for _, b, _, _ in notes) - notes[0][0] // BAR * BAR) // BAR)
     if over:
         start, bars = over[0] * BAR, over[1]
@@ -153,16 +238,37 @@ def clip_of(notes, over=None):
         ta, tb = a - start, min(b - start, loop - 1)
         if tb <= ta:
             tb = ta + 1 if ta + 1 < loop else ta   # (a note at the very end: as short as it can be)
-        ev.append((ta, 1, n, v))
+        ev.append((ta, 2, n, v))
         ev.append((tb, 0, n, 0))
-    ev.sort(key=lambda e: (e[0], e[1]))         # note-offs (0) before note-ons (1) at a tick
-    return bars, [(t, n, v) for t, _on, n, v in ev], len(kept), span_bars, how
+    seen = set()
+    for t, c, v in points:
+        tp = (start + (t - start) % loop if over else t) - start
+        if not over and not 0 <= tp < loop:
+            continue
+        tp = tp // PT_GRID * PT_GRID
+        if (tp, c) in seen:                     # (two folded onto one tick: the first kept)
+            continue
+        seen.add((tp, c))
+        ev.append((tp, 1, c, PT | v))
+    ev.sort(key=lambda e: (e[0], e[1]))         # note-offs (0), points (1), note-ons (2) at a tick
+    return bars, [(t, n, v) for t, _k, n, v in ev], len(kept), span_bars, how
 
 
 def code(events):
     """events coded as the firmware reads them (mv_seq.h FLASH)"""
     out, last, vel = bytearray(), 0, 100
     for t, n, v in events:
+        if v & PT:                              # a point: note | 128, its flagged value always follows (the notes'
+            d = (t - last) << 1 | 1             # running velocity untouched)
+            while True:
+                out.append((d & 127) | (128 if d > 127 else 0))
+                d >>= 7
+                if not d:
+                    break
+            out.append(n | 128)
+            out.append(v)
+            last = t
+            continue
         chg = 1 if v and v != vel else 0
         d = (t - last) << 1 | chg
         while True:
@@ -178,23 +284,46 @@ def code(events):
     return bytes(out)
 
 
+ONLY = '#!only'                                 # the list's line for "only these parts" (2a)
+
+
+def clean_name(name):
+    """a clip's name as the firmware shows it: upper case, the characters it has (32..95, no quote or backslash)"""
+    return ''.join(c if 32 <= ord(c) <= 95 and c not in '"\\' else ' ' for c in name.upper())
+
+
 def read_list(path):
-    """the override list: {(path, track): (start bar 0-based, bars)}; track '' = every track of the file"""
-    over = {}
+    """the list: {'only': the #!only line is in it, 'lines': [{path, track (lower case; '' every track), over
+    ((start bar 0-based, bars) or None: the tool's loop), name (or None), text (the line, for messages)}]}"""
+    lst = {'only': False, 'lines': []}
     if not path or not os.path.exists(path):
-        return over
+        return lst
     for ln in open(path, encoding='utf-8'):
+        if ln.strip().lower() == ONLY:
+            lst['only'] = True
+            continue
         ln = ln.split('#', 1)[0].strip()
         if not ln:
             continue
         f = [x.strip() for x in ln.split('|')]
-        if len(f) != 4:
-            raise ValueError(f'{path}: "{ln}": want path | track | start | bars')
-        start, bars = int(f[2]), int(f[3])
-        if start < 1 or not 1 <= bars <= MAX_BARS:
-            raise ValueError(f'{path}: "{ln}": start from 1, bars 1..{MAX_BARS}')
-        over[(f[0].replace('\\', '/'), f[1].lower())] = (start - 1, bars)
-    return over
+        if len(f) not in (4, 5):
+            raise ValueError(f'{path}: "{ln}": want path | track | start | bars [| name]')
+        if f[2] == '' and f[3] == '':
+            over = None
+        else:
+            try:
+                start, bars = int(f[2]), int(f[3])
+            except ValueError:
+                raise ValueError(f'{path}: "{ln}": start and bars: two numbers, or both blank') from None
+            if start < 1 or not 1 <= bars <= MAX_BARS:
+                raise ValueError(f'{path}: "{ln}": start from 1, bars 1..{MAX_BARS}')
+            over = (start - 1, bars)
+        name = f[4] if len(f) == 5 and f[4] else None
+        if name is not None and len(name) > NAME:
+            raise ValueError(f'{path}: "{ln}": a name of {NAME} characters at most')
+        lst['lines'].append({'path': f[0].replace('\\', '/'), 'track': f[1].lower(), 'over': over,
+                             'name': clean_name(name) if name else None, 'text': ln})
+    return lst
 
 
 def name_of(path, root, track_name, index, ntracks):
@@ -216,36 +345,92 @@ def name_of(path, root, track_name, index, ntracks):
     song = song.upper()
     room = NAME - (len(tn) + 1 if tn else 0)
     s = (song[:max(room, 4)].rstrip() + (' ' + tn if tn else ''))[:NAME]   # (no double space at the cut)
-    return ''.join(c if 32 <= ord(c) <= 95 and c not in '"\\' else ' ' for c in s)
+    return clean_name(s)
 
 
-def collect(root, over=None):
-    over = over or {}
-    clips = []
+def mid_files(root):
+    """{path relative to root ('/' between folders): path} of every .mid under root, in the tool's order (path order)"""
+    out = {}
     for d, _subs, files in sorted(os.walk(root)):
-        _subs.sort()
         for f in sorted(files):
-            if not f.lower().endswith('.mid'):
-                continue
-            p = os.path.join(d, f)
+            if f.lower().endswith('.mid'):
+                p = os.path.join(d, f)
+                out[os.path.relpath(p, root).replace(os.sep, '/')] = p
+    return out
+
+
+def parts_of(p, sound):
+    """a file's parts (tracks with notes): [(name, index 1-based among them, notes, points)]; raises on a bad file"""
+    div, tracks = read_mid(p)
+    ccs = read_ccs(p)
+    parts = [(nm, ev, cc) for (nm, ev), cc in zip(tracks, ccs) if any(e[1] for e in ev)]
+    out = []
+    for k, (nm, ev, cc) in enumerate(parts):
+        notes = notes_of(ev, div)
+        if notes:
+            out.append((nm, k + 1, notes, points_of(cc, div, sound)))
+    return out, len(parts)
+
+
+def make_clip(p, root, rel, nm, k, nparts, notes, pts, over, name):
+    bars, events, kept, span, how = clip_of(notes, over, pts)
+    return {'name': name or name_of(p, root, nm, k, nparts), 'bars': bars,
+            'root': next(n for _t, n, v in events if v and not v & PT),   # (the first note-on)
+            'events': events, 'code': code(events), 'kept': kept, 'all': len(notes),
+            'span': span, 'how': how,
+            'src': rel + (f' [{nm or k}]' if nparts > 1 else '')}
+
+
+def collect(root, lst=None, notes=None):
+    """the clips, in F order. lst: read_list's. notes (a list, or None): ('missing' | 'twice' | 'unlisted', text) for
+    the lines that named nothing, the parts listed twice, and (#!only) the parts in root the list leaves out"""
+    lst = lst or {'only': False, 'lines': []}
+    notes = notes if notes is not None else []
+    sound = sound_ccs()
+    files = mid_files(root)
+    cache = {}
+
+    def parts(rel):
+        if rel not in cache:
             try:
-                div, tracks = read_mid(p)
+                cache[rel] = parts_of(files[rel], sound)
             except (ValueError, IndexError, struct.error) as e:
-                print(f'skipped {p}: {e}', file=sys.stderr)
+                print(f'skipped {files[rel]}: {e}', file=sys.stderr)
+                cache[rel] = ([], 0)
+        return cache[rel]
+
+    clips = []
+    if not lst['only']:                         # every track, in path order; a line changes its loop / name
+        line = {}
+        for ln in lst['lines']:
+            line[(ln['path'], ln['track'])] = ln
+        for rel, p in files.items():
+            ps, n = parts(rel)
+            for nm, k, ns, pts in ps:
+                ln = line.get((rel, (nm or '').lower())) or line.get((rel, str(k))) or line.get((rel, ''))
+                clips.append(make_clip(p, root, rel, nm, k, n, ns, pts, ln and ln['over'], ln and ln['name']))
+        return clips
+    seen = set()                                # (2a, 3a) the listed parts, in the list's order
+    for ln in lst['lines']:
+        rel = ln['path']
+        if rel not in files:
+            notes.append(('missing', f'"{ln["text"]}": no {rel} in {root}'))
+            continue
+        ps, n = parts(rel)
+        hit = [x for x in ps if not ln['track'] or (x[0] or '').lower() == ln['track'] or str(x[1]) == ln['track']]
+        if not hit:
+            notes.append(('missing', f'"{ln["text"]}": {rel} has no part "{ln["track"]}"'))
+        for nm, k, ns, pts in hit:
+            if (rel, k) in seen:
+                notes.append(('twice', f'"{ln["text"]}": {rel} [{nm or k}] is listed above: built once'))
                 continue
-            parts = [(nm, ev) for nm, ev in tracks if any(e[1] for e in ev)]
-            rel = os.path.relpath(p, root).replace(os.sep, '/')
-            for k, (nm, ev) in enumerate(parts):
-                notes = notes_of(ev, div)
-                if not notes:
-                    continue
-                o = over.get((rel, (nm or '').lower())) or over.get((rel, str(k + 1))) or over.get((rel, ''))
-                bars, events, kept, span, how = clip_of(notes, o)
-                clips.append({'name': name_of(p, root, nm, k + 1, len(parts)), 'bars': bars,
-                              'root': next(n for _t, n, v in events if v),   # (the first note-on)
-                              'events': events, 'code': code(events), 'kept': kept, 'all': len(notes),
-                              'span': span, 'how': how,
-                              'src': rel + (f' [{nm or k + 1}]' if len(parts) > 1 else '')})
+            seen.add((rel, k))
+            clips.append(make_clip(files[rel], root, rel, nm, k, n, ns, pts, ln['over'], ln['name']))
+    for rel in files:                           # (what the list leaves out: --check shows it)
+        ps, n = parts(rel)
+        for nm, k, *_ in ps:
+            if (rel, k) not in seen:            # (the part's number too: two parts may share a name)
+                notes.append(('unlisted', rel + (f' [{k}{": " + nm if nm else ""}]' if n > 1 else '')))
     return clips
 
 
@@ -290,12 +475,22 @@ def main(argv):
     if len(args) != 1:
         print(__doc__)
         return 2
-    clips = collect(args[0], read_list(lst))
+    lst_read = read_list(lst)
+    notes = []
+    clips = collect(args[0], lst_read, notes)
+    if lst_read['only']:
+        print(f'{lst}: #!only: {len(clips)} parts listed', file=sys.stderr)
+    for what, text in notes:
+        if what != 'unlisted':
+            print(f'{lst}: {text}', file=sys.stderr)
     for i, c in enumerate(clips):
         note = {'whole': '', 'repeat': f'  (repeats: {c["span"]} bars -> {c["bars"]})',
                 'override': f'  (list: {c["span"]} bars -> {c["bars"]})'}.get(c['how'], f'  ({c["how"]} of {c["span"]})')
         print(f'F{i + 1:<3} {c["name"]:16s} {c["bars"]:2d} bar {c["kept"]:4d} notes {len(c["code"]):5d} B  {c["src"]}{note}')
     if check:
+        left = [t for w, t in notes if w == 'unlisted']
+        if left:
+            print(f'not listed ({len(left)}): ' + '; '.join(left))
         return 0
     n = emit(clips, out)
     print(f'{out}: {len(clips)} clips, {n} bytes of events')

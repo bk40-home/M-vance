@@ -31,7 +31,12 @@ int mv_seq_rd_next(mv_seq_rd_t *r, uint32_t *tick, uint32_t *note, uint32_t *vel
     if (r->pos >= r->bytes) return 0;           /* (cut short: the end) */
     r->tick = (uint16_t)(r->tick + (d >> 1));
     b = r->p[r->pos++];                         /* note | on << 7 */
-    if ((d & 1u) && r->pos < r->bytes) r->vel = r->p[r->pos++];
+    if ((d & 1u) && r->pos < r->bytes) {
+        uint32_t v = r->p[r->pos++];
+        if (v & MV_SEQ_PT) { *tick = r->tick; *note = b & 127u; *vel = v; return 1; }   /* a point: the notes'
+                                                   running velocity is left as it was */
+        r->vel = (uint8_t)v;
+    }
     *tick = r->tick; *note = b & 127u; *vel = b & 128u ? (r->vel ? r->vel : 1u) : 0u;
     return 1;
 }
@@ -86,7 +91,8 @@ void mv_seq_init(mv_seq_t *s)
         mv_seq_track_t *T = &s->t[i];
         T->n = 0; T->next = 0; T->tick = 0; T->len = 0; T->nrec = 0; T->muted = 0;
         T->root = MV_SEQ_NOROOT; T->xpose = 0;
-        T->rom = 0; T->rom_bytes = 0; T->rom_n = 0; T->rhave = 0;
+        T->rom = 0; T->rom_bytes = 0; T->rom_n = 0; T->rhave = 0; T->wraps = 0;
+        for (k = 0; k < MV_SEQ_NTOUCH; k++) T->tch[k].used = 0;
         for (k = 0; k < 16u; k++) T->sound[k] = 0;
         for (k = 0; k < 128u; k++) T->played[k] = 0xFFu;
     }
@@ -117,6 +123,49 @@ static void play_ev(mv_seq_track_t *T, uint32_t part, uint32_t note, uint32_t ve
     }
 }
 
+static void insert(mv_seq_track_t *T, uint32_t tick, uint32_t note, uint32_t vel, int skip);
+
+/* event i out of a RAM track (the playhead's next moves down when it was before it) */
+static void remove_ev(mv_seq_track_t *T, uint32_t i)
+{
+    uint32_t k;
+    for (k = i; k + 1u < T->n; k++) T->ev[k] = T->ev[k + 1u];
+    T->n--;
+    if (i < T->next) T->next--;
+}
+
+/* automation point cc = val at tick (a RAM track): one there already for that CC replaced; dropped when no room
+ * is left beside the note-offs still to come. 1: written */
+static int put_point(mv_seq_t *s, mv_seq_track_t *T, uint32_t tick, uint32_t cc, uint32_t val)
+{
+    uint32_t i = at_or_after(T, tick);
+    for (; i < T->n && T->ev[i].tick == tick; i++)
+        if ((T->ev[i].vel & MV_SEQ_PT) && (T->ev[i].note & 127u) == cc) { T->ev[i].vel = (uint8_t)(MV_SEQ_PT | val); s->ver++; return 1; }
+    if (T->n + 1u + T->nrec > MV_SEQ_NEV) return 0;   /* (full: the notes' note-offs come first) */
+    insert(T, tick, cc, MV_SEQ_PT | val, 0);
+    s->ver++;
+    return 1;
+}
+
+/* the knobs being recorded, at a tick (before its events play): a CC's old points at this tick erased while its
+ * knob turns (touch to replace), a value the gap held back written once the gap has passed, a still knob let go */
+static void touch_step(mv_seq_t *s, mv_seq_track_t *T)
+{
+    uint32_t k, i, len = T->len;
+    for (k = 0; k < MV_SEQ_NTOUCH; k++) {
+        if (!T->tch[k].used) continue;
+        if (++T->tch[k].idle >= MV_SEQ_PT_HOLD) { T->tch[k].used = 0; continue; }   /* let go */
+        for (i = T->next; i < T->n && T->ev[i].tick == T->tick; )   /* (written this pass: behind the playhead) */
+            if ((T->ev[i].vel & MV_SEQ_PT) && (T->ev[i].note & 127u) == T->tch[k].cc) { remove_ev(T, i); s->ver++; }
+            else i++;
+        if (T->tch[k].pend != 0xFFu && !(T->tick % MV_SEQ_PT_GRID) &&
+            (T->tick + len - T->tch[k].last) % len >= MV_SEQ_PT_GAP) {   /* the gap has passed: the held value */
+            if (put_point(s, T, T->tick, T->tch[k].cc, T->tch[k].pend)) T->tch[k].last = T->tick;
+            T->tch[k].pend = 0xFFu;
+        }
+    }
+}
+
 /* one tick: each track's events at its tick, then on */
 static void step(mv_seq_t *s, const volatile uint8_t *set, mv_seq_emit_t emit, void *ctx)
 {
@@ -134,10 +183,13 @@ static void step(mv_seq_t *s, const volatile uint8_t *set, mv_seq_emit_t emit, v
             T->muted = (uint8_t)muted;
             if (muted) flush(T, i, emit, ctx);
         }
+        if (!T->rom) touch_step(s, T);          /* (recording automation: a RAM track) */
         if (T->rom) {                           /* a factory clip, from flash: the events at this tick */
             while (T->rhave && T->rt == T->tick) {
                 uint32_t t, n, v;
-                if (!muted) play_ev(T, i, T->rn, T->rv, emit, ctx);
+                if (muted) {}
+                else if (T->rv & MV_SEQ_PT) emit(ctx, i, T->rn, T->rv);   /* a point: to the engine */
+                else play_ev(T, i, T->rn, T->rv, emit, ctx);
                 T->rhave = (uint8_t)mv_seq_rd_next(&T->rd, &t, &n, &v);
                 T->rt = (uint16_t)t; T->rn = (uint8_t)n; T->rv = (uint8_t)v;
             }
@@ -146,10 +198,12 @@ static void step(mv_seq_t *s, const volatile uint8_t *set, mv_seq_emit_t emit, v
                 mv_seq_ev_t *ev = &T->ev[T->next++];
                 uint32_t note = ev->note & 127u;
                 if (ev->note & MV_SEQ_SKIP) { ev->note = (uint8_t)note; continue; }   /* written ahead this pass */
-                if (!muted) play_ev(T, i, note, ev->vel, emit, ctx);
+                if (muted) continue;
+                if (ev->vel & MV_SEQ_PT) emit(ctx, i, note, ev->vel);   /* a point: to the engine (never sounds) */
+                else play_ev(T, i, note, ev->vel, emit, ctx);
             }
         if (++T->tick >= len) {                 /* the loop's end: round again */
-            T->tick = 0; T->next = 0;
+            T->tick = 0; T->next = 0; T->wraps++;
             if (T->rom) rom_seek(T, 0);
         }
     }
@@ -193,7 +247,8 @@ static void insert(mv_seq_track_t *T, uint32_t tick, uint32_t note, uint32_t vel
     T->ev[lo].note = (uint8_t)(note | (skip ? MV_SEQ_SKIP : 0u));
     T->ev[lo].vel = (uint8_t)vel;
     T->n++;
-    if (vel && T->root == MV_SEQ_NOROOT) T->root = (uint8_t)note;   /* the first note-on: TRANSPOSE's ROOT */
+    if (vel && !(vel & MV_SEQ_PT) && T->root == MV_SEQ_NOROOT) T->root = (uint8_t)note;   /* the first note-on:
+                                                   TRANSPOSE's ROOT (a point is no note) */
     if (tick < T->tick) T->next++;              /* before the playhead: the next event to play moved up one */
 }
 /* (insert's callers bump ver: s is not passed to insert) */
@@ -243,6 +298,14 @@ void mv_seq_key(mv_seq_t *s, const volatile uint8_t *set, uint32_t part, uint32_
 void mv_seq_disarm(mv_seq_t *s, uint32_t part)
 {
     mv_seq_track_t *T = &s->t[part & 1u];
+    uint32_t k;
+    for (k = 0; k < MV_SEQ_NTOUCH; k++) {       /* knobs being recorded: a held-back value lands now, then let go */
+        if (T->tch[k].used && T->tch[k].pend != 0xFFu && T->len && !T->rom) {
+            uint32_t at = (T->tick ? T->tick - 1u : T->len - 1u) / MV_SEQ_PT_GRID * MV_SEQ_PT_GRID;
+            (void)put_point(s, T, at, T->tch[k].cc, T->tch[k].pend);
+        }
+        T->tch[k].used = 0;
+    }
     if (!T->len) { T->nrec = 0; return; }       /* (never started: nothing was written) */
     while (T->nrec) rec_off(s, T, 0);           /* the keys held: their note-offs now */
 }
@@ -258,14 +321,56 @@ void mv_seq_stop(mv_seq_t *s, const volatile uint8_t *set, mv_seq_emit_t emit, v
     s->first = 0;
 }
 
-void mv_seq_clear(mv_seq_t *s, uint32_t part, mv_seq_emit_t emit, void *ctx)
+void mv_seq_clear(mv_seq_t *s, uint32_t part, uint32_t what, mv_seq_emit_t emit, void *ctx)
 {
     mv_seq_track_t *T = &s->t[part & 1u];
+    uint32_t i, k;
+    if (what == MV_SQC_NOTES || what == MV_SQC_AUTO) {   /* one kind only: from a RAM track */
+        if (T->rom) {
+            if (T->rom_n > MV_SEQ_NEV) return;  /* (a flash clip too long for RAM: only ALL clears it) */
+            mv_seq_unrom(s, part);
+        }
+        if (what == MV_SQC_NOTES) { flush(T, part & 1u, emit, ctx); T->nrec = 0; T->root = MV_SEQ_NOROOT; T->xpose = 0; }
+        for (i = k = 0; i < T->n; i++)         /* the kept kind, in order */
+            if (((T->ev[i].vel & MV_SEQ_PT) != 0u) == (what == MV_SQC_NOTES)) T->ev[k++] = T->ev[i];
+        T->n = (uint16_t)k;
+        T->next = (uint16_t)at_or_after(T, T->tick);
+        s->ver++;
+        return;
+    }
     flush(T, part & 1u, emit, ctx);
     T->n = 0; T->next = 0; T->nrec = 0;         /* (the playhead runs on: an armed track records afresh) */
     T->rom = 0;                                 /* (a factory clip: left) */
     T->root = MV_SEQ_NOROOT; T->xpose = 0;      /* (TRANSPOSE: back to none) */
     s->ver++;
+}
+
+void mv_seq_point(mv_seq_t *s, uint32_t part, uint32_t cc, uint32_t val)
+{
+    mv_seq_track_t *T = &s->t[part & 1u];
+    uint32_t k, f = MV_SEQ_NTOUCH, at, len = T->len;
+    if (!len || T->rom || cc > 127u || val > 127u) return;   /* (not started; a flash clip: REC unroms it first) */
+    at = (T->tick ? T->tick - 1u : len - 1u) / MV_SEQ_PT_GRID * MV_SEQ_PT_GRID;   /* the tick just played, on the
+                                                   grid: behind the playhead (heard live already) */
+    for (k = 0; k < MV_SEQ_NTOUCH && !(T->tch[k].used && T->tch[k].cc == cc); k++) {}
+    if (k == MV_SEQ_NTOUCH) {                   /* a new knob: a free place, else the stillest one's */
+        uint32_t idle = 0;
+        for (k = 0; k < MV_SEQ_NTOUCH; k++) {
+            if (!T->tch[k].used) { f = k; break; }
+            if (T->tch[k].idle >= idle) { idle = T->tch[k].idle; f = k; }
+        }
+        k = f;
+        T->tch[k].used = 1; T->tch[k].cc = (uint8_t)cc; T->tch[k].pend = 0xFFu;
+        T->tch[k].idle = 0;
+        if (put_point(s, T, at, cc, val)) T->tch[k].last = (uint16_t)at;
+        else T->tch[k].last = (uint16_t)at;
+        return;
+    }
+    T->tch[k].idle = 0;
+    if ((at + len - T->tch[k].last) % len >= MV_SEQ_PT_GAP) {   /* (the gap passed: written now) */
+        if (put_point(s, T, at, cc, val)) T->tch[k].last = (uint16_t)at;
+        T->tch[k].pend = 0xFFu;
+    } else T->tch[k].pend = (uint8_t)val;       /* (too soon: kept, written when the gap has passed) */
 }
 
 void mv_seq_load(mv_seq_t *s, uint32_t part, const mv_seq_ev_t *ev, uint32_t n, uint32_t root, mv_seq_emit_t emit,

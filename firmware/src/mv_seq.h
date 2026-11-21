@@ -33,8 +33,17 @@
  *   CLOCK    the tick comes from the quarter note in samples (TEMPO, or the MIDI clock's average: the arp's beat).
  *            After a MIDI START it is also held to the clock's pulses (4 ticks a pulse): never more than a pulse
  *            ahead, and caught up when behind (64 ticks a block at most), so it cannot drift from the DAW
- *   EVENTS   4 bytes: tick, note, velocity (0 = note-off). Kept sorted by tick (at the same tick, in the order they
- *            were written). MV_SEQ_NEV a track (256: 1 KB); a note-on is only written when there is room for it and
+ *   AUTOMATION (Kris 20 Nov: fm1-port/mvance-seq-automation-proposal-2026-11-20.md, "go with recommended") a
+ *            knob moved while the track is armed and running is written as a point: an event whose velocity has bit
+ *            7 set (MV_SEQ_PT), note = the JP MODE2 CC, velocity & 127 = its value. Played, a point goes to emit with
+ *            that velocity (the engine queues it for the main loop, which applies the CC); it never sounds, never
+ *            counts as a note (ROOT, TRANSPOSE) and shares the track's MV_SEQ_NEV with the notes. Points sit on a
+ *            4-tick grid (MV_SEQ_PT_GRID: SysEx area 04 carries them in 12 bits), at most one a CC every
+ *            MV_SEQ_PT_GAP ticks while a knob turns (the last value of a turn still lands). Touch to replace: while
+ *            a CC's knob turns (MV_SEQ_NTOUCH at once; let go after MV_SEQ_PT_HOLD ticks without a move) its old
+ *            points are erased as the playhead reaches them. CLEAR takes ALL, NOTES or AUTO (MV_SQC_*)
+ *   EVENTS   4 bytes: tick, note, velocity (0 = note-off; MV_SEQ_PT set: a point). Kept sorted by tick (at the same
+ *            tick, in the order they were written). MV_SEQ_NEV a track (256: 1 KB); a note-on is only written when there is room for it and
  *            for the note-offs still to come, so the cap never leaves a note hanging
  *
  * Runs on the ISR (the engine calls it once per 16-frame block, and from the key queue). Integers only, no
@@ -48,6 +57,12 @@
 #define MV_SEQ_NHELD 16u                        /* keys a track can be recording at once (as the arp's held list) */
 #define MV_SEQ_SKIP 0x80u                       /* ev.note: written ahead of the playhead this pass (the key already
                                                    sounded live): skipped once, then played every pass after */
+#define MV_SEQ_PT 0x80u                         /* ev.vel: an automation point (note: its CC, vel & 127: its value) */
+#define MV_SEQ_PT_GRID 4u                       /* a point's tick: a multiple of this */
+#define MV_SEQ_PT_GAP 8u                        /* a turning knob's points: one a CC every this many ticks at most */
+#define MV_SEQ_PT_HOLD 96u                      /* a knob still this many ticks: let go (touch-replace ends) */
+#define MV_SEQ_NTOUCH 4u                        /* CCs a track can be recording at once */
+enum { MV_SQC_ALL = 1, MV_SQC_NOTES, MV_SQC_AUTO };   /* CLEAR: what goes (the engine's seq_clear[]) */
 
 /* the settings (global, kept in flash with the arp's: Kris 6 Nov, 6a), the engine's seqb[] */
 enum { MV_SQ_LENUP, MV_SQ_LENLO, MV_SQ_QUANT, MV_SQ_MUTEUP, MV_SQ_MUTELO, MV_SQ_XPOSE, MV_SQ_N };
@@ -105,6 +120,14 @@ typedef struct {
     mv_seq_rd_t rd;                             /* .. the reader at the next event .. */
     uint16_t rt;                                /* .. which is at tick rt, note rn, velocity rv (0 off) .. */
     uint8_t rn, rv, rhave;                      /* .. (rhave 0: none left this pass) */
+    uint8_t wraps;                              /* +1 each time the loop goes round (the main loop: a live knob's
+                                                   takeover of a CC ends at the track's bar 1) */
+    struct {                                    /* knobs being recorded (automation): */
+        uint8_t used, cc;                       /* .. the CC .. */
+        uint8_t pend;                           /* .. a value not yet written (the gap: 0xFF none) .. */
+        uint16_t last;                          /* .. the tick its last point went to .. */
+        uint16_t idle;                          /* .. ticks since it last moved (MV_SEQ_PT_HOLD: let go) */
+    } tch[MV_SEQ_NTOUCH];
 } mv_seq_track_t;
 
 typedef struct {
@@ -116,7 +139,8 @@ typedef struct {
     volatile uint32_t ver;                      /* +1 at every change to the events (the piano roll's check) */
 } mv_seq_t;
 
-/* where a note goes: part, note, velocity (0 = off). ctx: the caller's (the engine) */
+/* where a note goes: part, note, velocity (0 = off; MV_SEQ_PT set: an automation point, note its CC). ctx: the
+ * caller's (the engine) */
 typedef void (*mv_seq_emit_t)(void *ctx, uint32_t part, uint32_t note, uint32_t vel);
 
 void mv_seq_init(mv_seq_t *s);                  /* empty tracks, stopped */
@@ -132,8 +156,10 @@ void mv_seq_tick(mv_seq_t *s, const volatile uint8_t *set, uint32_t n, uint32_t 
 void mv_seq_key(mv_seq_t *s, const volatile uint8_t *set, uint32_t part, uint32_t note, uint32_t vel);
 /* the track no longer armed: the keys it was recording get their note-offs now (nothing is left hanging) */
 void mv_seq_disarm(mv_seq_t *s, uint32_t part);
-/* the track emptied; the notes it started end */
-void mv_seq_clear(mv_seq_t *s, uint32_t part, mv_seq_emit_t emit, void *ctx);
+/* the track emptied (what: MV_SQC_ALL, NOTES or AUTO: the points only); the notes it started end (not for AUTO) */
+void mv_seq_clear(mv_seq_t *s, uint32_t part, uint32_t what, mv_seq_emit_t emit, void *ctx);
+/* a knob moved (CC cc to val) for an armed, running track: an automation point (thinned; touch-replace) */
+void mv_seq_point(mv_seq_t *s, uint32_t part, uint32_t cc, uint32_t val);
 /* TRANSPOSE on for part's track (the setting), and the track has a ROOT (it is not empty) */
 int mv_seq_xpose_on(const mv_seq_t *s, const volatile uint8_t *set, uint32_t part);
 /* a key for a transposing track: its offset (key - ROOT, held to +-MV_SEQ_XMAX), from the next note-on */

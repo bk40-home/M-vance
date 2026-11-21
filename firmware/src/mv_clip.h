@@ -56,6 +56,8 @@ typedef struct {
     uint8_t pend;                               /* a SAVE waiting for silence: its clip (MV_CLIP_NONE none) */
     uint8_t rec[MV_CLIP_REC];                   /* that SAVE's record */
     uint8_t err;                                /* the last write to flash failed */
+    uint32_t wgen;                              /* +1 each time the panel's SAVE fills rec: the editor page's staging
+                                                   (mv_seqx.h) checks it did not change under it */
 } mv_clip_t;
 
 /* what mv_clip_save / mv_clip_load report */
@@ -77,3 +79,18 @@ static inline const mv_fclip_t *mv_clip_factory(uint32_t k)
 /* the waiting SAVE to flash (call only when nothing sounds): its sector read, its record put in, the sector written.
  * 0 done (or nothing to do), else the write failed (err set; the SAVE is dropped, the directory reread) */
 int mv_clip_flush(mv_clip_t *c);
+
+/* ---- the editor page's way in (Kris 20 Nov: fm1-port/mvance-seq-editor-proposal-2026-11-20.md, mv_seqx.h). rec is
+ * the one staging buffer: a page's write is put together there in the record's own layout (16-byte head, 4-byte
+ * events), then either kept as a user clip (as SAVE) or played into a track (as LOAD). No RAM of its own */
+/* user clip k's record as flash (or a SAVE waiting) has it: 0 for k past the user clips. The pointer is good until the
+ * next clip call (it may be the sector image). A clip never written reads as all 0 (not 'C': empty) */
+const uint8_t *mv_clip_rec(mv_clip_t *c, uint32_t k);
+/* rec, to be filled by the page: 0 while a SAVE waits for silence (it is that SAVE's record) */
+static inline uint8_t *mv_clip_stage(mv_clip_t *c) { return c->pend == MV_CLIP_NONE ? c->rec : 0; }
+/* rec (filled, head included) kept as user clip k, written when silent as a SAVE: MV_CLIP_RO a factory clip,
+ * MV_CLIP_EMPTY no such clip or rec not a clip, MV_CLIP_BUSY a SAVE waits */
+int mv_clip_put(mv_clip_t *c, uint32_t k);
+/* rec (filled, head included) into part's track, as a LOAD of it (its LENGTH into e->seqb: the caller keeps the
+ * settings). MV_CLIP_AGAIN: the ISR has not taken the last LOAD yet (try on the next pass) */
+int mv_clip_play(mv_clip_t *c, mv_engine_t *e, uint32_t part);

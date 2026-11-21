@@ -5,6 +5,13 @@
 #   start  the loop's first bar (1-based)
 #   bars   the loop, 1..32. Notes outside it fold in: a pickup spilling past the end comes back to the start
 # Without a line, a track loops on its shortest exact repeat (heard twice at least), else the whole part.
+# start and bars both blank: that loop. A 5th field, name (16 characters at most), names the clip on the FM-1.
+#
+# "#!only" on a line of its own (Kris 21 Nov): only the parts the lines name are built, in the lines' order (F1 = the
+# first), not every track in the folder. The editor page's Factory clips dialog (Sequences panel) writes such a list:
+#   #!only
+#   ayla - ayla part2.mid | lead | 1 | 16 | AYLA LEAD
+#   for an angel/bass.mid |  |  |
 #
 # Example: Ayla part 2 starts with a pickup half way through bar 1 that runs into bar 17: 16 bars, folded
 ayla - ayla part2.mid |  | 1 | 16
