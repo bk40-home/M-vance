@@ -21,6 +21,8 @@ jobs:
       attestations: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive            # third_party/fm1-kit: fk_ble (Bluetooth MIDI) is built into the FM-1 firmware
 
       - uses: actions/setup-python@v5
         with:
