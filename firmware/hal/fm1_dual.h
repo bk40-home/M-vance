@@ -8,6 +8,6 @@
 #define MELODEE_DUAL_CORE 1           /* CPU1 renders half the voices (vs_voice.c); 0: one core */
 #endif
 #define MELODEE_CORE1_FALLBACK 1      /* a CPU1 that fails, faults, misreads or stalls is retired: CPU0 renders alone */
-#define MELODEE_AUDIO_PROFILE 0
+#define MELODEE_AUDIO_PROFILE 1           /* per-core CPU meter (DEBUG): the worker sums CPU1 job / CPU0 wait ticks */
 #define MELODEE_CACHE_RAM 0
 #define MELODEE_CORE1_TEST 0

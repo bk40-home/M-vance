@@ -86,6 +86,7 @@
 #define MV_NV 8u                                /* voices built in; how many play is mv_engine_t.nv (1..MV_NV) */
 #endif
 #define MV_EVQ 32u                              /* note events in flight (power of two) */
+#define MV_AUQ 16u                              /* automation moves / points in flight, each way (power of two) */
 
 #ifndef MV_PROFILE
 #define MV_PROFILE 0                            /* 1: time the stages (the app supplies mv_prof_ticks) */
@@ -165,7 +166,8 @@ typedef struct {
     volatile uint8_t seq_run;                   /* the transport: 1 running (main loop: PLAY, REC, MIDI START/STOP) */
     volatile uint8_t seq_restart;               /* from bar 1 again while running (MIDI START; main sets, ISR clears) */
     volatile uint8_t seq_arm;                   /* tracks recording: MV_TO_UP / MV_TO_LO bits (main loop: REC) */
-    volatile uint8_t seq_clear[2];              /* a track to empty (main loop sets 1, the ISR clears) */
+    volatile uint8_t seq_clear[2];              /* a track to empty: MV_SQC_ALL / NOTES / AUTO (main loop sets, the
+                                                   ISR clears) */
     volatile uint8_t seq_ext;                   /* started by MIDI START: the ticks held to the clock's pulses */
     volatile uint32_t seq_pulse;                /* MIDI clock pulses since that START (main loop counts them) */
     uint8_t seq_live, seq_armed;                /* the transport and the arming the ISR is running with */
@@ -177,6 +179,15 @@ typedef struct {
     uint16_t seq_lbytes;
     volatile uint8_t seq_load;                  /* .. the track + 1 (0: none); the ISR loads it and clears this. The
                                                    main loop touches seq_lbuf only while this is 0 */
+    /* the sequencer's automation (Kris 20 Nov, mv_seq.h AUTOMATION): two one-way rings of part << 14 | cc << 7 | value.
+     * In: knob moves to record (main loop writes, the ISR takes them into an armed track); out: points played (the
+     * ISR writes, the main loop applies them as CCs: mvance.c). A full ring drops the newest (a point's next one,
+     * MV_SEQ_PT_GAP ticks on, carries the knob on) */
+    volatile uint16_t au_in[MV_AUQ], au_out[MV_AUQ];
+    volatile uint32_t au_in_w, au_in_r, au_out_w, au_out_r;
+    uint8_t au_take[2][16];                     /* main loop: CCs a live knob took over from a part's playback (a bit a
+                                                   CC: its points are not applied) .. */
+    uint8_t au_take_w[2];                       /* .. until the track's loop goes round (seq.t[].wraps moves on) */
 #if MV_PROFILE
     volatile uint32_t prof_osc, prof_flt;       /* MV_PROFILE: ticks spent in the oscillators / the filter */
 #endif
@@ -193,6 +204,12 @@ void mv_engine_note_to(mv_engine_t *e, uint32_t note, uint32_t vel, uint32_t to)
  * PART SELECT / PANEL (Kris 7 Nov, 1a: the caller picks the parts). vel 0: off (to every part, as ever) */
 void mv_engine_note_direct(mv_engine_t *e, uint32_t note, uint32_t vel, uint32_t to);
 void mv_engine_render(mv_engine_t *e, int32_t *out, uint32_t n);        /* ISR: n stereo frames, adds Q15 */
+/* main loop: a knob (or a MIDI CC) moved CC cc of part's sound to val. Its track armed and running: the move is
+ * recorded (an automation point, mv_seq_point on the ISR); returns 1 then. Running, not armed: the knob takes that
+ * CC over from the track's playback until its loop goes round (au_take); 0 */
+int mv_engine_knob(mv_engine_t *e, uint32_t part, uint32_t cc, uint32_t val);
+/* main loop: the next automation point played (part << 14 | cc << 7 | value), or -1 when none waits */
+int32_t mv_engine_point(mv_engine_t *e);
 /* main loop, after arp_beat or a program / perf byte may have moved: each part's synced LFO1 step from its LFO1 SYNC
  * byte and arp_beat. A divide only when the byte changes or the beat moves more than 1/512 (0.2 %) from the one the
  * step was made for: MIDI clock jitter leaves the step alone (Kris 5 Nov, fix 2) */
@@ -207,5 +224,8 @@ int mv_engine_sounding(const mv_engine_t *e, uint32_t note);            /* a key
 void mv_engine_lit(const mv_engine_t *e, uint32_t on[4], uint32_t rel[4]);
 int mv_engine_quiet(const mv_engine_t *e);                              /* nothing sounds, not even a release */
 uint32_t mv_engine_active(const mv_engine_t *e);                        /* voices sounding now (for the meter) */
+int mv_core1_online(void);                     /* 1: the second core renders half the voices (mv_dsp.c) */
+uint32_t mv_core1_job_ticks(void);             /* CPU1 render time (wrapping tick sum); 0 without the second core */
+uint32_t mv_core1_wait_ticks(void);            /* CPU0 time spent waiting at the join (wrapping tick sum) */
 /* the TONE stage on a mono bus (Q15), BASS / TREBLE bytes (64 = flat). Used by render; public for the tests */
 void mv_tone(mv_engine_t *e, int32_t *bus, uint32_t n, uint32_t bass, uint32_t treble);

@@ -13,6 +13,8 @@
 //   library     its Edit sends {id, where, sound} on BroadcastChannel "mvance-edit"; this page answers "took" and
 //               loads it. Keep sends {keep, id, sound}; the library puts it into that slot as a change ("kept")
 //   write       Write to slot: the edit's 4 DT1s to 03 pp on the FM-1 (bank/fm1-midi.js; the FM-1 saves it)
+//   sequences   the Sequences panel (seq-panel.js, Kris 20 Nov): the two tracks and the clips of the device the
+//               sound is on (the sim; linked, the FM-1), over the sequencer's SysEx area 04 (mv_seqx.h)
 // Nothing is sent to the FM-1 unless Connect, then Link or Write. ?load=/path.syx (same site): that file's first
 // program becomes the sound (the sound-match tool's "Open in editor").
 import { parseBankFile, nameOf, soundOf, soundCopy, soundEqual, itemFromSound, perfMsgs } from './bank/bank-model.js?v=__BUILD__';
@@ -20,6 +22,7 @@ import { FM1 } from './bank/fm1-midi.js?v=__BUILD__';
 import { Link, GAP_MS } from './bank/link.js?v=__BUILD__';
 import { mountPages } from './pages.js?v=__BUILD__';
 import { startEngine } from './engine.js?v=__BUILD__';
+import { mountSeq } from './seq-panel.js?v=__BUILD__';
 
 const NPROG = 64;                          // program slots on the FM-1
 const KEEP_WAIT_MS = 1500;                 // Keep: the library answers within this, or it is not open
@@ -28,7 +31,7 @@ const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt
 // the status line: bad = true (warn colour), 'ok', else plain
 const status = (msg, bad) => { const s = $('status'); s.textContent = msg; s.className = bad === 'ok' ? 'help ok' : bad ? 'help bad' : 'help'; };
 
-let engine = null, link = null;
+let engine = null, link = null, seq = null;
 let base = null;                           // the sound as opened (Revert, Compare, "modified")
 let comparing = null;                      // comparing: the edit, held while base plays
 let what = "the sim's program";            // what is being edited (the edit line)
@@ -41,7 +44,17 @@ const fm1 = new FM1({
   onPorts: (ports) => fillPorts(ports),
   onTemp: (m) => { if (link) link.fromFm1(m); },     // the FM-1's sound: a dump or a change (linked)
   onProgram: (n) => fm1Program(n),                   // PRESETS turned on the FM-1
+  onSeq: (m) => { if (seq && seqDev().kind === 'fm1') seq.feed(m); },   // the FM-1's tracks and clips (linked)
 });
+// where the Sequences panel works: the FM-1 while linked (paced, the sound's link held meanwhile), else the sim
+function seqDev() {
+  if (link && link.fm1 && fm1.out) return {
+    kind: 'fm1', label: 'FM-1',
+    send: async (ms) => { link.hold = true; try { await fm1.send(ms); } finally { link.hold = false; } },
+    rt: (st) => fm1.sendNow(new Uint8Array([st])),
+  };
+  return { kind: 'sim', label: 'sim', send: async (ms) => { for (const m of ms) engine.sysexIn(m); }, rt: (st) => engine.midi(st, 0, 0) };
+}
 async function connect() {
   try { fillPorts(await fm1.connect()); } catch (e) { status(e.message, true); }
 }
@@ -126,6 +139,7 @@ function setLink(on) {
     status('Linking: reading the FM-1\'s sound...');
   } else {
     link.unlinkFm1(); engine.muted = false;
+    if (seq) seq.readAll();                // (the panel shows the sim's tracks again)
     status('Unlinked: the sim plays the edit again; the FM-1 keeps what it has.', 'ok');
   }
   soundUi();
@@ -238,15 +252,20 @@ async function start() {
     onChange: (why, dev) => {
       if (why === 'adopt') {               // a device's sound became the edit buffer
         comparing = null; base = soundCopy(link.cur);
-        if (dev === 'fm1') { what = "the FM-1's sound"; status('Linked: the FM-1\'s sound is here. Its knobs show on the tiles; the tiles turn it.', 'ok'); }
+        if (dev === 'fm1') { what = "the FM-1's sound"; status('Linked: the FM-1\'s sound is here. Its knobs show on the tiles; the tiles turn it.', 'ok'); seq.readAll(); }
         else if (incoming) { const m = incoming; incoming = null; fromLibrary(m); }   // (an Edit waited for the sim)
         else loadUrl();
         soundUi();
       } else scheduleUi();
     },
   });
-  engine.onSysEx = (m) => link.fromSim(m);
+  seq = mountSeq($('seq'), { dev: seqDev, status });
+  engine.onSysEx = (m) => {                // area 04: the panel's (only while it works on the sim); the rest: the link's
+    if (m[5] === 0x12 && m[6] === 0x04) { if (seqDev().kind === 'sim') seq.feed(m); return; }
+    link.fromSim(m);
+  };
   link.linkSim();
+  seq.readAll();
   setInterval(() => link.tick(), GAP_MS);
   mountPages(engine.M, $('pages'), { sizeInput: $('tileSize'),
     // FM-1-wide settings, not the sound's: greyed while linked (they would change the sim only)

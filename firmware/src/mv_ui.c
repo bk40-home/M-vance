@@ -14,7 +14,8 @@
 #define P_LOCAL 0x103u                          /* MIDI (Kris 7 Nov, DAW use): LOCAL ON / OFF (mv_ui_t.midi bits) */
 #define P_CLKSRC 0x104u                         /* MIDI: CLOCK AUTO / INT */
 #define P_CLKOUT 0x105u                         /* MIDI: CLK OUT OFF / ON */
-#define IS_MIDI(p) ((p) >= P_LOCAL && (p) <= P_CLKOUT)
+#define P_BT 0x106u                             /* MIDI: BLUETOOTH ON / OFF (Kris 19 Nov; LINKED shows a computer on it) */
+#define IS_MIDI(p) ((p) >= P_LOCAL && (p) <= P_BT)
 #define P_RV 0x110u                             /* REVERB: P_RV + MV_RV_* (global settings, mv_reverb.h) */
 #define P_ARP 0x120u                            /* ARP: P_ARP + MV_ARP_* (global settings, mv_arp.h) */
 #define P_SV 0x130u                             /* SAVE: P_SV + 0 TO, 1 CURSOR, 2 CHAR, 3 MODE */
@@ -81,7 +82,8 @@ static const ui_page_t PAGES[] = {
 #else
     {"GLOBAL", BTN_GLO, 0, 1, {P_MIDICH, P_VOICES, P_TEMPO, P_NONE}},
 #endif
-    {"MIDI", BTN_GLO, 0, 1, {P_LOCAL, P_CLKSRC, P_CLKOUT, P_NONE}},   /* DAW use (Kris 7 Nov): LOCAL, CLOCK, CLK OUT */
+    {"MIDI", BTN_GLO, 0, 1, {P_LOCAL, P_CLKSRC, P_CLKOUT, P_BT}},   /* DAW use (Kris 7 Nov): LOCAL, CLOCK, CLK OUT;
+                                                   BLUETOOTH (19 Nov) */
 #if MV_DEBUG
     {"DEBUG", BTN_GLO, 0, 1, {P_DEBUG, P_NONE, P_NONE, P_NONE}},   /* the meter and the status (Kris 3 Nov): the knobs
                                                                    do nothing here */
@@ -184,6 +186,7 @@ static const char *col_label(const mv_engine_t *e, uint32_t p)
     case P_LOCAL: return "LOCAL";
     case P_CLKSRC: return "CLOCK";
     case P_CLKOUT: return "CLK OUT";
+    case P_BT: return "BT MIDI";
     case P_SV + 0: return "TO";
     case P_SV + 1: return "CURSOR";
     case P_SV + 2: return "CHAR";
@@ -292,6 +295,7 @@ static const char *choice_name(uint32_t p, uint32_t v)
     case P_LOCAL: return LOCAL[v & 1u];
     case P_CLKSRC: return CSRC[v & 1u];
     case P_CLKOUT: return OFFON[v & 1u];
+    case P_BT: return LOCAL[v & 1u];            /* (the bit is BLUETOOTH OFF, as LOCAL's: 0 = ON) */
     case P_ARP + MV_ARP_MODE: return AMODE[v < MV_AM_N ? v : 0u];
     case P_ARP + MV_ARP_RATE: return ARATE[v < MV_ARP_NRATE ? v : 2u];
     case P_ARP + MV_ARP_ORDER: return AORDER[v & 1u];
@@ -337,7 +341,7 @@ static void num(char *s, int32_t v, int sign)
 /* the MIDI page: a parameter's bit in mv_ui_t.midi, and its value 0 / 1 */
 static uint32_t midi_mask(uint32_t p)
 {
-    return p == P_LOCAL ? MV_MIDI_LOCALOFF : p == P_CLKSRC ? MV_MIDI_CLKINT : MV_MIDI_CLKOUT;
+    return p == P_LOCAL ? MV_MIDI_LOCALOFF : p == P_CLKSRC ? MV_MIDI_CLKINT : p == P_BT ? MV_MIDI_BTOFF : MV_MIDI_CLKOUT;
 }
 static uint32_t midi_bit(uint32_t midi, uint32_t p) { return midi & midi_mask(p) ? 1u : 0u; }
 
@@ -358,6 +362,10 @@ static void col_value(const mv_engine_t *e, uint32_t p, uint32_t midi_ch, char *
         return;
     }
     if (p == P_PANEL) { copy7(s, choice_name(p, ui_self ? ui_self->panel : 0u)); return; }
+    if (p == P_BT && ui_self && !(ui_self->midi & MV_MIDI_BTOFF) && fk_ble_state() == FK_BLE_LINKED) {
+        copy7(s, "LINKED");                     /* (ON, and a computer connected with MIDI on) */
+        return;
+    }
     if (IS_MIDI(p)) { copy7(s, choice_name(p, midi_bit(ui_self ? ui_self->midi : 0u, p))); return; }   /* MIDI page */
 #if MV_UI_KIT
     if (p == P_THEME) { copy7(s, choice_name(p, ui_self ? ui_self->theme : 0u)); return; }
@@ -492,7 +500,7 @@ void mv_ui_init(mv_ui_t *u, const mv_prog_t *prog)
     u->page = 0; u->last = 0xFF; u->redraw = 1; u->t_touch = 0; u->drawn_line = ~0u;
     u->clk_ext = 0; u->t_tempo = 0;            /* SELECT: TEMPO until a clock comes */
     u->panel = MV_UI_UPPER; u->drawn_tag = 0; u->learned = 0;
-    u->ovl = MV_OV_NONE; u->ovl_t = 0; u->drawn_ovl = ~0u; u->ovl_track = MV_PART_UP;
+    u->ovl = MV_OV_NONE; u->ovl_t = 0; u->drawn_ovl = ~0u; u->ovl_track = MV_PART_UP; u->ovl_clr = 0;
     u->oct_held = 0; u->oct_undo = 0; u->rec_t = 0; u->rec_down = 0; u->rec_did = 0;
     u->roll_bar = 0; u->roll_lo = 48; u->roll_fit = 1;
     u->clips = 0; u->cl_sel = 0; u->cl_pos = 0; u->cl_mode = MV_CL_LOAD; u->cl_act = 0; u->cl_msg = MV_CLM_NONE;
@@ -642,6 +650,13 @@ static uint32_t edit(mv_ui_t *u, mv_engine_t *e, uint32_t col, int32_t step, uin
         if (both) mv_param_set(&e->lower, id, mv_clamp(mv_param_get(&e->lower, id) + step, d->min, d->max));
         if (v == v0) return 0;                  /* at an end: nothing to send */
         mv_param_set(t, id, v);
+#if MV_SEQ
+        if (d->cc != MV_NONE) {                 /* the sequencer (automation, Kris 20 Nov): recorded into an armed
+                                                   track, else it takes the CC over from the playback until bar 1 */
+            (void)mv_engine_knob(e, t == &e->lower ? MV_PART_LO : MV_PART_UP, d->cc, mv_cc_value(id, v));
+            if (both) (void)mv_engine_knob(e, MV_PART_LO, d->cc, mv_cc_value(id, mv_param_get(&e->lower, id)));
+        }
+#endif
         if (d->cc != MV_NONE) {                 /* out on the edited part's channel (Kris 7 Nov, 3a: CH UP / CH LO,
                                                    or out_ch where it is GLOBAL); BOTH: LOWER's too, on its own
                                                    channel when that differs (one channel: once) */
@@ -736,7 +751,7 @@ uint32_t mv_ui_input(mv_ui_t *u, mv_engine_t *e, uint32_t pressed, uint32_t rele
     if (pressed >> BTN_REC & 1u) {
         u->rec_down = 1; u->rec_did = 0; u->rec_t = fm1_ms;
         if (u->ovl == MV_OV_CLEAR) {            /* yes: that track emptied (its notes end) */
-            e->seq_clear[u->ovl_track & 1u] = 1;
+            e->seq_clear[u->ovl_track & 1u] = (uint8_t)(MV_SQC_ALL + u->ovl_clr % 3u);   /* ALL / NOTES / AUTO */
             u->rec_did = 1;
             r |= ovl_close(u);
         }
@@ -744,6 +759,7 @@ uint32_t mv_ui_input(mv_ui_t *u, mv_engine_t *e, uint32_t pressed, uint32_t rele
     if (u->rec_down && !u->rec_did && fm1_ms - u->rec_t >= 1000u) {
         u->rec_did = 1;
         u->ovl = MV_OV_CLEAR; u->ovl_t = fm1_ms; u->drawn_ovl = ~0u; u->ovl_track = (uint8_t)mv_ui_track(u, e);
+        u->ovl_clr = 0;                         /* (ALL first: as before; a knob picks NOTES or AUTO) */
         r |= MV_UI_PAGE;
     }
     if (released >> BTN_REC & 1u) {
@@ -800,6 +816,12 @@ uint32_t mv_ui_input(mv_ui_t *u, mv_engine_t *e, uint32_t pressed, uint32_t rele
     for (k = 0; k < 4u; k++) {                  /* KNOB1..4; a fast turn (detents < 40 ms apart) x 4, not choices */
         uint32_t p = PAGES[u->page].p[k];
         if ((d = fm1_enc_take(ENC_KNOB1 + k)) == 0) continue;
+        if (u->ovl == MV_OV_CLEAR) {            /* the CLEAR question: a knob picks what goes (ALL / NOTES / AUTO) */
+            u->ovl_clr = (uint8_t)((u->ovl_clr + (d > 0 ? 1u : 2u)) % 3u);
+            u->ovl_t = fm1_ms;                  /* (its 3 s start again) */
+            r |= MV_UI_PAGE;
+            continue;
+        }
         if (u->ovl) r |= ovl_close(u);          /* a knob turned: the overlay goes, the page edits */
         if ((IS_PATCH(p) || p == P_TEMPO || (p >= P_RV && p < P_RV + MV_RV_N) || (p >= P_ARP && p < P_ARP + MV_ARP_N))
             && !choice_name(p, 0) && fm1_ms - u->t_knob[k] < 40u)
@@ -1053,9 +1075,11 @@ void mv_ui_overlay_draw(mv_ui_t *u, const mv_engine_t *e)
         val = u->ovl_track == MV_PART_LO ? "LOWER" : "UPPER";
         hint = "OVER 128 NOTES: PLAY ONLY";
     } else {
+        static const char *const WHAT[2][3] = {{"UPPER ALL", "UPPER NOTES", "UPPER AUTO"},
+                                               {"LOWER ALL", "LOWER NOTES", "LOWER AUTO"}};
         title = "CLEAR TRACK?";
-        val = u->ovl_track == MV_PART_LO ? "LOWER" : "UPPER";
-        hint = "REC CLEARS  OTHER KEEPS";
+        val = WHAT[u->ovl_track == MV_PART_LO][u->ovl_clr % 3u];
+        hint = "REC CLEARS  KNOB: WHAT";
     }
     key = show_key(title, val, (int32_t)u->ovl, 0);
     if (key == u->drawn_ovl) return;

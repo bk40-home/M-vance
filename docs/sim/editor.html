@@ -12,10 +12,10 @@
      The banks are the patch library's (../library.html): its Edit sends a program here, and Keep puts the edit back
      into that library slot (BroadcastChannel "mvance-edit"; Send in the library writes it to the FM-1). Write to
      slot puts the edit straight into a program slot on a connected FM-1.
-     WebMIDI with SysEx: Chrome or Edge, on https (GitHub Pages) or localhost. ?v=20261115135400: sim/build.sh stamps it. -->
-<link rel="stylesheet" href="theme.css?v=20261115135400">
-<script src="theme.js?v=20261115135400"></script>
-<script src="count.js?v=20261115135400"></script>
+     WebMIDI with SysEx: Chrome or Edge, on https (GitHub Pages) or localhost. ?v=20261121150209: sim/build.sh stamps it. -->
+<link rel="stylesheet" href="theme.css?v=20261121150209">
+<script src="theme.js?v=20261121150209"></script>
+<script src="count.js?v=20261121150209"></script>
 <style>
   body { background:var(--bg); color:var(--text); font-family:var(--font); margin:0; padding:16px; }
   .kit-top { margin:-16px -16px 12px; }
@@ -49,6 +49,54 @@
   details.pages summary label { color:var(--dim); text-transform:none; letter-spacing:0; }
   #pages { margin-top:8px; }
   #nosim { display:none; }
+  /* the Sequences panel (seq-panel.js) */
+  .seqs { background:var(--surf); border:1px solid var(--line); border-radius:8px; padding:10px; margin:10px 0; }
+  .seq-top { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:6px; }
+  .seq-title { color:var(--theme); font-size:.8rem; letter-spacing:.12em; text-transform:uppercase; margin-right:6px; }
+  .seq-dev { font-size:.8rem; color:var(--dim); }
+  .lane { border-top:1px solid var(--line); padding-top:6px; margin-top:6px; }
+  .lane-bar { display:flex; gap:8px; align-items:center; flex-wrap:wrap; font-size:.85rem; margin-bottom:4px; }
+  .lane-src, .lane-info { color:var(--dim); }
+  .lane-mod { color:var(--theme); }
+  .lane-ask { color:var(--warn); }
+  .lane .bad { color:var(--warn); }
+  .lane select, .lane input { background:var(--raised); color:var(--text); border:1px solid var(--line); border-radius:6px; padding:.2rem; }
+  .lane input[type=number] { width:3.5em; }
+  canvas.roll { width:100%; height:180px; display:block; border-radius:6px; cursor:crosshair; }
+  canvas.roll:focus, canvas.auto:focus { outline:1px solid var(--theme); }
+  canvas.auto { width:100%; height:70px; display:block; border-radius:6px; margin-top:2px; cursor:crosshair; }
+  .lane-autobar { margin-top:4px; }
+  .lane-autoinfo { color:var(--dim); }
+  .lane-imp { background:var(--raised); border-radius:6px; padding:4px 6px; }
+  .lane-file { font-weight:600; }
+  .lane-how { color:var(--dim); }
+  .seqs label.btn { cursor:pointer; border:1px solid var(--line); border-radius:6px; padding:.2rem .5rem; }
+  .shelf { border-top:1px solid var(--line); padding-top:6px; margin-top:8px; font-size:.85rem; }
+  .shelf-item { display:inline-flex; gap:3px; align-items:center; background:var(--raised); border-radius:6px; padding:2px 6px; margin:2px 4px 2px 0; }
+  .shelf-item small, .shelf small { color:var(--dim); }
+  .seqs [hidden] { display:none !important; }   /* (hidden wins over .lane-bar's flex: the import bar with no file open) */
+  /* the Factory clips dialog (seq-picker.js, Kris 21 Nov) */
+  .picker { border:1px solid var(--theme); border-radius:8px; padding:8px; margin-top:8px; background:var(--bg); font-size:.85rem; }
+  .pk-top { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:6px; }
+  .pk-top input[type=search] { background:var(--raised); color:var(--text); border:1px solid var(--line); border-radius:6px; padding:.2rem .4rem; width:12em; }
+  .pk-info { color:var(--dim); }
+  .picker label.btn { cursor:pointer; border:1px solid var(--line); border-radius:6px; padding:.2rem .5rem; }
+  .pk-cols { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  .pk-col { max-height:420px; overflow:auto; border-top:1px solid var(--line); padding-top:4px; }
+  .pk-h { color:var(--theme); font-size:.75rem; letter-spacing:.1em; text-transform:uppercase; margin-bottom:4px; }
+  .pk-h small { color:var(--dim); text-transform:none; letter-spacing:0; }
+  .pk-file { margin-top:6px; }
+  .pk-part { display:flex; gap:6px; align-items:center; padding-left:14px; }
+  .pk-part small, .pk-list small { color:var(--dim); }
+  .pk-roll { width:132px; height:22px; background:var(--surf); border-radius:3px; flex:none; }
+  .pk-list { margin:0; padding-left:0; list-style:none; }
+  .pk-list li { display:flex; gap:5px; align-items:center; flex-wrap:wrap; padding:3px 4px; border-bottom:1px solid var(--line); cursor:grab; }
+  .pk-f { font-weight:600; color:var(--theme); min-width:2.6em; }
+  .pk-list input { background:var(--raised); color:var(--text); border:1px solid var(--line); border-radius:6px; padding:.15rem .3rem; }
+  .pk-list input.pk-name { width:11em; font-family:ui-monospace,monospace; }
+  .pk-list input[type=number] { width:3.2em; }
+  .picker .bad { color:var(--warn); }
+  .pk-help { margin-top:6px; color:var(--dim); }
 </style>
 <header class="kit-top">
   <span class="badge">EDITOR</span>
@@ -90,10 +138,11 @@
       (Z S X D C V &hellip;). Edit a program from the Library to keep it there; Link FM-1 to edit the FM-1's sound.</p>
   </div>
 </section>
+<section class="seqs" id="seq"></section>
 <p class="help bad" id="nosim">The simulator is not built here (sim/build.sh), so there is nothing to edit.</p>
 <details class="pages" open>
   <summary>All pages <label>size <input id="tileSize" type="range" min="168" max="480" step="24" value="240" title="240: the screen's own size (sharpest)"></label></summary>
   <div id="pages"></div>
 </details>
-<script src="mvance.js?v=20261115135400"></script>   <!-- the simulator (built by sim/build.sh) -->
-<script type="module" src="editor.js?v=20261115135400"></script>
+<script src="mvance.js?v=20261121150209"></script>   <!-- the simulator (built by sim/build.sh) -->
+<script type="module" src="editor.js?v=20261121150209"></script>

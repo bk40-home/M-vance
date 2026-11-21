@@ -70,15 +70,31 @@ int mv_clip_save(mv_clip_t *c, const mv_engine_t *e, uint32_t part, uint32_t k, 
     r[14] = 0; r[15] = 0;
     (void)clip_head(r, &c->dir[k]);             /* shown at once; written when silent (mv_clip_flush) */
     c->pend = (uint8_t)k;
+    c->wgen++;                                  /* (rec is this SAVE's now: a page's staging there is void) */
     return MV_CLIP_OK;
+}
+
+/* a record r (its head read into d) into part's track: the RAM path of a LOAD (seq_load must be 0) */
+static void rec_to_track(const uint8_t *r, const mv_clip_info_t *d, mv_engine_t *e, uint32_t part)
+{
+    const uint8_t *p;
+    uint32_t i;
+    for (i = 0, p = r + MV_CLIP_HEAD; i < d->n; i++, p += 4) {
+        e->seq_lbuf[i].tick = (uint16_t)(p[0] | p[1] << 8);
+        e->seq_lbuf[i].note = (uint8_t)(p[2] & 127u);
+        e->seq_lbuf[i].vel = p[3];
+    }
+    e->seq_ln = d->n; e->seq_lrom = 0;          /* (from RAM: seq_lbuf) */
+    e->seq_lroot = d->root;
+    e->seqb[MV_SQ_LEN(part & 1u)] = d->len;     /* its LENGTH (a setting: the caller keeps it) */
+    e->seq_load = (uint8_t)((part & 1u) + 1u);  /* last: the ISR takes it at its next block */
 }
 
 int mv_clip_load(mv_clip_t *c, mv_engine_t *e, uint32_t k, uint32_t part)
 {
-    const uint8_t *r, *p;
+    const uint8_t *r;
     mv_clip_info_t d;
     const mv_fclip_t *f = mv_clip_factory(k);
-    uint32_t i;
     if (e->seq_load) return MV_CLIP_AGAIN;      /* the ISR has not taken the last one yet */
     if (f) {                                    /* a factory clip: the track plays it from flash (no copy) */
         if (!f->n || !f->bytes) return MV_CLIP_EMPTY;
@@ -92,15 +108,33 @@ int mv_clip_load(mv_clip_t *c, mv_engine_t *e, uint32_t k, uint32_t part)
     if (c->pend == k) r = c->rec;               /* (a SAVE not yet written: from RAM) */
     else { sec_read(k / MV_CLIP_PER); r = clip_sec + (k % MV_CLIP_PER) * MV_CLIP_REC; }
     if (!clip_head(r, &d)) return MV_CLIP_EMPTY;
-    for (i = 0, p = r + MV_CLIP_HEAD; i < d.n; i++, p += 4) {
-        e->seq_lbuf[i].tick = (uint16_t)(p[0] | p[1] << 8);
-        e->seq_lbuf[i].note = (uint8_t)(p[2] & 127u);
-        e->seq_lbuf[i].vel = p[3];
-    }
-    e->seq_ln = d.n; e->seq_lrom = 0;          /* (from RAM: seq_lbuf) */
-    e->seq_lroot = d.root;
-    e->seqb[MV_SQ_LEN(part & 1u)] = d.len;      /* its LENGTH (a setting: the caller keeps it) */
-    e->seq_load = (uint8_t)((part & 1u) + 1u);  /* last: the ISR takes it at its next block */
+    rec_to_track(r, &d, e, part);
+    return MV_CLIP_OK;
+}
+
+const uint8_t *mv_clip_rec(mv_clip_t *c, uint32_t k)
+{
+    if (k >= MV_CLIP_N) return 0;
+    if (c->pend == k) return c->rec;            /* (a SAVE not yet written: what flash will have) */
+    sec_read(k / MV_CLIP_PER);
+    return clip_sec + (k % MV_CLIP_PER) * MV_CLIP_REC;
+}
+
+int mv_clip_put(mv_clip_t *c, uint32_t k)
+{
+    if (k >= MV_CLIP_N) return k < MV_CLIP_ALL ? MV_CLIP_RO : MV_CLIP_EMPTY;
+    if (c->pend != MV_CLIP_NONE) return MV_CLIP_BUSY;   /* (rec is that SAVE's: the page never staged over it) */
+    if (!clip_head(c->rec, &c->dir[k])) { mv_clip_init(c); return MV_CLIP_EMPTY; }   /* (the directory mended) */
+    c->pend = (uint8_t)k;                       /* shown at once; written when silent (mv_clip_flush) */
+    return MV_CLIP_OK;
+}
+
+int mv_clip_play(mv_clip_t *c, mv_engine_t *e, uint32_t part)
+{
+    mv_clip_info_t d;
+    if (e->seq_load) return MV_CLIP_AGAIN;
+    if (!clip_head(c->rec, &d)) return MV_CLIP_EMPTY;
+    rec_to_track(c->rec, &d, e, part);
     return MV_CLIP_OK;
 }
 

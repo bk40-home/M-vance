@@ -11,6 +11,7 @@
  * from RAM. Stage D0: it starts and idles; the engine does not hand it voices yet (MV_PAR_* are unused until D1).
  * The only hardware this file touches. Not on a computer, in a browser, or as an fm1-dock module (the dock's host
  * firmware owns CPU1): those are one core */
+#include <stdint.h>                              /* uint32_t for the mv_core1_* accessors on every build path */
 #if !defined(DINGHY_HOST) && !defined(DINGHY_WEBSIM) && !defined(DINGHY_DOCK)
 #include "fm1_time.h"
 #include "fm1_dual.h"
@@ -23,13 +24,22 @@ int mv_core1_start(uint32_t power_ok, uint32_t early)   /* platform.c, at boot: 
 {
     return fm1_core1_boot_allowed(power_ok, early) ? fm1_multicore_start() : 0;
 }
-int mv_core1_online(void);                     /* (declared in mv_voice.h from D1; here so D0 stands alone) */
+int mv_core1_online(void);                     /* (declared in mv_voice.h; here so D0 stood alone) */
 int mv_core1_online(void) { return audio_worker_online; }
+#if MELODEE_AUDIO_PROFILE
+uint32_t mv_core1_job_ticks(void)  { return audio_worker.job_ticks; }   /* CPU1 render time, wrapping tick sum */
+uint32_t mv_core1_wait_ticks(void) { return audio_worker.wait_ticks; }  /* CPU0 time spent waiting at the join */
+#else
+uint32_t mv_core1_job_ticks(void)  { return 0u; }
+uint32_t mv_core1_wait_ticks(void) { return 0u; }
+#endif
 #endif
 #endif
 #ifndef MV_PAR_SUBMIT
 int mv_core1_online(void);
 int mv_core1_online(void) { return 0; }
+uint32_t mv_core1_job_ticks(void)  { return 0u; }
+uint32_t mv_core1_wait_ticks(void) { return 0u; }
 #endif
 #include "mv_patch.c"
 #include "mv_pitch.c"

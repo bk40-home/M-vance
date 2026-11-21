@@ -33,7 +33,8 @@
  *             LENGTH (the selected track's: PANEL's part, BOTH both) · QUANT · MUTE L · MUTE U, global settings.
  *             PLAY: the transport on / off (both tracks, from bar 1). REC: a tap arms / disarms the selected track
  *             (UPPER, or LOWER when PANEL says LOWER; starts the transport when stopped), held 1 s it asks to
- *             CLEAR that track (REC again: cleared; any other button, or 3 s: kept)
+ *             CLEAR that track (REC again: cleared; any other button, or 3 s: kept). A knob turned meanwhile picks
+ *             what goes: ALL, NOTES or AUTO (the automation points: Kris 20 Nov)
  *   ROLL      (Kris 6 Nov, phase 2) SEQ 2/2: the selected track's notes as a piano roll (mv_roll.h), one bar at a
  *             time; KNOB1 BAR (while stopped: running, it follows the playhead), KNOB2 PITCH (the rows; fitted to
  *             the notes when the page opens), KNOB3 TRANSPOSE (OFF / LOWER / UPPER / BOTH, global), KNOB4 ROOT (the
@@ -83,6 +84,7 @@ typedef struct {
     uint32_t ovl_t;                             /* fm1_ms it opened or was last touched (its time-out) */
     uint32_t drawn_ovl;                         /* what the overlay shows */
     uint8_t ovl_track;                          /* CLEAR: the track asked about (MV_PART_*) */
+    uint8_t ovl_clr;                            /* CLEAR: what goes, a knob picks it: 0 ALL, 1 NOTES, 2 AUTO (Kris 20 Nov) */
     uint8_t oct_held;                           /* OCT- (bit 0) / OCT+ (bit 1) held */
     int8_t oct_undo;                            /* the octave step the first OCT press made (undone by a chord) */
     uint32_t rec_t;                             /* fm1_ms REC went down */
@@ -108,11 +110,13 @@ typedef struct {
  * behaviour, so a settings record from before (0 in its spare) changes nothing:
  *   MV_MIDI_LOCALOFF  LOCAL OFF: the FM-1's keys go to MIDI out only; the sound plays what comes back on MIDI in
  *   MV_MIDI_CLKINT    CLOCK INT: incoming F8 / FA / FB / FC are ignored (0 = AUTO: followed while they come)
- *   MV_MIDI_CLKOUT    CLK OUT ON: F8 at TEMPO to USB MIDI while the FM-1 is on its own tempo; PLAY sends FA / FC */
+ *   MV_MIDI_CLKOUT    CLK OUT ON: F8 at TEMPO to USB MIDI while the FM-1 is on its own tempo; PLAY sends FA / FC
+ *   MV_MIDI_BTOFF     BLUETOOTH OFF (Kris 19 Nov): no Bluetooth MIDI, the radio quiet (0 = ON: a record from before) */
 #define MV_MIDI_LOCALOFF 0x01u
 #define MV_MIDI_CLKINT 0x02u                    /* (bits 1..2 reserved for the source: 0 AUTO, 1 INT) */
 #define MV_MIDI_CLKOUT 0x08u
-#define MV_MIDI_MASK (MV_MIDI_LOCALOFF | MV_MIDI_CLKINT | MV_MIDI_CLKOUT)   /* a loaded byte is cleaned with it */
+#define MV_MIDI_BTOFF 0x10u
+#define MV_MIDI_MASK (MV_MIDI_LOCALOFF | MV_MIDI_CLKINT | MV_MIDI_CLKOUT | MV_MIDI_BTOFF)   /* a loaded byte is cleaned with it */
 enum { MV_CL_LOAD, MV_CL_SAVE };                /* CLIP MODE */
 enum { MV_CLM_NONE, MV_CLM_LOADED, MV_CLM_SAVED, MV_CLM_EMPTY, MV_CLM_BUSY, MV_CLM_RO, MV_CLM_LONG };   /* CLIP: what it came to */
 #define MV_ROLL_ROWS 23u                        /* ROLL: note rows shown (8 px each: about 2 octaves) */

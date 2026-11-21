@@ -38,10 +38,11 @@ export class FM1 {
   // onProgress(done, total): called while sending / reading (total 0 = finished). sleep: (ms) => Promise.
   // onTemp(msg): a DT1 to what plays (01 00) from the FM-1: a dump or a linked report (link.js; Kris 13 Nov, Part B).
   // onProgram(n, ch): a Program Change from the FM-1 (PRESETS turned)
+  // onSeq(msg): a DT1 of the sequencer's area 04 (a track, a clip, a head: ../seq-model.js; Kris 20 Nov)
   constructor({ gapMs = GAP_MS, quietMs = QUIET_MS, onProgress = () => {}, onPorts = () => {},
-                onTemp = () => {}, onProgram = () => {},
+                onTemp = () => {}, onProgram = () => {}, onSeq = () => {},
                 sleep = (ms) => new Promise((r) => setTimeout(r, ms)) } = {}) {
-    Object.assign(this, { gapMs, quietMs, onProgress, onPorts, onTemp, onProgram, sleep });
+    Object.assign(this, { gapMs, quietMs, onProgress, onPorts, onTemp, onProgram, onSeq, sleep });
     this.access = null; this.out = null; this.inp = null;
     this.rx = new Map();                  // pp -> [4 messages], what a read collected
     this.rxWait = null;                   // a read in progress: { poke }
@@ -111,6 +112,9 @@ export class FM1 {
     if ((m[0] & 0xf0) === 0xc0 && m.length >= 2) { this.onProgram(m[1], m[0] & 15); return; }
     if (m[0] === 0xf0 && m[1] === 0x41 && m[4] === 0x06 && m[5] === 0x12 && m[6] === 0x01) {
       this.onTemp(new Uint8Array(m)); return;
+    }
+    if (m[0] === 0xf0 && m[1] === 0x41 && m[4] === 0x06 && m[5] === 0x12 && m[6] === 0x04) {
+      this.onSeq(new Uint8Array(m)); return;
     }
     if (m[0] !== 0xf0 || m[1] !== 0x41 || m[4] !== 0x06 || m[5] !== 0x12 || m[6] !== 0x03) return;
     const pp = m[7], area = m[8];

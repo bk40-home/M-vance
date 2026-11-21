@@ -17,9 +17,11 @@ OUT=docs/sim
 mkdir -p "$OUT"
 cp sim/index.html sim/sim.js sim/pages.js sim/engine.js sim/audio-worklet.js "$OUT"/
 cp sim/editor.html sim/editor.js "$OUT"/                 # the sound editor (Kris 15 Nov; the banks: docs/library.html)
+python3 tools/gen_seq_ccs.py -o sim/seq-ccs.js >/dev/null   # the sound's CCs (automation), from mv_params.h
+cp sim/seq-model.js sim/seq-midi.js sim/seq-roll.js sim/seq-auto.js sim/seq-ccs.js sim/seq-panel.js sim/seq-picker.js "$OUT"/   # its Sequences panel (Kris 20 Nov: mv_seqx.h; the Factory clips dialog, 21 Nov)
 cp third_party/fm1-kit/web/theme.css third_party/fm1-kit/web/theme.js third_party/fm1-kit/web/count.js third_party/fm1-kit/web/sim.css "$OUT"/   # the look and the page counter (fm1-kit)
 BUILD=$(date +%Y%m%d%H%M%S)                            # the build stamp: index.html and sim.js ask for
-sed -i "s/__BUILD__/$BUILD/g" "$OUT/index.html" "$OUT/sim.js" "$OUT/editor.html" "$OUT/editor.js"   # ?v=<stamp>, so no stale cached script survives
+sed -i "s/__BUILD__/$BUILD/g" "$OUT/index.html" "$OUT/sim.js" "$OUT/editor.html" "$OUT/editor.js" "$OUT/seq-midi.js" "$OUT/seq-roll.js" "$OUT/seq-auto.js" "$OUT/seq-panel.js" "$OUT/seq-picker.js"   # ?v=<stamp>, so no stale cached script survives
 mkdir -p "$OUT/bank"                                   # the SysEx code the editor imports; the old bank editor (no
                                                        # longer linked: retire it once the library and editor pass)
 cp sim/bank/bank-model.js sim/bank/fm1-midi.js sim/bank/link.js sim/bank/editor.js sim/bank/editor.html "$OUT/bank/"

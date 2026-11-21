@@ -56,6 +56,10 @@ SDK_SHA256 = {
 
 BOARD = "fm1"                       # fm1 (default) or smk37: BOARD env or --board
 BOARD_PREFIX = {"fm1": "FM-1_96808", "smk37": "SMK-37 Pro_96"}   # identity: prefix + minor (0: a dev build)
+# Bluetooth MIDI (Kris 19 Nov): fm1-kit's fk_ble, the own BLE stack (no JieLi library). --no-ble leaves it out
+BLE = True
+KIT_BLE = SRC / "third_party" / "fm1-kit" / "firmware" / "fk_ble"
+BLE_INC = [f"-I{KIT_BLE}", f"-I{KIT_BLE / 'chip'}", f"-I{KIT_BLE / 'stack'}"]
 BOARD_DEFS = {"fm1": [], "smk37": ["-DBOARD_SMK37=1"]}
 MODELS = {"pro": "SMK-37 Pro", "elite": "SMK-37 Elite", "mke": "MKE-P37"}   # smk37: one keyboard, three names
 DATA_FAMILY = "MVANCE"              # the SMK store's owner tag (store.h): 1..7 of A-Z 0-9. Your fork: your own
@@ -64,6 +68,19 @@ SCREEN_COLOUR = 0xFC00              # orange, #FF8000
 PRODUCT = "FM-1_968080"             # M-vance: 96808N (FM-1_960 is taken on the hub; 968080 checked free 2026-11-08; Dinghy is 99N).
                                     # Resume after a cut-off install keys on the loader (ota-FM-1_900), not this. Your fork: pick your own
 VERSION = None                      # APP_VER for release builds
+
+
+def git_version():
+    """A dev build's display/SysEx version from the nearest git tag (v2.6.3 -> '2.6.3'), used when no --release is
+    given. Only the digits reach the SysEx identity (mv_xfer.h), so keep it dotted-numeric; '0.0' if git is away."""
+    try:
+        r = subprocess.run(["git", "describe", "--tags", "--abbrev=0"],
+                           cwd=SRC, capture_output=True, text=True, timeout=5)
+        if r.returncode == 0 and r.stdout.strip():
+            return re.split(r"[-+]", r.stdout.strip().lstrip("vV"))[0] or "0.0"
+    except Exception:
+        pass
+    return "0.0"
 
 
 def toolchain():
@@ -168,7 +185,8 @@ def build_loader():
 
 def build_app():
     flags = [*CFLAGS, *BOARD_DEFS[BOARD], "-Ifirmware/hal", "-Ifirmware/src", "-Ifirmware/gen", f'-DFELUCCA_ID="{PRODUCT}"',
-             f'-DAPP_VER="{VERSION or "0.0"}"']
+             f'-DAPP_VER="{VERSION or git_version()}"']
+    flags += BLE_INC if BLE else ["-DFK_BLE=0"]   # (fk_ble.c and its headers; FK_BLE 0: platform.c leaves it out)
     if BOARD == "smk37":
         if not re.fullmatch(r"[A-Z0-9]{1,7}", DATA_FAMILY):
             raise SystemExit("DATA_FAMILY: 1..7 of A-Z 0-9")
@@ -311,13 +329,14 @@ def mmio_check():
 
 
 def main():
-    global PRODUCT, VERSION, BOARD, APP_SLOT
+    global PRODUCT, VERSION, BOARD, APP_SLOT, BLE
     ap = argparse.ArgumentParser()
     ap.add_argument("--release", metavar="X.Y", help="release build: identity FM-1_96808Y, version string X.Y")
     ap.add_argument("--board", choices=sorted(BOARD_PREFIX), default=None,
                     help="target board: fm1 (default) or smk37 (default: $BOARD, else fm1)")
     ap.add_argument("--model", choices=sorted(MODELS), default=None,
                     help="smk37: the model name, pro (default), elite or mke (default: $MODEL, else pro)")
+    ap.add_argument("--no-ble", action="store_true", help="without Bluetooth MIDI (FK_BLE=0): NAME-usb.fwsc")
     ap.add_argument("--sdk", type=Path, help="JieLi AC79 SDK checkout (default: $AC79_SDK)")
     a = ap.parse_args()
     BOARD = (a.board or os.environ.get("BOARD") or "fm1").lower().replace("-", "")
@@ -329,6 +348,9 @@ def main():
     fm1pkg_make.set_board(BOARD)
     APP_SLOT = fm1pkg_make.APP_SLOT
     suffix = "" if BOARD == "fm1" else "-" + BOARD
+    BLE = not a.no_ble and BOARD == "fm1"       # (platform.c: FK_BLE is the FM-1's only, for now)
+    if a.no_ble and BOARD == "fm1":
+        suffix += "-usb"
     if model != "pro":              # another model name: identity, loader and update record (fm1_cc.h SMK_MODEL)
         BOARD_DEFS[BOARD] = [*BOARD_DEFS[BOARD], f'-DSMK_MODEL="{MODELS[model]}"']
         BOARD_PREFIX[BOARD] = BOARD_PREFIX[BOARD].replace(MODELS["pro"], MODELS[model])

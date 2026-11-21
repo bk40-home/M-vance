@@ -14,7 +14,8 @@
                                Needs an fm1-dock checkout in WSL (FM1_DOCK, default ~/fm1-dock: cloned the first time)
                                and the same JieLi toolchain (JIELI_TOOLCHAIN) as the firmware.
     -Serve                     after a sim build (or on its own), serve docs\ on http://localhost:<ServePort>.
-    -Bank <file.syx>           rebuild the factory bank first (make_bank --from-device); path is repo-relative.
+    -Bank <file.syx>           rebuild the factory bank first (make_bank --from-device); the path is repo-relative,
+                               or a full Windows path (quotes from Explorer's "Copy as path" are fine).
     -SkipTests / -NoInstall    as before.
     -Defs "<-D...>"            build the firmware with these defines (DINGHY_DEFS), e.g. a trial of the build switches
                                in firmware/src/mv_build.h. The unit tests run as normal; the next build without -Defs
@@ -82,6 +83,7 @@ if ($PSBoundParameters.Count -eq 0) {
     Write-Host ""
     Write-Host "  M-vance" -ForegroundColor Yellow
     Write-Host "  1  Firmware: test, build, flash the FM-1   (default)"
+    Write-Host "  F  Firmware: build, flash the FM-1, no tests (quick)"
     Write-Host "  2  Firmware: test and build only (no flash)"
     Write-Host "  3  Simulator: build (docs\sim)"
     Write-Host "  4  Simulator: build and serve"
@@ -95,11 +97,12 @@ if ($PSBoundParameters.Count -eq 0) {
     if ([string]::IsNullOrWhiteSpace($choice)) { $choice = "1" }
     switch ($choice.ToUpper()) {
         "1" { $doTests = $true; $doFirmware = $true; $doInstall = $true }
+        "F" { $doFirmware = $true; $doInstall = $true }   # (as -SkipTests: Kris 21 Nov)
         "2" { $doTests = $true; $doFirmware = $true }
         "3" { $doSim = $true }
         "4" { $doSim = $true; $doServe = $true }
         "5" { $doTests = $true; $doFirmware = $true; $doInstall = $true; $doSim = $true; $doServe = $true }
-        "6" { $bankFile = Read-Host "Factory bank .syx (relative to the repo)"
+        "6" { $bankFile = Read-Host "Factory bank .syx (full path, or relative to the repo)"
               if ([string]::IsNullOrWhiteSpace($bankFile)) { Finish 1 "No bank file given." }
               $doTests = $true; $doFirmware = $true; $doInstall = $true }
         "7" { $doServe = $true }
@@ -127,8 +130,27 @@ if ($Defs -and $Defs -notmatch '^[-A-Za-z0-9_=. ]+$') { Finish 1 "-Defs: only -D
 $buildCmd = if ($Defs) { "DINGHY_DEFS='$Defs' sh build.sh" } else { "sh build.sh" }
 if ($Defs -and $doFirmware) { Write-Host "`nFirmware build with: $Defs   (run .\flash.ps1 again without it for the normal firmware)" -ForegroundColor Yellow }
 
+# ---- the bank file (-Bank / menu 6; Kris 21 Nov): repo-relative, or a full Windows path (typed, pasted, or dragged in
+# from Explorer, quotes and all). Checked here, then handed to WSL as a path it can read: repo-relative when the file is
+# inside the repo, else /mnt/<drive>/... A ' in the path is refused (the WSL command puts the path in single quotes).
+function Resolve-BankFile([string]$p) {
+    $p = $p.Trim().Trim('"').Trim("'").Trim()
+    if (-not $p) { Finish 1 "No bank file given." }
+    $full = if ([System.IO.Path]::IsPathRooted($p)) { $p } else { Join-Path $root $p }
+    if (-not (Test-Path -LiteralPath $full -PathType Leaf)) { Finish 1 "Bank file not found: $full" }
+    $full = (Resolve-Path -LiteralPath $full).ProviderPath
+    if ($full.Contains("'")) { Finish 1 "Bank file: a path with ' in it can't be passed to WSL. Rename it: $full" }
+    $rootFull = (Resolve-Path -LiteralPath $root).ProviderPath.TrimEnd('\') + '\'
+    if ($full.StartsWith($rootFull, [System.StringComparison]::OrdinalIgnoreCase)) {
+        return $full.Substring($rootFull.Length).Replace('\', '/')
+    }
+    if ($full -match '^([A-Za-z]):\\(.*)$') { return "/mnt/$($Matches[1].ToLower())/$($Matches[2].Replace('\', '/'))" }
+    Finish 1 "Bank file: only a file on a drive letter can be passed to WSL: $full"
+}
+
 # ---- 0. rebuild the factory bank first (optional): make_bank --from-device <file.syx>
 if ($bankFile) {
+    $bankFile = Resolve-BankFile $bankFile
     $rc = Invoke-Wsl "bank" "python3 tools/make_bank.py --from-device '$bankFile'"
     if ($rc -ne 0) { Finish $rc "Bank rebuild FAILED (exit $rc): nothing else built." }
 }

@@ -32,6 +32,8 @@ typedef struct {
     uint32_t bpm, running;                      /* an incoming clock's tempo (0 = none), and START / STOP */
     int prof;                                   /* 1: the PROFILE row (MV_PROFILE builds) */
     uint32_t osc_pc, flt_pc, etc_pc;            /* its shares, % of the buffer */
+    uint32_t cores;                             /* 1 or 2 cores rendering voices */
+    uint32_t c1_pc, wait_pc;                    /* CPU1's voice render, CPU0's wait at the join, % of the buffer */
 } mv_debug_t;
 
 /* the rows that changed since the last call; all: every row (the page was just entered: the screen is clear) */
