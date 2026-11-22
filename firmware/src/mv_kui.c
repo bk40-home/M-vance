@@ -8,7 +8,7 @@
 #include "mv_kui.h"
 
 enum { G_NONE, G_LFO1, G_LFO2, G_OSC1, G_OSC2, G_MIX, G_PENV, G_FENV, G_AENV, G_FILT, G_AMP, G_TONE, G_MFX, G_DELAY,
-       G_REVERB, G_VOICE, G_UNISON, G_PERF1, G_PERF2, G_GLOB1, G_GLOB2, G_MIDI, G_DEBUG, G_ARP, G_SEQ, G_CLIP, G_SAVE,
+       G_REVERB, G_VOICE, G_UNISON, G_PERF1, G_PERF2, G_GLOB1, G_GLOB2, G_MIDI, G_KEYS, G_DEBUG, G_ARP, G_SEQ, G_CLIP, G_SAVE,
        G_HOME, G_OVL, G_LIST, G_BANK, G_XFER };
 
 static struct {
@@ -87,6 +87,8 @@ static uint32_t kui_choice(uint32_t p, uint32_t *idx)
     case P_PF + MV_PF_ARP: *idx = eng.perf[MV_PF_ARP] & 3u; return 4;
     case P_PANEL: *idx = u->panel; return 3;
     case P_LOCAL: case P_CLKSRC: case P_CLKOUT: case P_BT: *idx = midi_bit(u->midi, p); return 2;
+    case P_TOUCH: *idx = u->touch; return 2;
+    case P_PVELO: *idx = u->pvelo; return 2;
     case P_LSYNC: *idx = eng.perf[MV_PF_SYNC(ui_part(&eng, p, &both))]; return MV_LFO1_SYNC_N;
     case P_CSYNC: *idx = eng.perf[MV_PF_CSYNUP]; return MV_CSYNC_N;
     case P_DSYNC: *idx = eng.perf[MV_PF_DSYNUP]; return MV_DSYNC_N;
@@ -746,6 +748,34 @@ static void g_midi(void)
     seg((PX0 + 28) * 16, (PY0 + 27) * 16, (PX0 + 28) * 16, (PY0 + 35) * 16, 20, KT.theme);   /* the keys to USB */
 }
 
+/* GLO > KEYS (Kris 22 Nov): what the keys play, live, to set CURVE and SENS by: the last velocity, CONTROL (the
+ * pressure that morphs), a bar a key (F3..C5 their pressure; C#5..G5 velocity only: a stub) */
+static void g_keys(void)
+{
+    const int on = KU.u->touch != 0u;
+    const uint32_t held = fk_touch_keys();
+    char s[16];
+    uint32_t k;
+    txt(PX0 + 2, PY0 - 4, &FONT_LAB, "LAST VELOCITY", KT.dim);
+    if (on && fk_touch_last_vel()) ku(s, fk_touch_last_vel()); else ks(s, "-");
+    txt(PX0 + 2, PY0 + 8, &FONT_BIG, s, on ? KT.text : KT.dim);
+    txt(PX0 + 120, PY0 - 4, &FONT_LAB, "CONTROL", KT.dim);
+    ku(s, eng.ctl);
+    txt(PX0 + 120, PY0 + 8, &FONT_BIG, s, eng.ctl ? KT.accent : KT.dim);
+    for (k = 0; k < FK_TOUCH_NKEYS; k++) {     /* 27 keys, 8 px apart */
+        const int32_t x = PX0 + 2 + (int32_t)k * 8, y0 = PY0 + 44, h = PY1 - 14 - y0;
+        const int sensed = (FK_TOUCH_ANALOG >> k & 1u) != 0u, down = (held >> k & 1u) != 0u;
+        if (!sensed) { fill(x, y0 + h - 4, 6, 4, down ? KT.theme : KT.line); continue; }
+        fill(x, y0, 6, h, KT.line);
+        if (on && down) {
+            const int32_t bh = (int32_t)fk_touch_pressure(k) * h / 127;
+            fill(x, y0, 6, h, KT.fill);
+            fill(x, y0 + h - bh, 6, bh, KT.accent);
+        }
+    }
+    txt(PX0 + 2, PY1 - 12, &FONT_LAB, on ? "PRESSURE ON F3 .. C5" : "TOUCH OFF: VELOCITY 100", KT.dim);
+}
+
 #if MV_DEBUG
 static void dbg_bar(int32_t y, const char *lab, uint32_t pc)
 {
@@ -1035,6 +1065,7 @@ static void kui_render(uint32_t kind)
     case G_GLOB1: g_glob1(); break;
     case G_GLOB2: g_glob2(); break;
     case G_MIDI: g_midi(); break;
+    case G_KEYS: g_keys(); break;
 #if MV_DEBUG
     case G_DEBUG: g_debug(); break;
 #endif
@@ -1092,6 +1123,7 @@ static uint32_t page_kind(const ui_page_t *pg)
     case P_MIDICH: return G_GLOB1;
     case P_THEME: return G_GLOB2;
     case P_LOCAL: return G_MIDI;
+    case P_TOUCH: return G_KEYS;
     case P_DEBUG: return G_DEBUG;
     case P_SQLEN: return G_SEQ;
     case P_CL: return G_CLIP;
@@ -1220,6 +1252,13 @@ static void kui_page(const mv_ui_t *u, int live)
 #endif
     if (kind == G_GLOB1 || kind == G_MIDI) key = hsh(key, clk_bpm);
     if (kind == G_MIDI) key = hsh(key, (uint32_t)fk_ble_state());   /* (BT MIDI: ON / LINKED) */
+    if (kind == G_KEYS) {                       /* KEYS: live, up to 25 a second */
+        const uint32_t held = fk_touch_keys();
+        uint32_t c;
+        key = hsh(hsh(hsh(key, held), fk_touch_last_vel() << 8 ^ eng.ctl), (uint32_t)KU.u->touch << 1 | KU.u->pvelo);
+        for (c = 0; c < FK_TOUCH_NKEYS; c++) if (held >> c & 1u) key = hsh(key, fk_touch_pressure(c) >> 2 | c << 8);
+        ms = 40u;
+    }
     kit_panel(kui_render, kind, key, ms);
     if (live) kui_foot();
 }

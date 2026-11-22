@@ -119,6 +119,10 @@ static void fm1__led_lines(uint32_t rowmask)
     }
 }
 
+/* the analog key rows (velocity and pressure, fm1-kit's fk_touch): felucca-bsp's, MPL-2.0, in their own file. Off
+ * (fm1_an.con 0) the tick below is as it was */
+#include "fm1_input_an.h"
+
 static void fm1__sr_bit(uint32_t w, uint32_t i)  /* bit i of w (msb first) into the 595 */
 {
     if (w & (0x8000u >> i))
@@ -294,6 +298,8 @@ static void fm1_input_tick(void)
     uint32_t lit = fm1_led[p], a = fm1_led_dim[p] & ~lit, b = fm1_led_bg[p] & ~lit & ~a;
     uint32_t ta = a ? FM1__NS_T(FM1_GLOW_NS) : 0u, tb = b ? FM1__NS_T(fm1_led_bg_ns) : 0u;
     uint32_t tmax = ta > tb ? ta : tb;
+    if (fm1_an.pend)                               /* the analog rows: the conversion started last tick, on column p */
+        fm1__an_take();
     fm1__led_lines(0);
     fm1_in.raw[p] = (uint8_t)fm1__rows();          /* column p has been latched one tick (the lines dark) */
     if (tmax) {
@@ -313,7 +319,12 @@ static void fm1_input_tick(void)
     } else {
         fm1__sr_word(w);
     }
-    fm1__led_lines(fm1_led[n]);
+    if (n == 0u)                                   /* a new frame: the analog rows' turn (PA7, PA8, the probe) */
+        fm1_an.phase = (uint8_t)(fm1_an.phase + 1u >= 2u + (fm1_an.probe != 0u) ? 0u : fm1_an.phase + 1u);
+    if (fm1_an.con)
+        fm1__an_start(n, fm1_led[n]);              /* lights column n and samples it until the next tick */
+    else
+        fm1__led_lines(fm1_led[n]);
     fm1__tick_col = (uint8_t)n;
     fm1__keys(p);                                  /* its keys now: no wait for the frame's end */
     if (n == 0u)

@@ -1,0 +1,38 @@
+# GLO > KEYS (Kris 22 Nov: fm1-kit fk_touch, the JP's VELOCITY and CONTROL). The kit's screens (MV_UI_KIT 1, the
+# default): GLO eight times (PLAY MODE 1/2 2/2, PERFORM 1/2 2/2, GLOBAL 1/2 2/2, MIDI, KEYS). FM-1 ids: KNOB1..4 enc
+# 2..5 (TOUCH, CURVE, SENS, VELO SW); GLO 7. Program 1 (Pluck 01): VELO SW on, VELOCITY CUTOFF +22; CONTROL moves
+# AMP LFO1 / LFO2 / AMP ENV A / BASS / TREBLE. tests/run_host.sh tests/scripts/touch.txt, then check the WAV by part:
+#   1.0-2.0 s  VELO SW OFF: a note at 20 and at 127 sound the same (as before: velocity ignored)
+#   2.2-3.2 s  VELO SW PATCH: the same two notes differ (127 is brighter: CUTOFF +22)
+#   3.4-4.0 s  a held note; MIDI channel pressure 127 at 3.6 s morphs it (CONTROL), 0 at 3.8 s puts it back
+#   4.2 s      TOUCH ON: the keys through fm1-base's key model ("T touch K V P"); their velocity in the note-ons out,
+#              key 9 leant on 60 % sends channel pressure (D0) up to ~76 and the sound morphs; back to 0 at release
+100 btn 7
+200 btn 7
+300 btn 7
+400 btn 7
+500 btn 7
+600 btn 7
+700 btn 7
+800 btn 7
+900 shot
+1000 midi 0x90 60 20
+1400 midi 0x80 60 0
+1600 midi 0x90 60 127
+2000 midi 0x80 60 0
+2100 enc 5 1
+2200 midi 0x90 60 20
+2600 midi 0x80 60 0
+2800 midi 0x90 60 127
+3200 midi 0x80 60 0
+3400 midi 0x90 60 100
+3600 midi 0xD0 127 0
+3800 midi 0xD0 0 0
+4000 midi 0x80 60 0
+4200 enc 2 1
+4400 touch 9 90 60
+5100 shot
+5300 touch 9 0 0
+5500 touch 0 30 0
+5800 touch 0 0 0
+6200 end

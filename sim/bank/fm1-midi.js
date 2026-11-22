@@ -39,10 +39,12 @@ export class FM1 {
   // onTemp(msg): a DT1 to what plays (01 00) from the FM-1: a dump or a linked report (link.js; Kris 13 Nov, Part B).
   // onProgram(n, ch): a Program Change from the FM-1 (PRESETS turned)
   // onSeq(msg): a DT1 of the sequencer's area 04 (a track, a clip, a head: ../seq-model.js; Kris 20 Nov)
+  // onLive(msg): what the FM-1 plays: its MIDI clock, START / CONTINUE / STOP (CLK OUT on) and its keys' notes
+  //   (../mirror.js; Kris 22 Nov)
   constructor({ gapMs = GAP_MS, quietMs = QUIET_MS, onProgress = () => {}, onPorts = () => {},
-                onTemp = () => {}, onProgram = () => {}, onSeq = () => {},
+                onTemp = () => {}, onProgram = () => {}, onSeq = () => {}, onLive = () => {},
                 sleep = (ms) => new Promise((r) => setTimeout(r, ms)) } = {}) {
-    Object.assign(this, { gapMs, quietMs, onProgress, onPorts, onTemp, onProgram, onSeq, sleep });
+    Object.assign(this, { gapMs, quietMs, onProgress, onPorts, onTemp, onProgram, onSeq, onLive, sleep });
     this.access = null; this.out = null; this.inp = null;
     this.rx = new Map();                  // pp -> [4 messages], what a read collected
     this.rxWait = null;                   // a read in progress: { poke }
@@ -109,6 +111,9 @@ export class FM1 {
   // from the FM-1: a Program Change (onProgram), a DT1 to what plays (onTemp), or the performance messages
   // (03 pp 00 / 40 / 42 / 70) of a read (kept here)
   onMidi(m) {
+    if (m[0] === 0xf8 || m[0] === 0xfa || m[0] === 0xfb || m[0] === 0xfc || ((m[0] & 0xe0) === 0x80 && m.length >= 3)) {
+      this.onLive(m); return;
+    }
     if ((m[0] & 0xf0) === 0xc0 && m.length >= 2) { this.onProgram(m[1], m[0] & 15); return; }
     if (m[0] === 0xf0 && m[1] === 0x41 && m[4] === 0x06 && m[5] === 0x12 && m[6] === 0x01) {
       this.onTemp(new Uint8Array(m)); return;

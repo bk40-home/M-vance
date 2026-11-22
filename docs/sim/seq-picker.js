@@ -17,8 +17,8 @@
 //                change goes to the shelf first. A track holds 128 notes: a longer part is a factory clip only
 // The rules (the tool's order, names, loops, which parts a list picks) are seq-midi.js's, checked against the tool.
 // opts: status(msg, bad), audition(lane 0|1, clip, label): Promise
-import * as M from './seq-midi.js?v=20261121150209';
-import { noteCount, notesOf, MAXEV, MAXBAR } from './seq-model.js?v=20261121150209';
+import * as M from './seq-midi.js?v=20261122212620';
+import { noteCount, notesOf, MAXEV, MAXBAR } from './seq-model.js?v=20261122212620';
 
 const ROLL_W = 132, ROLL_H = 22;           // a part's small roll (CSS px)
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));

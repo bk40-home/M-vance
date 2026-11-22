@@ -31,6 +31,7 @@ if command -v node >/dev/null 2>&1; then
     node sim/bank/bank-test.mjs && node sim/bank/link-test.mjs   # (the SysEx and link code the editor and library use)
     node sim/seq-model-test.mjs build/host/mvance-seqx   # the Sequences panel's SysEx, and against the host build (Kris 20 Nov)
     node sim/seq-midi-test.mjs                    # its MIDI import: the same loops and events as tools/mid2clip.py
+    node sim/mirror-test.mjs build/host/mvance-seqx   # Link FM-1: what it plays, mirrored into the sim (Kris 22 Nov)
 else
     echo "note: the library tests skipped (no node)"
 fi

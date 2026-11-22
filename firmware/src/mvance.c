@@ -207,7 +207,13 @@ static mv_roll_t roll __attribute__((section(".pool")));   /* what it shows (mai
  * layout (34 bytes) is new with the arp: the first boot after it starts from the defaults, once */
 #define SPARE 14u
 static struct { uint8_t oct, ch, rv[MV_RV_N], arp[MV_ARP_N], tempo, prog, bank[4], seq[MV_SQ_N], seqf, midi,
-                theme, colour, spare[SPARE - 8u - MV_SQ_N]; } set;
+                theme, colour, spare[SPARE - 8u - MV_SQ_N];
+                uint8_t touch; int8_t vcurve, psens; uint8_t pvelo, spare2[4]; } set;
+/* touch .. pvelo (Kris 22 Nov): GLO > KEYS. TOUCH 1 ON (velocity and pressure from the keys: fm1-kit fk_touch), CURVE
+ * and SENS -5..+5, PATCH VELO 1 ON (the patches' JP VELOCITY offsets: eng.pvelo). The spares were all taken, so the
+ * record grew: one from before loads by its old size (KEYS_OLD), with all four 0: OFF, 0, 0, OFF. spare2: 4 for the
+ * next ones (take one, keep the size) */
+#define KEYS_OLD __builtin_offsetof(__typeof__(set), touch)
 /* midi: one more spare (Kris 7 Nov, DAW use, 6a): the MIDI page's MV_MIDI_* bits (mv_ui.h). A record from before has 0
  * there: LOCAL ON, CLOCK AUTO, CLK OUT OFF, which is how it behaved.
  * LOCAL is never kept (Kris 8 Nov): every power-up starts LOCAL ON, so a keyboard left silent after a DAW session is
@@ -262,6 +268,14 @@ static uint32_t part_ch(uint32_t part)          /* 0..15: a part's MIDI channel 
  * where they play, arpeggiate and record as any MIDI note). A key remembers whether it played here (KEY_LOCAL beside
  * its channels), so turning LOCAL over while it is held neither leaves a note hanging nor cuts an echoed one short */
 #define KEY_LOCAL (1u << 16)
+/* CONTROL, the JP's morph (Kris 22 Nov, 5a): the harder of the keys' pressure (src 0) and MIDI channel pressure (src 1);
+ * a patch with BEND MORPH ON adds the bend's upper half in the engine */
+static uint8_t ctl_src[2];
+static void ctl_from(uint32_t src, uint32_t v)
+{
+    ctl_src[src & 1u] = (uint8_t)(v > 127u ? 127u : v);
+    eng.ctl = ctl_src[0] > ctl_src[1] ? ctl_src[0] : ctl_src[1];
+}
 /* a key down: played on its part(s) (LOCAL ON), sent on their channel(s); returned: the channels (bit per channel) and
  * KEY_LOCAL if it sounds here; 0 nothing */
 static uint32_t key_on(uint32_t note, uint32_t vel)
@@ -546,6 +560,7 @@ static void midi_in(void)
             if (ty == 0x80u || ty == 0x90u) { mv_engine_note_to(&eng, d1, 0, to); continue; }
         }
         if (ty == 0xE0u) eng.bend14 = (int32_t)((uint32_t)d2 << 7 | d1) - 8192;   /* pitch bend */
+        else if (ty == 0xD0u) ctl_from(1u, d1);  /* channel pressure: the JP's CONTROL (morph) */
         else if (ty == 0xB0u && d1 == 1u) eng.wheel = d2;                            /* mod wheel: LFO2 in */
         else if (ty == 0xB0u) {                 /* the JP MODE2 CCs: into the part(s) PANEL edits (not by channel, as the
                                                    JT: one keyboard on one channel can still edit either part) */
@@ -612,8 +627,14 @@ static void app_main(void)
 #endif
     mv_engine_init(&eng);                       /* (before the ISR renders a note: nothing is queued yet) */
     {
-        int bad = settings_load(&set, sizeof set) || (int8_t)set.oct < -2 || (int8_t)set.oct > 2 || set.ch > 16u;
+        int bad = (settings_load(&set, sizeof set) && settings_load(&set, KEYS_OLD)) || (int8_t)set.oct < -2 ||
+                  (int8_t)set.oct > 2 || set.ch > 16u;   /* (a record from before KEYS: its own size, KEYS all 0) */
         if (bad) set.oct = 0, set.ch = 0;
+        if (bad || set.touch > 1u || set.vcurve < -5 || set.vcurve > 5 || set.psens < -5 || set.psens > 5 || set.pvelo > 1u)
+            set.touch = 0, set.vcurve = 0, set.psens = 0, set.pvelo = 0;   /* KEYS: OFF, 0, 0, OFF */
+        fk_touch_set(set.vcurve, set.psens);
+        fk_touch_enable(set.touch);
+        eng.pvelo = set.pvelo;
         for (k = 0; k < MV_RV_N; k++) {         /* the reverb's settings to the engine: defaults (off) when the load
                                                    failed, each held in range */
             if (bad || set.rv[k] > (k == MV_RV_FREEZE ? 1u : 127u)) set.rv[k] = 0;
@@ -659,6 +680,7 @@ static void app_main(void)
     prog_to_engine(set.prog);                   /* the program last played (the ISR reads the bytes live) */
     mv_ui_init(&ui, &prog);
     ui.midi = set.midi;                         /* the MIDI page's settings (loaded above) */
+    ui.touch = set.touch; ui.vcurve = set.vcurve; ui.psens = set.psens; ui.pvelo = set.pvelo;   /* KEYS (above) */
     fk_ble_enable(!(ui.midi & MV_MIDI_BTOFF));  /* BLUETOOTH ON (a record from before: ON): the radio calibrates (~0.5 s;
                                                    the first second silent) and advertises */
 #if MV_SEQ
@@ -708,7 +730,8 @@ pass:
         uint32_t base = (uint32_t)((int32_t)KEY0 + 12 * oct);
         platform_poll();
 
-        keys = fm1_in.notes;                    /* bit k: key k (0 = F3 .. 26 = G5) */
+        fk_touch_poll();                        /* GLO > KEYS TOUCH ON: the keys' velocity and pressure (fm1-kit fk_touch) */
+        keys = fk_touch_keys();                 /* bit k: key k (0 = F3 .. 26 = G5); TOUCH OFF: fm1_in.notes */
         down = keys & ~prev;
         up = prev & ~keys;
         prev = keys;
@@ -716,7 +739,7 @@ pass:
 #if BOARD_SMK37
             uint32_t vel = fm1_in.key_vel[SMK_KEY_F3 + k];   /* the SMK's keys feel the velocity */
 #else
-            uint32_t vel = 100;
+            uint32_t vel = down >> k & 1u ? fk_touch_vel(k) : 100u;   /* (TOUCH OFF: 100, as ever) */
 #endif
             if ((down >> k & 1u) && mv_ui_split_learn(&ui)) {   /* PERFORM's SPLIT just touched: the key IS the split */
                 eng.perf[MV_PF_SPLIT] = (uint8_t)(base + k);
@@ -726,6 +749,18 @@ pass:
             }
             if (down >> k & 1u) { held[k] = (uint8_t)(base + k); held_ch[k] = key_on(held[k], vel); }
             if ((up >> k & 1u) && held[k] < 128u) key_off(held[k], held_ch[k]);
+        }
+        {   /* the keys' pressure (F3..C5, the hardest-pressed one): CONTROL here, and channel pressure out on the
+             * channel(s) the keys play on (LOCAL OFF too: a DAW records it) */
+            static uint8_t press_out;
+            const uint32_t pr = fk_touch_channel_pressure();   /* (TOUCH OFF: 0) */
+            if (pr != press_out) {
+                const uint32_t cu = part_ch(MV_PART_UP), cl = part_ch(MV_PART_LO);
+                press_out = (uint8_t)pr;
+                ctl_from(0u, pr);
+                midi_send(0xD0u | cu, pr, 0);
+                if (eng.perf[MV_PF_MODE] != MV_KEY_SINGLE && cl != cu) midi_send(0xD0u | cl, pr, 0);
+            }
         }
 #if BOARD_SMK37
         while ((e = smk_extkey_take()) >= 0) {  /* the keys left and right of the FM-1's 27: key << 8 | velocity */
@@ -797,6 +832,10 @@ pass:
 #if MV_UI_KIT
                 set.theme = ui.theme; set.colour = ui.colour;   /* GLOBAL 2/2 */
 #endif
+                if (ui.touch != set.touch) fk_touch_enable(ui.touch);   /* KEYS (the keys change hands: held ones end) */
+                set.touch = ui.touch; set.vcurve = ui.vcurve; set.psens = ui.psens; set.pvelo = ui.pvelo;
+                fk_touch_set(set.vcurve, set.psens);
+                eng.pvelo = set.pvelo;
                 dirty = 1; t_change = fm1_ms;
             }
 #if defined(DINGHY_WEBSIM)

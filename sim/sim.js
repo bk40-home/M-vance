@@ -8,8 +8,11 @@
 //    hear the FM-1); its knobs and buttons still drive the sim, whose edits go to the FM-1 as they happen, and the
 //    FM-1's own edits show here. The keys (and a MIDI keyboard) play the FM-1, OCT moves their octave, PRESETS sends
 //    the FM-1 a Program Change (its new sound then comes here).
+//    Linked, the sim also mirrors what the FM-1 plays (Kris 22 Nov: mirror.js): its tracks, its clock and START / STOP
+//    (CLK OUT on), its keys' notes and the notes played here, so the muted sim's scope, keys and SEQ pages show it.
 //  (Every page at once lives on the sound editor: editor.html; the banks on the library: ../library.html.)
 import { Link, GAP_MS } from './bank/link.js?v=__BUILD__';   // ?v: build.sh's stamp
+import { Mirror } from './mirror.js?v=__BUILD__';
 
 let M, pull, ctx, node, fbPtr, pullBuf;
 let apiKeys, apiBtn, apiEnc, apiMidi, apiSysex, sxBuf;   // the cwrapped engine entry points (mv_websim.h)
@@ -23,6 +26,8 @@ let midiOut = null;                      // the FM-1's MIDI output (found by nam
 let controller = false;                  // Link FM-1 on: the keys play the FM-1, the sim is muted (the name kept from
                                          // the controller mode it replaced)
 let link = null;                         // the sim's sound and the FM-1's, kept the same (bank/link.js)
+let mirror = null;                       // linked: what the FM-1 plays, mirrored into the sim (mirror.js)
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 let webOct = 0, progSel = 0, noteMask = 0;
 const held = new Int16Array(27).fill(-1);          // the MIDI note each key is sounding on the device (-1 = up)
 const ENC_PRESETS = 6;                             // platform.c, the FM-1 layout
@@ -47,6 +52,18 @@ async function boot() {
   M.onSysEx = (bytes) => { const m = new Uint8Array(bytes); queueMicrotask(() => link.fromSim(m)); };
   link = new Link({ simSend: sysexIn, onChange: () => setMode() });
   link.linkSim();                               // (the sim always reports to the page; the FM-1 only when linked)
+  // the mirror reads the FM-1's tracks itself (this page has no Sequences panel): one message at a time, the sound's
+  // pushes held meanwhile (the FM-1 holds one received message at a time)
+  mirror = new Mirror({
+    simSysex: sysexIn,
+    simMidi: (st, d1, d2) => apiMidi(st, d1, d2),
+    readFm1: async (msgs) => {
+      link.hold = true;
+      try { for (const m of msgs) { await sleep(GAP_MS); if (midiOut) midiOut.send(m); } await sleep(GAP_MS); }
+      finally { link.hold = false; }
+    },
+    onState: () => setMode(),
+  });
   setInterval(() => link.tick(), GAP_MS);
   setInterval(pump, 8);                         // the sim's clock runs with the frames pulled: always (muted: dropped)
   wireInput();
@@ -110,7 +127,9 @@ function setMode() {
   if (!el) return;
   const oct = `oct ${webOct >= 0 ? '+' : ''}${webOct}`;
   el.textContent = !controller ? (midiOut ? 'Emulator  ·  FM-1 found' : 'Emulator')
-    : link && link.linked ? `● Linked to FM-1  ·  prog ${progSel + 1}  ·  ${oct}` : 'Linking to FM-1…';
+    : link && link.linked ? `● Linked to FM-1  ·  prog ${progSel + 1}  ·  ${oct}`
+      + (mirror && mirror.clock ? '  ·  following its sequencer' : '  ·  CLK OUT off on the FM-1 (GLO, MIDI): PLAY not followed')
+    : 'Linking to FM-1…';
   el.className = controller && link && link.linked ? 'mode on' : 'mode';
   document.getElementById('link').disabled = !midiOut;
   document.getElementById('link').checked = controller;
@@ -132,8 +151,8 @@ function setLink(on) {
   for (let k = 0; k < 27; k++) noteSet(k, false);                  // no note left hanging: off where it plays now
   noteMask = 0; apiKeys(0);
   controller = on;
-  if (on) link.linkFm1((m) => midiOut.send(m));
-  else { link.unlinkFm1(); held.fill(-1); }
+  if (on) { link.linkFm1((m) => midiOut.send(m)); mirror.start(); }
+  else { link.unlinkFm1(); mirror.stop(); held.fill(-1); }
   setMode();
 }
 
@@ -143,9 +162,10 @@ function noteSet(k, on) {
   if (controller && midiOut) {
     if (on) {
       const n = KEY0_MIDI + k + 12 * webOct;
-      if (n >= 0 && n < 128) { held[k] = n; midiOut.send([0x90, n, 100]); }
+      if (n >= 0 && n < 128) { held[k] = n; midiOut.send([0x90, n, 100]); mirror.note(0x90, n, 100); }
     } else if (held[k] >= 0) {
-      midiOut.send([0x80, held[k], 0]); held[k] = -1;              // off the exact note sent (octave may have moved)
+      midiOut.send([0x80, held[k], 0]); mirror.note(0x80, held[k], 0);   // (the sim too, muted: its keys light)
+      held[k] = -1;                                                 // off the exact note sent (octave may have moved)
     }
     return;
   }
@@ -251,7 +271,8 @@ function wireInput() {
   });
 
   // WebMIDI (with SysEx, for the link): find the FM-1 by name (Link FM-1 is offered); re-scan on hot-plug.
-  //   from the FM-1     its link's DT1s to what plays -> link.js; its Program Changes -> the prog shown
+  //   from the FM-1     its link's DT1s to what plays -> link.js; its Program Changes -> the prog shown; linked, its
+  //                    tracks' reports and reads, clock, START / STOP and notes -> mirror.js
   //   another input    (a keyboard) plays the sim, or, linked, the FM-1
   if (navigator.requestMIDIAccess) {
     const FM1_NAME = /felucca|fm-?1|m-?vance|m-?vave|dinghy/i;
@@ -262,12 +283,16 @@ function wireInput() {
           inp.onmidimessage = (m) => {
             const d = m.data;
             if (fromFm1) {
+              if (controller && mirror.fromFm1(new Uint8Array(d))) return;
               if (d[0] === 0xf0) link.fromFm1(new Uint8Array(d));
               else if ((d[0] & 0xf0) === 0xc0) { progSel = d[1]; setMode(); }
               return;
             }
             if (d.length !== 3) return;
-            if (controller && midiOut) midiOut.send(d);              // linked: a keyboard plays the FM-1
+            if (controller && midiOut) {                            // linked: a keyboard plays the FM-1 (the sim too,
+              midiOut.send(d);                                      // muted: its keys light)
+              if ((d[0] & 0xe0) === 0x80) mirror.note(d[0], d[1], d[2]);
+            }
             else apiMidi(d[0], d[1], d[2]);
           };
         }

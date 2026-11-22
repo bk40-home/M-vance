@@ -6,7 +6,7 @@
  *             Kris 5 Nov), OSC 1, OSC 2 (2), OSC COMMON, PITCH ENV,
  *             FILTER (2), FILTER ENV, AMP, AMP ENV, TONE, MULTI-FX, DELAY, REVERB (2: LEVEL SIZE HI DAMP LO DAMP /
  *             LOWPASS HIPASS FREEZE; global settings, not the patch's, no CC), PLAY MODE (2), GLOBAL (MIDI CH,
- *             VOICES, TEMPO) and ARP (2: global settings)
+ *             VOICES, TEMPO), MIDI, KEYS (TOUCH, CURVE, SENS, VELO SW: Kris 22 Nov) and ARP (2: global settings)
  *             (MIDI channel, voice limit: not in the patch). KNOB1..4 edit the page's 4 parameters, left to right;
  *             a spare 4th knob stays empty (decision 3)
  *   buttons   a section button steps through its pages, looping (Kris's idea): LFO, EDIT (OSC 1 > OSC 2 > OSC 2 >
@@ -100,6 +100,9 @@ typedef struct {
     uint32_t cl_msg_t;                          /* .. from then (fm1_ms) */
     uint8_t midi;                               /* MIDI page (Kris 7 Nov, DAW use): MV_MIDI_* bits, kept in flash (the
                                                    caller loads it from the settings and saves it on MV_UI_SETTING) */
+    uint8_t touch, pvelo;                       /* KEYS page (Kris 22 Nov): TOUCH 1 ON (velocity and pressure from the
+                                                   keys), VELO SW 1 PATCH (the patches' JP VELOCITY offsets apply) .. */
+    int8_t vcurve, psens;                       /* .. CURVE and SENS, -5..+5. Kept in flash as MIDI's are */
 #if MV_UI_KIT
     uint8_t theme, colour;                      /* GLOBAL 2/2 (the screen kit, Kris 14 Nov): the theme (mv_kit.h, 0 AMBER ..)
                                                    and COLOUR (0 THEME, 1 BY TYPE: the name's category). Kept in flash:

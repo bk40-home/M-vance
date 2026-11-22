@@ -16,7 +16,7 @@ enum {
     B_FENV_A, B_FENV_D, B_FENV_S, B_FENV_R, B_AMP_LEVEL, B_AMP_LFO1, B_AMP_LFO2,
     B_AENV_A, B_AENV_D, B_AENV_S, B_AENV_R, B_PAN_MODE,
     B_TONE_BASS = 59, B_TONE_TREBLE = 60, B_BEND_UP = 67, B_BEND_DOWN = 68, B_PORTA_SW, B_PORTA_TIME, B_MONO,
-    B_LEGATO, B_OSC_SHIFT = 73, B_UNISON = 243, B_UNI_DET = 244, B_PATCH_GAIN = 245
+    B_LEGATO, B_OSC_SHIFT = 73, B_MORPH_BEND = 152, B_VELO_SW = 155, B_UNISON = 243, B_UNI_DET = 244, B_PATCH_GAIN = 245
 };
 
 #define LOG2_CTL 4u                             /* MV_CTL = 16 frames */
@@ -58,6 +58,58 @@ static int32_t by_wheel(int32_t x, uint32_t w) { return (int32_t)(((int64_t)x * 
 
 /* a part's patch bytes (UPPER: the patch, LOWER: lower) */
 static const uint8_t *part_b(const mv_engine_t *e, uint32_t i) { return i ? e->lower.b : e->patch.b; }
+
+/* ---- JP-8080 CONTROL and VELOCITY (Kris 22 Nov: claude/touch-velocity-pressure-proposal-2026-11-22.md, WP3).
+ * The 40 morph-able parameters: the byte each moves, and where its CONTROL and VELOCITY offsets are (two 7-bit bytes,
+ * 0..254, 127 = none; mv_params.h). OSC2 RANGE moves within 0..50 (offsets +-50), FINE within 0..100 (+-100), the
+ * rest within 0..127. A parameter played = its byte + CONTROL x ctl / 127 + VELOCITY x vel / 127 (6b: velocity 0 no
+ * offset, 127 all of it), rounded, held to its range. Only these bytes ever differ from the patch's */
+typedef struct { uint8_t at, ctl, vel, hi; } mv_morph_t;
+#define MV_NMORPH 40u
+static const mv_morph_t MORPH[MV_NMORPH] = {
+    {17, 74, 156, 127}, {18, 76, 158, 127}, {19, 78, 160, 127},                      /* LFO1 RATE, FADE; LFO2 RATE */
+    {22, 80, 162, 127}, {23, 82, 164, 127},                                          /* X-MOD, BALANCE */
+    {25, 84, 166, 127}, {26, 86, 168, 127},                                          /* PITCH LFO1, LFO2 */
+    {27, 88, 170, 127}, {28, 90, 172, 127}, {29, 92, 174, 127},                      /* PITCH ENV DEPTH, A, D */
+    {31, 94, 176, 127}, {32, 96, 178, 127},                                          /* OSC1 CTRL1, CTRL2 */
+    {35, 98, 180, 50}, {36, 100, 182, 100}, {37, 102, 184, 127}, {38, 104, 186, 127},   /* OSC2 RANGE FINE CTRL1 2 */
+    {41, 106, 188, 127}, {42, 108, 190, 127}, {43, 110, 192, 127},                   /* CUTOFF, RESO, KEY FOLLOW */
+    {44, 112, 194, 127}, {45, 114, 196, 127}, {46, 116, 198, 127},                   /* FILTER LFO1, LFO2, ENV DEPTH */
+    {47, 118, 200, 127}, {48, 120, 202, 127}, {49, 122, 204, 127}, {50, 124, 206, 127},   /* FILTER ENV A D S R */
+    {51, 126, 208, 127}, {52, 128, 210, 127}, {53, 130, 212, 127},                   /* AMP LEVEL, LFO1, LFO2 */
+    {54, 132, 214, 127}, {55, 134, 216, 127}, {56, 136, 218, 127}, {57, 138, 220, 127},   /* AMP ENV A D S R */
+    {59, 140, 222, 127}, {60, 142, 224, 127},                                        /* TONE BASS, TREBLE */
+    {62, 144, 226, 127}, {64, 146, 228, 127}, {65, 148, 230, 127}, {66, 150, 232, 127},   /* MULTI-FX LEVEL; DELAY */
+    {70, 153, 234, 127},                                                             /* PORTA TIME */
+};
+/* offset x amount / 127 (amount 0..127, offset -127..+127), rounded half away from 0 */
+static int32_t morph_by(int32_t off, uint32_t amount)
+{
+    const int32_t x = off * (int32_t)amount;
+    return (x >= 0 ? x + 63 : x - 63) / 127;
+}
+/* the 40 bytes of dst from b's: b's byte + its CONTROL offset x ctl + (vel: its VELOCITY offset x vel). dst's other
+ * bytes are not touched (the caller copied them from b) */
+static void morph_set(uint8_t *dst, const uint8_t *b, uint32_t ctl, uint32_t vel)
+{
+    uint32_t i;
+    for (i = 0; i < MV_NMORPH; i++) {
+        const mv_morph_t *m = &MORPH[i];
+        int32_t v = b[m->at];
+        if (ctl) v += morph_by((int32_t)((uint32_t)b[m->ctl] << 7 | b[m->ctl + 1u]) - 127, ctl);
+        if (vel) v += morph_by((int32_t)((uint32_t)b[m->vel] << 7 | b[m->vel + 1u]) - 127, vel);
+        dst[m->at] = (uint8_t)mv_clamp(v, 0, m->hi);
+    }
+}
+static void morph_copy(uint8_t *dst, const uint8_t *b)
+{
+    uint32_t i;
+    for (i = 0; i < MV_PATCH_BYTES; i++) dst[i] = b[i];
+}
+/* the views (RAM in .pool: 1.5 KB, the 96 KB is full): a part's bytes as it plays them (CONTROL, and VELOCITY at the
+ * part's last note: what the part reads once for its voices), and each core's copy for a voice's own velocity */
+static uint8_t mv_pview[2][MV_PATCH_BYTES] __attribute__((section(".pool")));
+static uint8_t mv_vview[2][2][MV_PATCH_BYTES] __attribute__((section(".pool")));   /* [core][part] */
 
 void mv_engine_init(mv_engine_t *e)
 {
@@ -112,7 +164,7 @@ void mv_engine_init(mv_engine_t *e)
     e->au_in_w = e->au_in_r = e->au_out_w = e->au_out_r = 0;
     for (v = 0; v < 16u; v++) e->au_take[0][v] = e->au_take[1][v] = 0;
     e->au_take_w[0] = e->au_take_w[1] = 0;
-    e->bend14 = 0; e->wheel = 0; e->ev_w = e->ev_r = 0; e->ages = 0; e->tone_b = e->tone_t = 0;
+    e->bend14 = 0; e->wheel = 0; e->ev_w = e->ev_r = 0; e->ages = 0; e->tone_b = e->tone_t = 0; e->ctl_s = 0; e->tone_ready = 0;
     e->nv = MV_NV;                              /* 8: measured on the FM-1, 8 Super Saw voices peak at 76 % */
 }
 
@@ -159,13 +211,14 @@ static void glide_to(mv_part_t *P, const uint8_t *b, mv_voice_t *p, uint32_t not
     P->last_inc = tgt;
 }
 
-/* a full strike: envelopes from their current level, random start phases, the glide seeded */
-static void strike(mv_engine_t *e, mv_part_t *P, const uint8_t *b, mv_voice_t *p, uint32_t note)
+/* a full strike: envelopes from their current level, random start phases, the glide seeded; vel 1..127 */
+static void strike(mv_engine_t *e, mv_part_t *P, const uint8_t *b, mv_voice_t *p, uint32_t note, uint32_t vel)
 {
     const int fresh = !mv_env_active(&p->aenv);   /* from silence (else a steal, a retrigger, MONO's next note) */
     if (fresh) mv_flt_reset(&p->flt);           /* a silent voice starts clean */
     glide_to(P, b, p, note);
     p->note = (uint8_t)note; p->gate = 1; p->age = ++e->ages;
+    p->vel = (uint8_t)vel;
     /* the envelopes start from their current level (a steal or retrigger never jumps) */
     mv_env_set(&p->aenv, b[B_AENV_A], b[B_AENV_D], b[B_AENV_S], b[B_AENV_R]);
     mv_env_set(&p->fenv, b[B_FENV_A], b[B_FENV_D], b[B_FENV_S], b[B_FENV_R]);
@@ -251,12 +304,15 @@ static void slice(mv_engine_t *e)
     for (i = 0; i < 2u; i++) { e->part[i].nstack = 0; e->part[i].uni_note = -1; }
 }
 
-/* a note event (on / off) into one part's voices, by its play mode. From the key queue, or from the arp */
-static void ev_play(mv_engine_t *e, uint32_t pi, uint32_t note, uint32_t on)
+/* a note event into one part's voices, by its play mode: vel 1..127 on, 0 off. From the key queue, the arp, the
+ * sequencer */
+static void ev_play(mv_engine_t *e, uint32_t pi, uint32_t note, uint32_t vel)
 {
     mv_part_t *P = &e->part[pi];
     const uint8_t *b = part_b(e, pi);
+    const uint32_t on = vel != 0u;
     uint32_t v, n = P->nvp, v0 = P->v0;
+    if (on) P->vel_last = (uint8_t)vel;         /* (the part's last note: JP VELOCITY on its LFOs and the FX) */
     uint32_t mode = b[B_UNISON] ? MODE_UNISON : b[B_MONO] ? MODE_MONO : MODE_POLY;
     if (!n) return;                             /* a part without voices (LOWER in SINGLE) */
     if (mode != P->mode) {                      /* a mode change: the part's voices out (a one-block fade, no click)
@@ -271,7 +327,7 @@ static void ev_play(mv_engine_t *e, uint32_t pi, uint32_t note, uint32_t on)
         if (on) {
             uint32_t held = P->nstack != 0u;
             stack_push(P, note);
-            if (!(b[B_LEGATO] && held && legato(e, P, b, p, note))) strike(e, P, b, p, note);
+            if (!(b[B_LEGATO] && held && legato(e, P, b, p, note))) strike(e, P, b, p, note, vel);
         } else {
             /* only the sounding key (the newest held) moves the voice: releasing an older, silent key just
                leaves the stack (it used to re-strike the sounding note, Kris 2 Nov) */
@@ -282,7 +338,8 @@ static void ev_play(mv_engine_t *e, uint32_t pi, uint32_t note, uint32_t on)
             } else if (P->nstack) {             /* back to the newest key still held: legato moves the pitch,
                                                    else a retrigger (the JT's v1 decision, kept) */
                 uint32_t ret = P->stack[P->nstack - 1u];
-                if (!(b[B_LEGATO] && legato(e, P, b, p, ret))) strike(e, P, b, p, ret);
+                if (!(b[B_LEGATO] && legato(e, P, b, p, ret))) strike(e, P, b, p, ret, p->vel);   /* (the key
+                                                   held again: the velocity it is sounding with) */
             } else if (p->gate) {
                 release(p);
             }
@@ -294,7 +351,7 @@ static void ev_play(mv_engine_t *e, uint32_t pi, uint32_t note, uint32_t on)
             if (b[B_LEGATO] && P->uni_note >= 0 && P->uni_note != (int32_t)note && legato(e, P, b, &e->v[v0], note)) {
                 for (v = 1; v < n; v++) legato(e, P, b, &e->v[v0 + v], note);
             } else {
-                for (v = 0; v < n; v++) strike(e, P, b, &e->v[v0 + v], note);
+                for (v = 0; v < n; v++) strike(e, P, b, &e->v[v0 + v], note, vel);
             }
             P->uni_note = (int32_t)note;
             unison_spread(e, P, b, 1);          /* (the voice count may have changed) */
@@ -319,7 +376,7 @@ static void ev_play(mv_engine_t *e, uint32_t pi, uint32_t note, uint32_t on)
                            : p->gate ? 0x80000000u + (p->age & 0x7FFFFFFFu) : 2u + ((uint32_t)p->aenv.level >> 2);
             if (score < best) { best = score; pick = v; }
         }
-        strike(e, P, b, &e->v[v0 + pick], note);
+        strike(e, P, b, &e->v[v0 + pick], note, vel);
     }
 }
 
@@ -369,7 +426,7 @@ static void mv_ev_drain(mv_engine_t *e)
             for (i = 0; i < 2u; i++)
                 if (t >> i & e->seq_armed >> i & 1u) mv_seq_key(&e->seq, e->seqb, i, note, on ? (ev & 127u) : 0u);
         for (i = 0; i < 2u; i++)
-            if (t >> i & 1u & ~(ap >> i)) ev_play(e, i, note, on);
+            if (t >> i & 1u & ~(ap >> i)) ev_play(e, i, note, on ? ((ev & 127u) ? ev & 127u : 1u) : 0u);
     }
 }
 
@@ -394,7 +451,8 @@ static void arp_block(mv_engine_t *e, uint32_t n)
     if (on) ne = mv_arp_tick(&e->arp, e->arpb, n, e->arp_beat ? e->arp_beat : 22050u, ev);
     for (k = 0; k < ne; k++)
         for (i = 0; i < 2u; i++)
-            if (on ? ap >> i & 1u : 1u) ev_play(e, i, ev[k] >> 7 & 127u, ev[k] >> 15);   /* (OFF's note-offs: to both) */
+            if (on ? ap >> i & 1u : 1u)       /* (OFF's note-offs: to both) */
+                ev_play(e, i, ev[k] >> 7 & 127u, ev[k] >> 15 ? ((ev[k] & 127u) ? ev[k] & 127u : 1u) : 0u);
 }
 
 /* the sequencer's notes into a part (mv_seq's callback): straight to its voices, not through the arp (5a). An
@@ -410,7 +468,7 @@ static void seq_emit(void *ctx, uint32_t part, uint32_t note, uint32_t vel)
         }
         return;
     }
-    ev_play(e, part, note, vel != 0u);
+    ev_play(e, part, note, vel & 127u);
 }
 
 int mv_engine_knob(mv_engine_t *e, uint32_t part, uint32_t cc, uint32_t val)
@@ -693,16 +751,24 @@ void mv_tone(mv_engine_t *e, int32_t *bus, uint32_t n, uint32_t tb, uint32_t tt)
 {
     const uint32_t ab = MV_TONE_BASS_A_Q31[tb & 127u], at = MV_TONE_TREB_A_Q31[tt & 127u];
     const int32_t db = MV_TONE_BASS_D_Q16[tb & 127u], dt = MV_TONE_TREB_D_Q16[tt & 127u];
+    const int32_t db0 = e->tone_ready ? e->tone_db : db, dt0 = e->tone_ready ? e->tone_dt : dt;
+    const int32_t sdb = (db - db0) / (int32_t)n, sdt = (dt - dt0) / (int32_t)n;   /* a sample's step (32-bit) */
     int32_t sb = e->tone_b, st = e->tone_t;
     uint32_t i;
+    /* the gains ramp across the block from the last block's (Kris 22 Nov: CONTROL moves BASS and TREBLE fast; a step
+     * a block clicked). Unchanged gains: the same samples as before */
+    e->tone_db = db; e->tone_dt = dt; e->tone_ready = 1;
     if (tb == 64u && tt == 64u) return;         /* flat: not calculated (the states hold; both are LPs of the
                                                    signal, so they catch up within a few ms when used again) */
     for (i = 0; i < n; i++) {
         int32_t x = bus[i] * 512, vb, vt, lb, lt;   /* Q15 -> Q24 */
+        const int last = i + 1u == n;            /* (the block ends on the new gains exactly) */
+        const int32_t gb = db0 == db || last ? db : db0 + sdb * (int32_t)(i + 1u);
+        const int32_t gt = dt0 == dt || last ? dt : dt0 + sdt * (int32_t)(i + 1u);
         int64_t y;
         vb = (int32_t)(((int64_t)(x - sb) * ab) >> 31); lb = sb + vb; sb = lb + vb;   /* TPT one-pole LPs */
         vt = (int32_t)(((int64_t)(x - st) * at) >> 31); lt = st + vt; st = lt + vt;
-        y = (int64_t)x + (((int64_t)db * lb + (int64_t)dt * (x - lt)) >> 16);        /* + (G-1) LP, + (G-1) HP */
+        y = (int64_t)x + (((int64_t)gb * lb + (int64_t)gt * (x - lt)) >> 16);        /* + (G-1) LP, + (G-1) HP */
         y >>= 9;                                /* Q15; bass +63 is +27 dB: bounded to the int32 bus */
         bus[i] = y > 0x3FFFFFFF ? 0x3FFFFFFF : y < -0x3FFFFFFF ? -0x3FFFFFFF : (int32_t)y;
     }
@@ -771,9 +837,23 @@ void mv_engine_sync(mv_engine_t *e)
 #if MV_PROFILE && defined(MELODEE_DUAL_CORE) && MELODEE_DUAL_CORE
 #error "MV_PROFILE's prof_osc/prof_flt race across the two cores: profile one core (DINGHY_DEFS=-DMELODEE_DUAL_CORE=0)"
 #endif
+/* the bytes voice p plays (core: 0 CPU0, 1 CPU1, each its own copy): its part's (pb) unless the part's voices take
+ * their own velocity (vsw), then the core's copy of the part's bytes with the 40 morph-able ones for p->vel. The
+ * copy's other bytes were made from raw this block (mv_engine_render) */
+static const uint8_t *voice_bytes(uint32_t core, uint32_t pi, const uint8_t *raw, const uint8_t *pb, uint32_t vsw,
+                                  uint32_t ctl, const mv_voice_t *p)
+{
+    uint8_t *vb = mv_vview[core][pi];
+    if (!vsw) return pb;
+    morph_set(vb, raw, ctl, p->vel);
+    return vb;
+}
+
 typedef struct {
     mv_engine_t *e;
-    const uint8_t *pb[2];                       /* part_b(e, MV_PART_UP), part_b(e, MV_PART_LO) */
+    const uint8_t *pb[2];                       /* each part's bytes as it plays them (part_b, or its view) */
+    const uint8_t *raw[2];                      /* part_b(e, MV_PART_UP), part_b(e, MV_PART_LO) */
+    uint8_t vsw[2], ctl[2];                     /* a part's voices take their own velocity (JP VELOCITY); its CONTROL */
     int32_t l1u[2], l1g[2], l2u[2], bend_q8[2];
     uint32_t wheel, n, mix;
     uint8_t idx[MV_NV];
@@ -789,13 +869,16 @@ static void par_run(void *ctx)                  /* (CPU1) */
     for (i = 0; i < j->n; i++) {
         mv_voice_t *v = &j->e->v[j->idx[i]];
         uint32_t pi = v->part;
-        voice_block(j->e, j->pb[pi], v, ob[pi], j->l1u[pi], j->l1g[pi], j->l2u[pi], j->wheel, j->bend_q8[pi]);
+        voice_block(j->e, voice_bytes(1u, pi, j->raw[pi], j->pb[pi], j->vsw[pi], j->ctl[pi], v), v, ob[pi],
+                    j->l1u[pi], j->l1g[pi], j->l2u[pi], j->wheel, j->bend_q8[pi]);
     }
 }
 
 void mv_engine_render(mv_engine_t *e, int32_t *out, uint32_t n)
 {
-    const uint8_t *b = e->patch.b;              /* UPPER: the shared FX chain's bytes */
+    const uint8_t *b;                           /* UPPER as it plays: the shared FX chain's bytes */
+    const uint8_t *pv[2], *raw[2];              /* each part's bytes as it plays them; its own */
+    uint32_t vsw[2], ctl[2];
     uint32_t k, v, i, wheel = e->wheel > 127u ? 127u : e->wheel;
     slice(e);                                   /* the parts' voices (only when the cut moved) */
     mv_ev_drain(e);
@@ -803,6 +886,31 @@ void mv_engine_render(mv_engine_t *e, int32_t *out, uint32_t n)
     for (k = 0; k + MV_CTL <= n; k += MV_CTL) {
         int32_t l1u[2] = {0, 0}, l1g[2] = {0, 0}, l2u[2] = {0, 0}, bend_q8[2] = {0, 0};
         int any = 0;
+        {   /* CONTROL, smoothed a block at a time (time constant 24 blocks, ~9 ms): a lean on a key moves the 40
+             * parameters in small steps, not jumps. 0 stays exactly 0 */
+            const int32_t tgt = (int32_t)(e->ctl > 127u ? 127u : e->ctl) << 8;
+            e->ctl_s += (tgt - e->ctl_s) / 24;
+        }
+        for (i = 0; i < 2u; i++) {              /* JP CONTROL and VELOCITY: each part's bytes as it plays them (both
+                                                   off: the patch's own, nothing copied) */
+            const uint8_t *r = part_b(e, i);
+            uint32_t c = (uint32_t)((e->ctl_s + 128) >> 8);
+            if (r[B_MORPH_BEND] && e->bend14 > 0) {   /* BEND MORPH ON: the bend's upper half morphs too */
+                const uint32_t bc = ((uint32_t)e->bend14 * 127u + 4095u) / 8191u;
+                if (bc > c) c = bc;
+            }
+            raw[i] = r; ctl[i] = c;
+            vsw[i] = e->pvelo && r[B_VELO_SW];
+            if (c || vsw[i]) {
+                morph_copy(mv_pview[i], r);
+                morph_set(mv_pview[i], r, c, vsw[i] ? e->part[i].vel_last : 0u);
+                pv[i] = mv_pview[i];
+                if (vsw[i]) { morph_copy(mv_vview[0][i], r); morph_copy(mv_vview[1][i], r); }   /* (voice_bytes) */
+            } else {
+                pv[i] = r;
+            }
+        }
+        b = pv[0];
         for (v = 0; v < MV_NV; v++) any |= mv_env_active(&e->v[v].aenv);
         {   /* the FX bytes and the tempo sync (a compare when nothing moved). CHORUS SYNC RATE = LFO1: UPPER's LFO1
              * step a block over MV_CTL frames (last block's: LFO1 is set below; | 1 keeps it synced, never "free") */
@@ -821,7 +929,7 @@ void mv_engine_render(mv_engine_t *e, int32_t *out, uint32_t n)
             continue;
         }
         for (i = 0; i < 2u; i++) {              /* each playing part's LFOs and bend (LOWER only when it has voices) */
-            const uint8_t *pb = part_b(e, i);
+            const uint8_t *pb = pv[i];
             mv_part_t *P = &e->part[i];
             if (!P->nvp && i) continue;
             mv_lfo1_set(&P->lfo1, pb[B_LFO1_WAVE], pb[B_LFO1_RATE], pb[B_LFO1_FADE]);
@@ -855,7 +963,10 @@ void mv_engine_render(mv_engine_t *e, int32_t *out, uint32_t n)
                     }
                 if (par_job.n) {
                     par_job.e = e;
-                    par_job.pb[0] = part_b(e, 0); par_job.pb[1] = part_b(e, 1);
+                    par_job.pb[0] = pv[0]; par_job.pb[1] = pv[1];
+                    par_job.raw[0] = raw[0]; par_job.raw[1] = raw[1];
+                    par_job.vsw[0] = (uint8_t)vsw[0]; par_job.vsw[1] = (uint8_t)vsw[1];
+                    par_job.ctl[0] = (uint8_t)ctl[0]; par_job.ctl[1] = (uint8_t)ctl[1];
                     par_job.l1u[0] = l1u[0]; par_job.l1u[1] = l1u[1];
                     par_job.l1g[0] = l1g[0]; par_job.l1g[1] = l1g[1];
                     par_job.l2u[0] = l2u[0]; par_job.l2u[1] = l2u[1];
@@ -864,13 +975,17 @@ void mv_engine_render(mv_engine_t *e, int32_t *out, uint32_t n)
                     par = MV_PAR_SUBMIT(par_run, &par_job);
                 }
                 for (kk = 0; kk < no; kk++) {
-                    uint32_t pi = e->v[own[kk]].part;
-                    voice_block(e, part_b(e, pi), &e->v[own[kk]], pbus[pi], l1u[pi], l1g[pi], l2u[pi], wheel, bend_q8[pi]);
+                    mv_voice_t *vo = &e->v[own[kk]];
+                    uint32_t pi = vo->part;
+                    voice_block(e, voice_bytes(0u, pi, raw[pi], pv[pi], vsw[pi], ctl[pi], vo), vo, pbus[pi], l1u[pi],
+                                l1g[pi], l2u[pi], wheel, bend_q8[pi]);
                 }
                 if (!par)
                     for (kk = 0; kk < par_job.n; kk++) {
-                        uint32_t pi = e->v[par_job.idx[kk]].part;
-                        voice_block(e, part_b(e, pi), &e->v[par_job.idx[kk]], pbus[pi], l1u[pi], l1g[pi], l2u[pi], wheel, bend_q8[pi]);
+                        mv_voice_t *vo = &e->v[par_job.idx[kk]];
+                        uint32_t pi = vo->part;
+                        voice_block(e, voice_bytes(0u, pi, raw[pi], pv[pi], vsw[pi], ctl[pi], vo), vo, pbus[pi],
+                                    l1u[pi], l1g[pi], l2u[pi], wheel, bend_q8[pi]);
                     }
                 else if (MV_PAR_JOIN()) {       /* (0: CPU1 retired mid-job; its voices' block is dropped) */
                     for (i = 0; i < MV_CTL; i++) bus[i] += par_job.bus[i];

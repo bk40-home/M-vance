@@ -16,6 +16,10 @@
 #define P_CLKOUT 0x105u                         /* MIDI: CLK OUT OFF / ON */
 #define P_BT 0x106u                             /* MIDI: BLUETOOTH ON / OFF (Kris 19 Nov; LINKED shows a computer on it) */
 #define IS_MIDI(p) ((p) >= P_LOCAL && (p) <= P_BT)
+#define P_TOUCH 0x107u                          /* KEYS (Kris 22 Nov): TOUCH OFF / ON (fm1-kit fk_touch) */
+#define P_VCURVE 0x108u                         /* KEYS: CURVE, the keys' velocity curve -5..+5 */
+#define P_PSENS 0x109u                          /* KEYS: SENS, their pressure sensitivity -5..+5 */
+#define P_PVELO 0x10Au                          /* KEYS: VELO SW OFF / PATCH (the patches' JP VELOCITY offsets) */
 #define P_RV 0x110u                             /* REVERB: P_RV + MV_RV_* (global settings, mv_reverb.h) */
 #define P_ARP 0x120u                            /* ARP: P_ARP + MV_ARP_* (global settings, mv_arp.h) */
 #define P_SV 0x130u                             /* SAVE: P_SV + 0 TO, 1 CURSOR, 2 CHAR, 3 MODE */
@@ -84,6 +88,8 @@ static const ui_page_t PAGES[] = {
 #endif
     {"MIDI", BTN_GLO, 0, 1, {P_LOCAL, P_CLKSRC, P_CLKOUT, P_BT}},   /* DAW use (Kris 7 Nov): LOCAL, CLOCK, CLK OUT;
                                                    BLUETOOTH (19 Nov) */
+    {"KEYS", BTN_GLO, 0, 1, {P_TOUCH, P_VCURVE, P_PSENS, P_PVELO}},   /* velocity and pressure from the keys, the
+                                                   patches' VELOCITY offsets (Kris 22 Nov) */
 #if MV_DEBUG
     {"DEBUG", BTN_GLO, 0, 1, {P_DEBUG, P_NONE, P_NONE, P_NONE}},   /* the meter and the status (Kris 3 Nov): the knobs
                                                                    do nothing here */
@@ -187,6 +193,10 @@ static const char *col_label(const mv_engine_t *e, uint32_t p)
     case P_CLKSRC: return "CLOCK";
     case P_CLKOUT: return "CLK OUT";
     case P_BT: return "BT MIDI";
+    case P_TOUCH: return "TOUCH";
+    case P_VCURVE: return "CURVE";
+    case P_PSENS: return "SENS";
+    case P_PVELO: return "VELO SW";
     case P_SV + 0: return "TO";
     case P_SV + 1: return "CURSOR";
     case P_SV + 2: return "CHAR";
@@ -296,6 +306,8 @@ static const char *choice_name(uint32_t p, uint32_t v)
     case P_CLKSRC: return CSRC[v & 1u];
     case P_CLKOUT: return OFFON[v & 1u];
     case P_BT: return LOCAL[v & 1u];            /* (the bit is BLUETOOTH OFF, as LOCAL's: 0 = ON) */
+    case P_TOUCH: return OFFON[v & 1u];
+    case P_PVELO: return v & 1u ? "PATCH" : "OFF";   /* (PATCH: each patch's own VELO SW decides) */
     case P_ARP + MV_ARP_MODE: return AMODE[v < MV_AM_N ? v : 0u];
     case P_ARP + MV_ARP_RATE: return ARATE[v < MV_ARP_NRATE ? v : 2u];
     case P_ARP + MV_ARP_ORDER: return AORDER[v & 1u];
@@ -367,6 +379,16 @@ static void col_value(const mv_engine_t *e, uint32_t p, uint32_t midi_ch, char *
         return;
     }
     if (IS_MIDI(p)) { copy7(s, choice_name(p, midi_bit(ui_self ? ui_self->midi : 0u, p))); return; }   /* MIDI page */
+    if (p == P_TOUCH || p == P_PVELO) {         /* KEYS */
+        copy7(s, choice_name(p, ui_self ? (p == P_TOUCH ? ui_self->touch : ui_self->pvelo) : 0u));
+        return;
+    }
+    if (p == P_VCURVE || p == P_PSENS) {
+        v = ui_self ? (p == P_VCURVE ? ui_self->vcurve : ui_self->psens) : 0;
+        num(s, v, 1);
+        *mode = BAR_MID; *fill = v * 200;       /* (-5..+5 over the bar's -1000..1000) */
+        return;
+    }
 #if MV_UI_KIT
     if (p == P_THEME) { copy7(s, choice_name(p, ui_self ? ui_self->theme : 0u)); return; }
     if (p == P_COLOUR) { copy7(s, choice_name(p, ui_self ? ui_self->colour : 0u)); return; }
@@ -534,6 +556,16 @@ static uint32_t edit(mv_ui_t *u, mv_engine_t *e, uint32_t col, int32_t step, uin
         return MV_UI_SETTING;
     }
     if (p == P_VOICES) { e->nv = (uint32_t)mv_clamp((int32_t)e->nv + step, 1, (int32_t)MV_NV); return 0; }
+    if (p == P_TOUCH || p == P_PVELO) {         /* KEYS: a turn right ON, left OFF; kept in flash */
+        uint8_t *b = p == P_TOUCH ? &u->touch : &u->pvelo, was = *b;
+        *b = step > 0;
+        return *b != was ? MV_UI_SETTING : 0u;
+    }
+    if (p == P_VCURVE || p == P_PSENS) {        /* KEYS: -5..+5 */
+        int8_t *b = p == P_VCURVE ? &u->vcurve : &u->psens, was = *b;
+        *b = (int8_t)mv_clamp((int32_t)*b + step, -5, 5);
+        return *b != was ? MV_UI_SETTING : 0u;
+    }
     if (IS_MIDI(p)) {                           /* MIDI page: a turn right sets the bit, left clears it; kept in flash */
         uint32_t m = midi_mask(p), was = u->midi;
         u->midi = (uint8_t)(step > 0 ? u->midi | m : u->midi & ~m);
@@ -1054,6 +1086,17 @@ void mv_ui_draw(mv_ui_t *u, const mv_engine_t *e, uint32_t midi_ch)
         line[i++] = ' ';
         for (a = val; *a; a++) line[i++] = *a;   /* (<= 10 + 1 + 7 + 1 + 7: fits 32) */
         line[i] = 0;
+    } else if (pg->p[0] == P_TOUCH) {           /* KEYS: live, "VEL 87  CTRL 40" (to set CURVE and SENS by) */
+        static const char V[] = "VEL ", C[] = "  CTRL ", O[] = "TOUCH OFF";
+        uint32_t i = 0, j;
+        if (!u->touch) { for (j = 0; O[j]; j++) line[i++] = O[j]; line[i] = 0; }
+        else {
+            for (j = 0; V[j]; j++) line[i++] = V[j];
+            if (fk_touch_last_vel()) num(line + i, (int32_t)fk_touch_last_vel(), 0); else { line[i] = '-'; line[i + 1] = 0; }
+            while (line[i]) i++;
+            for (j = 0; C[j]; j++) line[i++] = C[j];
+            num(line + i, (int32_t)e->ctl, 0);
+        }
     }
     key = show_key(line, "", 0, 0);
     if (key != u->drawn_line) { draw_text_box(0, LINE_Y, 240, &FONT_S, line, C_AMB, 1); u->drawn_line = key; }
@@ -1165,6 +1208,8 @@ static void mv_ui_dump(const char *path, mv_engine_t *e)
                 else if (p == P_VOICES) { lo = 1; hi = (int32_t)MV_NV; }
                 else if (p == P_TEMPO) { lo = TEMPO_MIN; hi = TEMPO_MAX; }
                 else if (IS_MIDI(p)) { lo = 0; hi = 1; }
+                else if (p == P_TOUCH || p == P_PVELO) { lo = 0; hi = 1; }   /* KEYS */
+                else if (p == P_VCURVE || p == P_PSENS) { lo = -5; hi = 5; centre = 0; }
                 else if (p >= P_ARP && p < P_ARP + MV_ARP_N) { lo = MV_ARP_MIN[p - P_ARP]; hi = MV_ARP_MAX[p - P_ARP]; }
                 else if (p == P_RV + MV_RV_FREEZE) { lo = 0; hi = 1; }
                 else if (p == P_SV + 0u) { lo = 1; hi = MV_NPROG; }

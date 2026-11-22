@@ -172,7 +172,10 @@ typedef struct { uint32_t t, keys; int btn; uint8_t st, d1, d2; int8_t enc, encn
  * P hit at velocity V, V 0 = let go), "T fader F V" (0..127), "T wheel W RAW" (0 pitch, 1 mod; raw ADC 0..1023),
  * "T xkey K V" (keybed key K 0..36 at V, 0 = let go: the outer keys 0..4, 32..36); any build: "T shot" (the screen
  * at T -> OUT-T.ppm) */
-enum { HS_NONE, HS_VEL, HS_PAD, HS_FADER, HS_WHEEL, HS_XKEY, HS_SHOT };
+/* FM-1 builds also: "T touch K V P" (key K 0..26 down at velocity V, pressed P % harder once it has settled; V 0 =
+ * up) through fm1-kit's fk_touch, fm1-base's key model (GLO > KEYS TOUCH ON reads it; with TOUCH OFF the key just
+ * plays, at 100) */
+enum { HS_NONE, HS_VEL, HS_PAD, HS_FADER, HS_WHEEL, HS_XKEY, HS_SHOT, HS_TOUCH };
 static const host_ev_t SCRIPT0[] = {
     {200, 1u << 7, -1, 0, 0, 0, -1, 0},                         /* C4 */
     {700, 1u << 7 | 1u << 11 | 1u << 14, -1, 0, 0, 0, -1, 0},   /* + E4 G4: a chord */
@@ -257,6 +260,7 @@ static void read_script(const char *path)
         else if (!strcmp(what, "wheel")) { sscanf(line, "%*u %*s %u %u", &a, &b); e.smk = HS_WHEEL; e.sa = (uint8_t)a; e.sb = (uint16_t)b; }
         else if (!strcmp(what, "xkey")) { sscanf(line, "%*u %*s %u %u", &a, &b); e.smk = HS_XKEY; e.sa = (uint8_t)a; e.sb = (uint16_t)b; }
         else if (!strcmp(what, "shot")) e.smk = HS_SHOT;
+        else if (!strcmp(what, "touch")) { sscanf(line, "%*u %*s %u %u %u", &a, &b, &c); e.smk = HS_TOUCH; e.sa = (uint8_t)a; e.sb = (uint16_t)b; e.d2 = (uint8_t)(c > 100u ? 100u : c); }
         else if (!strcmp(what, "syx")) {        /* a .syx file's messages, paced */
             char p[200];
             if (sscanf(line, "%*u %*s %199s", p) == 1) host_sx_file(e.t, p);
@@ -369,6 +373,9 @@ static void platform_poll(void)                 /* one call = one millisecond */
     static uint32_t step, shot, owed, frame;
     static int32_t blk[2u * HALF_FRAMES];
     fm1_ms++;
+#if FK_TOUCH
+    fk_touch_host_tick();                       /* (the sensed keys' samples, every 2 ms, while TOUCH is on) */
+#endif
 #ifdef APP_SYSEX
     if (host_sx_next < host_sx_n && host_sx[host_sx_next].t <= fm1_ms) {   /* one a millisecond at most */
         APP_SYSEX(host_sx_pool + host_sx[host_sx_next].off, host_sx[host_sx_next].len);
@@ -381,6 +388,14 @@ static void platform_poll(void)                 /* one call = one millisecond */
     while (step < script_n && script[step].t <= fm1_ms) {
         if (script[step].smk == HS_SHOT) {
             write_ppm(fm1_ms);
+        } else if (script[step].smk == HS_TOUCH) {
+#if FK_TOUCH
+            const uint32_t k = script[step].sa % 27u, v = script[step].sb > 127u ? 127u : script[step].sb;
+            fk_touch_host_key(k, v, script[step].d2);
+            if (v) fm1_in.notes |= 1u << k; else fm1_in.notes &= ~(1u << k);   /* (what the digital scan sees too) */
+#else
+            fprintf(stderr, "script: touch in a build without fk_touch (FK_TOUCH=0), ignored\n");
+#endif
         } else if (script[step].smk) {
 #if BOARD_SMK37
             static uint32_t vel = 100;

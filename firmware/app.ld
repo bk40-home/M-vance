@@ -28,13 +28,15 @@ SECTIONS
     _guard_ram_end = _dsp_end;
     .data : { . = ALIGN(4); _data_start = .; *(.data*) *(.sdata*) . = ALIGN(4); _data_end = .; } > RAM AT > XIP
     _data_load = LOADADDR(.data);
-    .bss (NOLOAD) : { _bss_start = .; *(.bss*) *(.sbss*) *(COMMON) . = ALIGN(4); _bss_end = .; } > RAM
+    /* fk_touch's buffers (fm1-kit fk_touch_fpu.o, 2.8 KB, Kris 22 Nov) are not here but in .pool: the 96 KiB is full */
+    .bss (NOLOAD) : { _bss_start = .; *(EXCLUDE_FILE(*fk_touch_fpu.o) .bss*) *(EXCLUDE_FILE(*fk_touch_fpu.o) .sbss*)
+                      *(EXCLUDE_FILE(*fk_touch_fpu.o) COMMON) . = ALIGN(4); _bss_end = .; } > RAM
     /* CPU1's stacks: 6 KiB user, 6 KiB supervisor (fm1_multicore.h guards the lowest 256 bytes; a voice_block needs
      * about 1.5 KiB, so either may carry it) */
     .cpu1_stacks (NOLOAD) : { . = ALIGN(32); _cpu1_stacks_lo = .; KEEP(*(.cpu1_stacks)) _cpu1_stacks_hi = .; } > RAM
     _cpu1_ustack_top = _cpu1_stacks_lo + 6144;
     _cpu1_sstack_top = _cpu1_stacks_lo + 12288;
-    .pool (NOLOAD) : { _pool_start = .; *(.pool*) . = ALIGN(4); _pool_end = .; } > POOL
+    .pool (NOLOAD) : { _pool_start = .; *(.pool*) *fk_touch_fpu.o(.bss* .sbss* COMMON) . = ALIGN(4); _pool_end = .; } > POOL
     .noinit (NOLOAD) : { *(.noinit*) } > NOINIT
     _guard0 = 0x01C74000; _ustack_lo = 0x01C74100; _ustack_top = 0x01C7A000;
     _guard1 = 0x01C7A000; _sstack_lo = 0x01C7A100; _sstack_top = 0x01C7C000;

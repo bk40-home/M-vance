@@ -112,6 +112,7 @@ typedef struct {
     uint32_t age;
     uint8_t note, gate, sync_live, flt_key[3];             /* flt_key: the mode / reso / cutoff bytes mv_flt_set last saw */
     uint8_t part;                               /* the part it belongs to (MV_PART_UP / MV_PART_LO): its slice */
+    uint8_t vel;                                /* the velocity it was struck at, 1..127 (JP VELOCITY: mv_engine_t.pvelo) */
 } mv_voice_t;
 
 /* a part's own state (the ISR's): what was per engine before the performance */
@@ -123,6 +124,8 @@ typedef struct {
     int32_t uni_note;                           /* UNISON: the held note, -1 none */
     uint32_t last_inc;                          /* the last note played (note-only step): the glide's start */
     int32_t bal_g;                              /* its bus gain (BALANCE) reached at the end of the last block, Q15 */
+    uint8_t vel_last;                           /* the velocity of its last note-on: JP VELOCITY on what the part
+                                                   reads once for all its voices (LFO rates, FX: Kris 22 Nov, 6b) */
 } mv_part_t;
 
 typedef struct {
@@ -134,6 +137,16 @@ typedef struct {
     mv_voice_t v[MV_NV];
     volatile int32_t bend14;                    /* pitch bend, -8192..+8191 */
     volatile uint32_t wheel;                    /* mod wheel CC1, 0..127 */
+    /* JP-8080 CONTROL and VELOCITY (Kris 22 Nov; MORPH in mv_voice.c): each of the 40 morph-able parameters moves by
+     * its CONTROL offset x ctl / 127, and with pvelo by its VELOCITY offset (VELO SW on) x velocity / 127. Both 0:
+     * the patch's own bytes, exactly as before */
+    volatile uint8_t ctl;                       /* CONTROL, 0..127 (main loop: the keys' pressure, MIDI channel
+                                                   pressure; a patch's BEND MORPH ON adds the bend's upper half) */
+    volatile uint8_t pvelo;                     /* GLOBAL PATCH VELO: 1 the patches' VELOCITY offsets apply (main loop) */
+    int32_t ctl_s;                              /* CONTROL as the engine plays it: ctl smoothed (~9 ms), Q8 (the keys'
+                                                   pressure moves fast and jitters: unsmoothed, its steps clicked) */
+    int32_t tone_db, tone_dt;                   /* TONE's gains at the end of the last block (mv_tone ramps from them) */
+    uint8_t tone_ready;                         /* tone_db / tone_dt hold a block's gains (0: none yet) */
     volatile uint32_t evq[MV_EVQ];              /* note events: direct << 18 | to << 16 | on << 15 | note << 7 |
                                                    velocity (direct: to as given, not routed by the mode / split) */
     volatile uint32_t ev_w, ev_r;

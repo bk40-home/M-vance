@@ -13,6 +13,9 @@
  *                       stereo output: the computer plays through the FM-1 (FELUCCA_UAC_OUT, uac_out.h)
  *   keys, knobs, LEDs   fm1_in.notes / buttons, fm1_input_edges, fm1_enc_take, fm1_led_key, fm1_led_key_glow
  *                       (hal/fm1_input.h; SMK-37: hal/smk_input.h, the same calls and velocity, pads, faders, wheels)
+ *   velocity, pressure  fm1-kit's fk_touch (fm1-base's touch.c) on the analog key rows (hal/fm1_input_an.h): the app
+ *                       calls fk_touch_enable, fk_touch_poll, fk_touch_keys, fk_touch_vel, fk_touch_channel_pressure;
+ *                       FK_TOUCH 0 builds the stubs (velocity 100, no pressure)
  *   screen              240 x 240, lcd_fill, draw_text_box with FONT_S (16 px) / FONT_L (32 px) (gfx.c); LCD_IDLE
  *   storage             settings, NBLOB blobs of one sector, NSLOT slots of SLOT_SECT sectors, each with a CRC (store.h)
  *   crash screen        the PC of a fault, then a reboot
@@ -47,8 +50,23 @@ enum { ENC_SELECT = 0, ENC_ALGORITHM = 1, ENC_KNOB1 = 2, ENC_KNOB2 = 3, ENC_KNOB
 #define KEY_LED(k) (14u + (k))
 #endif
 
+/* ---- velocity and pressure from the keys (fm1-kit firmware/fk_touch, Kris 22 Nov): fm1-base's touch.c on the analog
+ * key rows (hal/fm1_input_an.h). The app turns it on (GLO > KEYS); FK_TOUCH 0 (the SMK-37: its own velocity; the web
+ * simulator; the fm1-dock module) builds the stubs: the keys as scanned, velocity 100, no pressure */
+#ifndef FK_TOUCH
+#if BOARD_SMK37 || defined(DINGHY_WEBSIM) || defined(DINGHY_DOCK)
+#define FK_TOUCH 0
+#else
+#define FK_TOUCH 1
+#endif
+#endif
+#include "../../third_party/fm1-kit/firmware/fk_touch/fk_touch.h"   /* (before fm1_input.h: the scan's hooks) */
+
 #ifdef DINGHY_HOST
 #include "../../tests/host.c"                  /* on a computer: a fake FM-1 (tests/host.c) */
+#if FK_TOUCH
+#include "../../third_party/fm1-kit/firmware/fk_touch/fk_touch.c"   /* (fm1-base's key model plays the keys: tests/host.c "touch") */
+#endif
 #elif defined(DINGHY_WEBSIM)
 #include "../../sim/mv_websim.c"               /* in a browser (WebAssembly): the online simulator */
 #elif defined(DINGHY_DOCK)
@@ -173,6 +191,13 @@ static int st_read(uint32_t off, void *dst, uint32_t n)
 #define FK_BLE_QUIET() fk_ble_quiet()           /* the radio's first second: the render holds (fk_ble.h) */
 #else
 #define FK_BLE_QUIET() 0
+#endif
+
+#if FK_TOUCH
+#include "../../third_party/fm1-kit/firmware/fk_touch/fk_touch.c"   /* (after fm1_input.h, fm1_adc.h, fm1_ms) */
+#define MASTER_READ() (fm1_an.con ? (int32_t)fm1_an.master : fm1_adc_read(FM1_ADC_MASTER))   /* (sensing: the scan's) */
+#else
+#define MASTER_READ() fm1_adc_read(FM1_ADC_MASTER)
 #endif
 
 static uint8_t recovery_active;
@@ -520,7 +545,7 @@ static void platform_poll(void)
     }
     if (fm1_ms >= 30000u && bootguard.pending)
         bootguard_clear(&bootguard);            /* 30 s up: this firmware boots */
-    if ((a = fm1_adc_read(FM1_ADC_MASTER)) >= 0) {
+    if ((a = MASTER_READ()) >= 0) {
         uint32_t k10;
         knob_avg += (a * 16 - knob_avg) / 8;
         k10 = (uint32_t)(knob_avg / 16);

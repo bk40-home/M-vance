@@ -16,7 +16,7 @@
 // Moves snap to the grid (opts.grid() ticks; 1 = free) and go round the loop. The roll never changes the clip itself:
 // each finished gesture calls opts.onEdit(notes, what) with the new notes (seq-model.js notesOf's form), and the panel
 // keeps the clip and the undo.
-import { BAR, PPQN, notesOf } from './seq-model.js?v=20261121150209';
+import { BAR, PPQN, notesOf } from './seq-model.js?v=20261122212620';
 
 const KEYW = 34;                           // the key strip's width (CSS px)
 const MINROWS = 24;                        // rows shown at least (2 octaves)

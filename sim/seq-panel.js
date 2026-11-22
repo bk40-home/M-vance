@@ -42,7 +42,9 @@ const GRIDS = [['1/4', 96], ['1/8', 48], ['1/16', 24], ['1/32', 12], ['1/8T', 32
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const PART = ['UPPER', 'LOWER'];
 
-// opts: dev() -> { kind: 'sim' | 'fm1', label, send(msgs): Promise, rt(status byte) }; status(msg, bad)
+// opts: dev() -> { kind: 'sim' | 'fm1', label, send(msgs): Promise, rt(status byte) }; status(msg, bad);
+//   onTrack(tt, clip, head): each live track read whole, as the device has it (the editor mirrors the FM-1's into the
+//   sim: mirror.js; Kris 22 Nov)
 export function mountSeq(root, opts) {
   const status = opts.status || (() => {});
   root.innerHTML = `
@@ -141,6 +143,7 @@ export function mountSeq(root, opts) {
   const reader = new S.SeqReader({
     onClip: (tt, c, h) => {
       if (tt < 2) {                         // a live track: the lane follows it (unless it holds an unsent change)
+        if (opts.onTrack) opts.onTrack(tt, c, h);
         const L = lanes[tt], keep = L.clip && L.dev && modified(tt);   // (judged against the track as it was)
         L.dev = c; L.ver = h.ver; L.ask = false;
         if (!keep && !S.clipEqual(L.clip, c)) {

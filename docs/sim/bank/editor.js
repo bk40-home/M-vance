@@ -17,11 +17,11 @@
 // sound and the edit buffer the same both ways (link.js, over the firmware's link: mvance.c link_*); linked, Edit
 // and ▶ play on the FM-1 too, and turning PRESETS on the FM-1 brings its program here.
 import { parseBankFile, makeBankSyx, moveSlot, dropPart, cloneItem, renameSlot, nameOf, soundOf, soundCopy,
-         soundEqual, itemFromSound } from './bank-model.js?v=20261121150209';
-import { FM1, NPROG, dumpBytes } from './fm1-midi.js?v=20261121150209';
-import { Link, GAP_MS } from './link.js?v=20261121150209';
-import { mountPages } from '../pages.js?v=20261121150209';
-import { startEngine } from '../engine.js?v=20261121150209';
+         soundEqual, itemFromSound } from './bank-model.js?v=20261122212620';
+import { FM1, NPROG, dumpBytes } from './fm1-midi.js?v=20261122212620';
+import { Link, GAP_MS } from './link.js?v=20261122212620';
+import { mountPages } from '../pages.js?v=20261122212620';
+import { startEngine } from '../engine.js?v=20261122212620';
 
 const NSLOT = 64;
 let bank = new Array(NSLOT).fill(null);   // the 64 programs (performance items), null = empty
@@ -341,7 +341,7 @@ addEventListener('keydown', (e) => { const i = ROW.indexOf(e.key); if (i >= 0 &&
 addEventListener('keyup', (e) => { const i = ROW.indexOf(e.key); if (i >= 0 && !typing(e)) noteKey(i, false); });
 
 async function startSound() {
-  try { engine = await startEngine({ base: '../', stamp: '?v=20261121150209', screen: $('screen') }); }
+  try { engine = await startEngine({ base: '../', stamp: '?v=20261122212620', screen: $('screen') }); }
   catch (e) {                              // no simulator here: the bank tools work as before
     $('sound').hidden = true; document.querySelector('details.pages').hidden = true;
     console.warn('bank editor: no simulator:', e.message);

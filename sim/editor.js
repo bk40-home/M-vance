@@ -15,6 +15,9 @@
 //   write       Write to slot: the edit's 4 DT1s to 03 pp on the FM-1 (bank/fm1-midi.js; the FM-1 saves it)
 //   sequences   the Sequences panel (seq-panel.js, Kris 20 Nov): the two tracks and the clips of the device the
 //               sound is on (the sim; linked, the FM-1), over the sequencer's SysEx area 04 (mv_seqx.h)
+//   mirror      linked, the sim also mirrors what the FM-1 plays (mirror.js, Kris 22 Nov): the tracks the panel reads
+//               from it, its clock and START / STOP (CLK OUT on), its keys' notes and the notes played here, so the
+//               muted sim's screen (scope, keys, SEQ pages) shows it
 // Nothing is sent to the FM-1 unless Connect, then Link or Write. ?load=/path.syx (same site): that file's first
 // program becomes the sound (the sound-match tool's "Open in editor").
 import { parseBankFile, nameOf, soundOf, soundCopy, soundEqual, itemFromSound, perfMsgs } from './bank/bank-model.js?v=__BUILD__';
@@ -23,6 +26,7 @@ import { Link, GAP_MS } from './bank/link.js?v=__BUILD__';
 import { mountPages } from './pages.js?v=__BUILD__';
 import { startEngine } from './engine.js?v=__BUILD__';
 import { mountSeq } from './seq-panel.js?v=__BUILD__';
+import { Mirror } from './mirror.js?v=__BUILD__';
 
 const NPROG = 64;                          // program slots on the FM-1
 const KEEP_WAIT_MS = 1500;                 // Keep: the library answers within this, or it is not open
@@ -31,7 +35,7 @@ const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt
 // the status line: bad = true (warn colour), 'ok', else plain
 const status = (msg, bad) => { const s = $('status'); s.textContent = msg; s.className = bad === 'ok' ? 'help ok' : bad ? 'help bad' : 'help'; };
 
-let engine = null, link = null, seq = null;
+let engine = null, link = null, seq = null, mirror = null;
 let base = null;                           // the sound as opened (Revert, Compare, "modified")
 let comparing = null;                      // comparing: the edit, held while base plays
 let what = "the sim's program";            // what is being edited (the edit line)
@@ -45,6 +49,7 @@ const fm1 = new FM1({
   onTemp: (m) => { if (link) link.fromFm1(m); },     // the FM-1's sound: a dump or a change (linked)
   onProgram: (n) => fm1Program(n),                   // PRESETS turned on the FM-1
   onSeq: (m) => { if (seq && seqDev().kind === 'fm1') seq.feed(m); },   // the FM-1's tracks and clips (linked)
+  onLive: (m) => { if (mirror && link && link.fm1) mirror.fromFm1(m); },  // its clock, START / STOP, keys (linked)
 });
 // where the Sequences panel works: the FM-1 while linked (paced, the sound's link held meanwhile), else the sim
 function seqDev() {
@@ -97,7 +102,9 @@ function soundUi() {
   $('compare').textContent = comparing ? 'Back to the edit' : 'Compare';
   $('save').disabled = !!comparing;
   const ls = $('linkState');
-  ls.textContent = link.linked ? 'linked: you hear the FM-1' : link.fm1 ? 'linking…' : 'sim only';
+  ls.textContent = link.linked ? 'linked: you hear the FM-1'
+      + (mirror && mirror.clock ? '' : ' (CLK OUT off on the FM-1: GLO, MIDI. The sim follows PLAY with it on)')
+    : link.fm1 ? 'linking…' : 'sim only';
   ls.className = link.linked ? 'on' : '';
   $('link').checked = !!link.fm1;
   for (const [id, b] of [['nameUp', link.cur.up], ['nameLo', link.cur.lo]]) {   // (not while being typed in)
@@ -135,10 +142,11 @@ function setLink(on) {
     if (!dropEdit()) { $('link').checked = false; return; }
     comparing = null; lib = null;          // (the FM-1's sound comes in: the library's is no longer the one edited)
     link.linkFm1((m) => fm1.sendNow(m));
+    mirror.start();                        // (the panel reads the FM-1's tracks once its sound is adopted: onTrack)
     engine.muted = true;                   // (you hear the FM-1)
     status('Linking: reading the FM-1\'s sound...');
   } else {
-    link.unlinkFm1(); engine.muted = false;
+    link.unlinkFm1(); mirror.stop(); engine.muted = false;
     if (seq) seq.readAll();                // (the panel shows the sim's tracks again)
     status('Unlinked: the sim plays the edit again; the FM-1 keeps what it has.', 'ok');
   }
@@ -216,7 +224,11 @@ function keep() {
 const ROW = 'zsxdcvgbhnjm,l.;/', KEY0_MIDI = 53;   // key 0 = F3 (mvance.c KEY0)
 let noteMask = 0;
 function noteKey(i, on) {
-  if (link && link.linked && fm1.out) { fm1.sendNow(new Uint8Array([on ? 0x90 : 0x80, KEY0_MIDI + i, on ? 100 : 0])); return; }
+  if (link && link.linked && fm1.out) {    // (the sim too, muted: its keys light)
+    fm1.sendNow(new Uint8Array([on ? 0x90 : 0x80, KEY0_MIDI + i, on ? 100 : 0]));
+    if (mirror) mirror.note(on ? 0x90 : 0x80, KEY0_MIDI + i, on ? 100 : 0);
+    return;
+  }
   if (!engine) return;
   noteMask = on ? noteMask | (1 << i) : noteMask & ~(1 << i);
   engine.keys(noteMask);
@@ -259,7 +271,10 @@ async function start() {
       } else scheduleUi();
     },
   });
-  seq = mountSeq($('seq'), { dev: seqDev, status });
+  // the mirror is fed by the panel (a second reader would cut the panel's reads short): each FM-1 track it reads
+  mirror = new Mirror({ simSysex: (m) => engine.sysexIn(m), simMidi: (st, d1, d2) => engine.midi(st, d1, d2), onState: scheduleUi });
+  seq = mountSeq($('seq'), { dev: seqDev, status,
+    onTrack: (tt, c, h) => { if (seqDev().kind === 'fm1') mirror.track(tt, c, h); } });
   engine.onSysEx = (m) => {                // area 04: the panel's (only while it works on the sim); the rest: the link's
     if (m[5] === 0x12 && m[6] === 0x04) { if (seqDev().kind === 'sim') seq.feed(m); return; }
     link.fromSim(m);

@@ -18,8 +18,8 @@
 //   the list     tools/clips/clips.txt as the tool reads it (Kris 21 Nov: mvance-factory-clip-picker-proposal-
 //                2026-11-21.md, 2a 3a 4a): parseList / writeList, #!only, a part's name (nameOf: the tool's name_of),
 //                the folder's path order (toolOrder) and selectParts: which parts the tool builds, in F order (collect)
-import { PPQN, BAR, MAXBAR, QGRID, PT, PT_GRID, eventsOf, withPoints, pointsOf, notesOf as clipNotes } from './seq-model.js?v=20261121150209';
-import { SOUND_CCS } from './seq-ccs.js?v=20261121150209';
+import { PPQN, BAR, MAXBAR, QGRID, PT, PT_GRID, eventsOf, withPoints, pointsOf, notesOf as clipNotes } from './seq-model.js?v=20261122212620';
+import { SOUND_CCS } from './seq-ccs.js?v=20261122212620';
 const PT_GAP = 8;                          // one point a CC per this many ticks at most (MV_SEQ_PT_GAP)
 
 // ---- reading (mid2clip.py read_mid + notes_of) ----
