@@ -42,7 +42,7 @@ def main(argv=None):
         files.append({"file": p.name, "product": product, "size": len(raw), "sha256": hashlib.sha256(raw).hexdigest()})
         print(f"{p.name}: {product}, {len(raw)} B")
     files.sort(key=lambda f: (not f["product"].startswith("FM-1_"), f["file"]))   # the FM-1 first
-    m = {"name": "M-vance", "version": a.version, "tag": a.tag, "url": a.url, "published": a.published, "files": files}
+    m = {"name": "JT-80x0", "version": a.version, "tag": a.tag, "url": a.url, "published": a.published, "files": files}
     (out / "latest.json").write_text(json.dumps(m, indent=1) + "\n")
     print(f"-> {out / 'latest.json'}")
 

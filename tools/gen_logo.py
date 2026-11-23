@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
-"""The M-vance logo: assets/logo.svg / logo.png (the wordmark) and assets/icon.svg / icon.png (square).
+"""The JT-80x0 logo (formerly M-vance): assets/logo.svg / logo.png (the wordmark) and assets/icon.svg / icon.png (square).
 
   python3 tools/gen_logo.py        (needs Pillow)
 
 The picture is the home screen's header: seven sawtooth waves, in phase in the middle and fanning out to both sides
-(the Super Saw's seven detuned saws), the centre one brightest; over them a plate with "M-VANCE" in the FM-1's own
+(the Super Saw's seven detuned saws), the centre one brightest; over them a plate with "JT-80X0" in the FM-1's own
 large font (firmware/gen/felucca_font.h, Terminus, SIL OFL), pixel for pixel. The firmware draws the same thing with
 the same numbers (mvance.c, draw_home): change one, change both.
 """
@@ -30,7 +30,7 @@ def font_l():
     adv, bw, off, data = arr("FONT_L_ADV"), arr("FONT_L_BW"), arr("FONT_L_OFF"), arr("FONT_L_DATA")
     h, pad, first = 32, 4, 32
     glyphs = {}
-    for ch in "M-VANCE":
+    for ch in "JT-80X0":
         g = ord(ch) - first
         w, bpr, px = bw[g], (bw[g] + 1) // 2, []
         for y in range(h):
@@ -62,7 +62,7 @@ def saws(width, height, y0, amp):
     return out
 
 
-def wordmark_rects(glyphs, text="M-VANCE"):
+def wordmark_rects(glyphs, text="JT-80X0"):
     """The text's pixels: (x, y) in font px, solid where the font's alpha is 6 or more (crisp, as on the screen)."""
     x0, rects = 0, []
     for ch in text:
@@ -78,16 +78,16 @@ def build(kind):
     if kind == "logo":                                  # 240 x 56 screen px, drawn x4
         W, H, S, y0, amp = 240, 56, 4, 6, 40
         pw, ph = tw + 24, 40
-    else:                                               # icon: 128 x 128, x4: the fan large, the M alone at 2x
+    else:                                               # icon: 128 x 128, x4: the fan large, "JT" alone at 2x
         W, H, S, y0, amp = 128, 128, 4, 30, 60
-        tw, pix = wordmark_rects(glyphs, "M")
+        tw, pix = wordmark_rects(glyphs, "JT")
         pix = [(2 * x + dx, 2 * y + dy) for x, y in pix for dx in (0, 1) for dy in (0, 1)]
         tw *= 2
         pw, ph = tw + 16, 76
     px0, py0 = (W - pw) / 2, (H - ph) / 2
     # SVG
     svg = [f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {W * S} {H * S}" width="{W * S}" height="{H * S}">',
-           f'  <!-- M-vance {kind}: tools/gen_logo.py (GPL-3.0-only; the letters: FM-1 FONT_L, Terminus, SIL OFL) -->',
+           f'  <!-- JT-80x0 {kind}: tools/gen_logo.py (GPL-3.0-only; the letters: FM-1 FONT_L, Terminus, SIL OFL) -->',
            f'  <rect width="{W * S}" height="{H * S}" rx="{0 if kind == "logo" else 26 * S}" fill="{BG}"/>']
     for col, pts in saws(W, H, y0, amp):
         svg.append(f'  <polyline fill="none" stroke="{col}" stroke-width="{S * 0.9:.1f}" stroke-linejoin="miter" '

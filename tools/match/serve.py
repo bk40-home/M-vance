@@ -73,7 +73,7 @@ def worker(workers):
         try:
             j["state"] = "running"
             if eng is None:
-                j["log"].append("building the M-vance engine (once)...")
+                j["log"].append("building the JT-80x0 engine (once)...")
                 eng = em.MvanceEngine()
 
             def log(line, j=j):

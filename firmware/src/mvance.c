@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
-/* M-vance: a JP-8080 style synth for the M-VAVE FM-1 (JT-8000 DSP, ported to fixed point), built on Dinghy.
+/* JT-80x0 (formerly M-vance): a JP-8080 style synth for the M-VAVE FM-1 (JT-8000 DSP, ported to fixed point), built on Dinghy.
  * Stage 6 start: the M-vance voice engine v0 (mv_voice.c) plays the 248-byte JP patch; the parts not ported yet
  * are listed there. The patch is the INIT patch until SysEx / the panel can change it; the JP CCs edit it.
  * Dinghy's note: the smallest FM-1 firmware to build your own on. A sine wave on the keys, and that is all.
@@ -47,8 +47,8 @@
  * Rules of the road (the chip has no FPU and no libgcc): integers only, no float, no 64-bit division.
  * tests/host.c runs this file on a computer: the screen as a PNG, the sound as a WAV.
  * What platform.c offers: docs/API.md. The chip's rules: docs/RULES.md. */
-#define APP_NAME "M-VANCE"                     /* the rescue and crash screens (platform.c) */
-#define FK_BLE_NAME "M-vance"                   /* Bluetooth MIDI: "M-vance XXXX" (platform.c, fm1-kit fk_ble) */
+#define APP_NAME "JT-80X0"                     /* the rescue and crash screens (platform.c) */
+#define FK_BLE_NAME "JT-80x0"                   /* Bluetooth MIDI: "JT-80x0 XXXX" (platform.c, fm1-kit fk_ble) */
 #define STORE_MAGIC 0x434E564Du               /* "MVNC": our settings never read another fork's (store.h) */
 static void app_idle(void);
 #define LCD_IDLE app_idle                       /* while the screen's DMA runs: MIDI in (platform.c) */

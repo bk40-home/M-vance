@@ -2,15 +2,15 @@
 # Copyright (C) 2026 Kris (bk40-home)
 <#
 .SYNOPSIS
-  M-vance: build the firmware and flash the FM-1, build the web simulator, rebuild the factory bank, or serve the
+  JT-80x0 (formerly M-vance): build the firmware and flash the FM-1, build the web simulator, rebuild the factory bank, or serve the
   sim - from one script (Windows). Run with no arguments for an interactive menu; pass switches to skip it.
 
 .DESCRIPTION
   Run  .\flash.ps1  with no arguments and pick from a menu. Or drive it directly:
-    -Build firmware (default)  WSL unit tests, WSL `sh build.sh` -> build\mvance.fwsc, install over USB-MIDI.
+    -Build firmware (default)  WSL unit tests, WSL `sh build.sh` -> build\jt80x0.fwsc, install over USB-MIDI.
     -Build sim                 WSL `sh sim/build.sh` -> docs\sim (WebAssembly). Needs Emscripten (emsdk) in WSL.
     -Build all                 the firmware flow, then the simulator.
-    -Build dock                the fm1-dock module (dock/): build\M-VANCE.dock, to deploy from fm1-dock's console.
+    -Build dock                the fm1-dock module (dock/): build\JT80X0.dock, to deploy from fm1-dock's console.
                                Needs an fm1-dock checkout in WSL (FM1_DOCK, default ~/fm1-dock: cloned the first time)
                                and the same JieLi toolchain (JIELI_TOOLCHAIN) as the firmware.
     -Serve                     after a sim build (or on its own), serve docs\ on http://localhost:<ServePort>.
@@ -34,7 +34,7 @@
   .\flash.ps1 -Build all -Serve                 firmware (tests+build+flash), then sim, then serve
   .\flash.ps1 -Bank mvance-bank-renamed.syx     rebuild the factory bank first, then build + flash
   .\flash.ps1 -Trial                            the dock module's cuts: build + flash (.\flash.ps1 puts it back)
-  .\flash.ps1 -Build dock                       the fm1-dock module -> build\M-VANCE.dock
+  .\flash.ps1 -Build dock                       the fm1-dock module -> build\JT80X0.dock
   .\flash.ps1 -Defs "-DMV_DLY_MS=900u" -SkipTests   any defines: build + flash
 #>
 param(
@@ -53,7 +53,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 $root = $PSScriptRoot
-$pkg = Join-Path $root "build\mvance.fwsc"
+$pkg = Join-Path $root "build\jt80x0.fwsc"
 
 function Finish([int]$code, [string]$msg) {
     if ($code -eq 0) { Write-Host "`n$msg" -ForegroundColor Green } else { Write-Host "`n$msg" -ForegroundColor Red }
@@ -81,7 +81,7 @@ $doDock = $false
 if ($PSBoundParameters.Count -eq 0) {
     # ---- interactive menu (no arguments were given) ----
     Write-Host ""
-    Write-Host "  M-vance" -ForegroundColor Yellow
+    Write-Host "  JT-80x0" -ForegroundColor Yellow
     Write-Host "  1  Firmware: test, build, flash the FM-1   (default)"
     Write-Host "  F  Firmware: build, flash the FM-1, no tests (quick)"
     Write-Host "  2  Firmware: test and build only (no flash)"
@@ -91,7 +91,7 @@ if ($PSBoundParameters.Count -eq 0) {
     Write-Host "  6  Rebuild factory bank from a .syx, then firmware flash"
     Write-Host "  7  Serve docs only (no build)"
     Write-Host "  8  Firmware TRIAL: the dock module's cuts ($TrialDefs), flash"
-    Write-Host "  9  fm1-dock module: test, build build\M-VANCE.dock (deploy it from fm1-dock's console)"
+    Write-Host "  9  fm1-dock module: test, build build\JT80X0.dock (deploy it from fm1-dock's console)"
     Write-Host "  Q  Quit"
     $choice = Read-Host "Choose [1]"
     if ([string]::IsNullOrWhiteSpace($choice)) { $choice = "1" }
@@ -182,7 +182,7 @@ if ($doFirmware) {
         & $py.Source @pyArgs @inst
         $rc = $LASTEXITCODE
         $hint = @{
-            0   = "Installed and identity checked: M-vance is running."
+            0   = "Installed and identity checked: JT-80x0 is running."
             1   = "Install cancelled or failed."
             2   = "Bad arguments or package, or mido / python-rtmidi missing: py -m pip install mido python-rtmidi"
             3   = "FM-1 not found. Is it plugged in and on? Close anything holding its MIDI port (bank.html in Chrome, a DAW): Windows MIDI ports are exclusive."
@@ -203,14 +203,14 @@ if ($doFirmware) {
 # ---- 2b. the fm1-dock module (dock/): fm1-dock's tools/hbmod.py builds it from this folder in place. No double
 # quotes in the WSL line (Windows PowerShell would strip them): the paths have no spaces
 if ($doDock) {
-    $dockPkg = Join-Path $root "build\M-VANCE.dock"
+    $dockPkg = Join-Path $root "build\JT80X0.dock"
     $before = if (Test-Path $dockPkg) { (Get-Item $dockPkg).LastWriteTime } else { [datetime]::MinValue }
     # (JIELI_TOOLCHAIN: build.sh's default, ~/.jieli/toolchain, when the profile does not set it: fm1-dock's
     # build.py has none of its own)
     $rc = Invoke-Wsl "fm1-dock module" ('export JIELI_TOOLCHAIN=${JIELI_TOOLCHAIN:-$HOME/.jieli/toolchain}; ' +
         'R=$PWD; D=${FM1_DOCK:-$HOME/fm1-dock}; ' +
         '[ -d $D/tools ] || git clone --depth 1 https://github.com/joakimeriksson/fm1-dock $D || exit 1; ' +
-        'cd $D && python3 tools/hbmod.py $R/dock && mkdir -p $R/build && cp build/modules/dock.dock $R/build/M-VANCE.dock')
+        'cd $D && python3 tools/hbmod.py $R/dock && mkdir -p $R/build && cp build/modules/dock.dock $R/build/JT80X0.dock')
     if ($rc -ne 0) { Finish $rc "fm1-dock module build FAILED (exit $rc)." }
     if (-not (Test-Path $dockPkg) -or (Get-Item $dockPkg).LastWriteTime -le $before) {
         Finish 1 "The module build reported success but $dockPkg was not rewritten."

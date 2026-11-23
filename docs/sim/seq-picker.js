@@ -17,8 +17,8 @@
 //                change goes to the shelf first. A track holds 128 notes: a longer part is a factory clip only
 // The rules (the tool's order, names, loops, which parts a list picks) are seq-midi.js's, checked against the tool.
 // opts: status(msg, bad), audition(lane 0|1, clip, label): Promise
-import * as M from './seq-midi.js?v=20261122212620';
-import { noteCount, notesOf, MAXEV, MAXBAR } from './seq-model.js?v=20261122212620';
+import * as M from './seq-midi.js?v=20261123200814';
+import { noteCount, notesOf, MAXEV, MAXBAR } from './seq-model.js?v=20261123200814';
 
 const ROLL_W = 132, ROLL_H = 22;           // a part's small roll (CSS px)
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -80,7 +80,7 @@ export function mountPicker(el, opts = {}) {
   }
   function text() {
     return M.writeList(toList(), [
-      'M-vance factory clips (tools/mid2clip.py): written by the editor page\'s Factory clips dialog' + (folder ? ` from the folder "${folder}"` : '') + '.',
+      'JT-80x0 factory clips (tools/mid2clip.py): written by the editor page\'s Factory clips dialog' + (folder ? ` from the folder "${folder}"` : '') + '.',
       'Only the parts below are built, in this order (F1 = the first line):  path | part | from bar | bars | name',
       'part: its name or number in the file; from bar and bars blank: the loop the tool finds; name blank: the tool\'s.',
     ]);

@@ -14,7 +14,7 @@ import { perfMsgs } from './bank-model.js';
 export const NPROG = 64;                  // programs on the FM-1
 export const GAP_MS = 35;                 // ms between two messages sent: the FM-1 holds one received message at a time
 export const QUIET_MS = 2500;             // ms: a dump is over when nothing came for this long
-const PORT_HINT = /fm-?1|m-?vave|dinghy|m-?vance/i;   // port names picked by default
+const PORT_HINT = /fm-?1|m-?vave|dinghy|m-?vance|jt-?80x0/i;   // port names picked by default
 
 // ---- Roland RQ1 (device id 10h, model 00 06): ask for size bytes from addr ----
 function rsum(bytes) { let s = 0; for (const b of bytes) s += b; return (128 - (s % 128)) % 128; }

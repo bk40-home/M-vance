@@ -121,7 +121,7 @@ if (fs.existsSync(hostDump)) {
 (async () => {
   const dev = A.mock();
   const id = await A.device.identify(dev);
-  assert.equal(id.product, "M-VANCE"); assert.ok(A.product.test(id.product)); n++;
+  assert.equal(id.product, "JT-80X0"); assert.ok(A.product.test(id.product)); n++;
   const all = await A.device.read(dev, 0, 64, () => {});
   all.forEach((p, s) => assert.equal(fp(p), fp(fac[s]), "read: slot " + (s + 1))); n++;
   for (const [s, from] of [[4, 40], [5, 41], [63, 0]]) {      /* three slots rewritten, then read back */

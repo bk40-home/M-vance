@@ -111,7 +111,7 @@ def run_one(wav: Path, out: Path, a, eng, log=_say) -> dict:
 
 
 def main():
-    ap = argparse.ArgumentParser(description="Sound match: one held note (WAV) in, an M-vance patch out.",
+    ap = argparse.ArgumentParser(description="Sound match: one held note (WAV) in, a JT-80x0 patch out.",
                                  epilog="Then open report.html in the output folder.")
     ap.add_argument("input", type=Path, help="a .wav file, or a folder of them")
     ap.add_argument("--note", type=float, help="the MIDI note played, if known (60 = middle C = Ableton's C3)")

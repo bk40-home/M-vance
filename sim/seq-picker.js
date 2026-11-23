@@ -80,7 +80,7 @@ export function mountPicker(el, opts = {}) {
   }
   function text() {
     return M.writeList(toList(), [
-      'M-vance factory clips (tools/mid2clip.py): written by the editor page\'s Factory clips dialog' + (folder ? ` from the folder "${folder}"` : '') + '.',
+      'JT-80x0 factory clips (tools/mid2clip.py): written by the editor page\'s Factory clips dialog' + (folder ? ` from the folder "${folder}"` : '') + '.',
       'Only the parts below are built, in this order (F1 = the first line):  path | part | from bar | bars | name',
       'part: its name or number in the file; from bar and bars blank: the loop the tool finds; name blank: the tool\'s.',
     ]);

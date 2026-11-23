@@ -3,7 +3,7 @@
 # The firmware page: flash/index.html and fm1-kit's flash.js, fm1ota.js, count.js, flash.css, theme.css, theme.js into
 # docs/flash/. No compiler needed. The packages come from the latest GitHub release (the Pages workflow); to try the
 # page here, put a package and its manifest beside it:
-#   sh flash/build.sh && python3 tools/flash_manifest.py --version dev build/mvance.fwsc
+#   sh flash/build.sh && python3 tools/flash_manifest.py --version dev build/jt80x0.fwsc
 #   python3 -m http.server --directory docs 8000        # then http://localhost:8000/flash/ in Chrome or Edge
 set -e
 cd "$(dirname "$0")/.."

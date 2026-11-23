@@ -4,8 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="fm1-count" content="__COUNT__">
-<title>M-vance firmware</title>
-<!-- Install M-vance on an FM-1 from the browser (Chrome or Edge, Web MIDI). fm1-kit's flash.js and fm1ota.js (the
+<title>JT-80x0 firmware</title>
+<!-- Install JT-80x0 (formerly M-vance) on an FM-1 from the browser (Chrome or Edge, Web MIDI). fm1-kit's flash.js and fm1ota.js (the
      same update as tools/fm1_install.py). flash/build.sh copies this and the kit's files to docs/flash/; the Pages
      workflow puts the latest release's packages in docs/flash/firmware/ with latest.json (tools/flash_manifest.py)
      and fills __COUNT__ (the GoatCounter address, the repo variable GOATCOUNTER_URL; empty: nothing counted). -->
@@ -16,7 +16,7 @@
 
 <header class="kit-top">
   <span class="badge">FIRMWARE</span>
-  <span class="name">M-vance</span>
+  <span class="name">JT-80x0</span>
   <span class="spacer"></span>
   <a class="btn" href="../">Home</a>
   <a class="btn" href="../sim/">Simulator</a>
@@ -27,6 +27,6 @@
 <main id="flash"></main>
 <script type="module">
   import {mount} from "./flash.js?v=__BUILD__";
-  mount(document.getElementById("flash"), {name: "M-vance", manifest: "firmware/latest.json",
+  mount(document.getElementById("flash"), {name: "JT-80x0", manifest: "firmware/latest.json",
     releases: "https://github.com/bk40-home/M-vance/releases"});
 </script>

@@ -109,10 +109,10 @@ def warnings(seed: Dict, loss: float) -> List[str]:
     """Section 2's limits, as they apply to this sample."""
     w = ["Matched from one note: key follow, velocity, bend, portamento, legato, LFO2 and anything on the mod wheel "
          "stay at their INIT values.",
-         "Reverb is global on M-vance, not in the patch: reverb in the sample reads as a longer release or a delay.",
+         "Reverb is global on JT-80x0, not in the patch: reverb in the sample reads as a longer release or a delay.",
          "Many patches make the same sound: judge by ear and by the score, not by how the bytes look."]
     if loss >= FAIR_LOSS:
-        w.insert(0, "The score is poor: this sound may be outside what M-vance can make (two oscillators, one filter, "
+        w.insert(0, "The score is poor: this sound may be outside what JT-80x0 can make (two oscillators, one filter, "
                     "three envelopes, LFOs, chorus, delay), or the sample is not one dry held note.")
     if seed.get("one_sided"):
         w.insert(0, f"The recording had sound on one channel only ({seed['one_sided']}): that channel was used on "
@@ -168,7 +168,7 @@ pre {{ background: #f7f7f7; padding: .8em; font-size: 12.5px; overflow-x: auto }
 &middot; note {seed.get('note')} &middot; key held {seed.get('gate_ms')} ms</p>
 <h2>Listen (both at the same loudness)</h2>
 <p>Sample</p><audio controls src="{_wav_b64(tc['stereo'])}"></audio>
-<p>Match (M-vance)</p><audio controls src="{_wav_b64(mc['stereo'])}"></audio>
+<p>Match (JT-80x0)</p><audio controls src="{_wav_b64(mc['stereo'])}"></audio>
 <h2>Files</h2><ul>{fl}</ul>
 <h2>Warnings</h2><ul>{''.join(f'<li>{html.escape(x)}</li>' for x in warnings(seed, loss))}</ul>
 <h2>Pictures</h2>{''.join(pics)}

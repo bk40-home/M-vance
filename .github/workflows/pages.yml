@@ -42,7 +42,8 @@ jobs:
         run: |
           R="--repo $GITHUB_REPOSITORY"
           mkdir -p /tmp/rel
-          if gh release download $R --pattern 'mvance-*.fwsc' --dir /tmp/rel; then
+          if gh release download $R --pattern 'jt80x0-*.fwsc' --dir /tmp/rel \
+             || gh release download $R --pattern 'mvance-*.fwsc' --dir /tmp/rel; then   # (mvance-*: releases before JT-80x0)
             TAG=$(gh release view $R --json tagName -q .tagName)
             python3 tools/flash_manifest.py --version "${TAG#v}" --tag "$TAG" \
               --url "$(gh release view $R --json url -q .url)" \

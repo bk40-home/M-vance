@@ -3,16 +3,16 @@
 <!-- SPDX-License-Identifier: GPL-3.0-only -->
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>M-vance bank editor</title>
+<title>JT-80x0 bank editor</title>
 <!-- One place to build a bank and send it (Kris 12 Nov, B1): arrange 64 slots by drag and drop (editor.js on
      bank-model.js), and, connected to the FM-1 over WebMIDI (fm1-midi.js, the bank tool's transfer code), play any
      slot or palette entry, send the bank or the ticked slots, and read the FM-1's 64 programs into the grid.
      WebMIDI with SysEx: Chrome or Edge, on https (GitHub Pages) or localhost.
      Part B (Kris 13 Nov): the simulator on this page as the edit buffer (its screen, every page as a tile, the
      computer keys), Edit / Store / Store as / Revert / Compare on the slots, and Link FM-1: the FM-1's sound and the
-     sim's kept the same both ways (link.js). ?v=20261122212620: sim/build.sh stamps the build, so no stale script. -->
-<link rel="stylesheet" href="../theme.css?v=20261122212620">
-<script src="../theme.js?v=20261122212620"></script>
+     sim's kept the same both ways (link.js). ?v=20261123200814: sim/build.sh stamps the build, so no stale script. -->
+<link rel="stylesheet" href="../theme.css?v=20261123200814">
+<script src="../theme.js?v=20261123200814"></script>
 <style>
   :root { --amber:var(--theme); --card:var(--surf); --over:var(--fill); }   /* fm1-kit theme.css's tokens */
   body { background:var(--bg); color:var(--text); font-family:var(--font); margin:0; padding:16px; }
@@ -80,7 +80,7 @@
 </style>
 <header class="kit-top">
   <span class="badge">BANK EDITOR</span>
-  <span class="name">M-vance</span>
+  <span class="name">JT-80x0</span>
   <span class="spacer"></span>
   <a class="btn" href="../index.html">Simulator</a>
   <label>Theme <select data-theme-picker aria-label="Theme"></select></label>
@@ -138,5 +138,5 @@
   <div id="grid" class="grid"></div>
   <aside><h2>Palette</h2><div id="palette"></div></aside>
 </div>
-<script src="../mvance.js?v=20261122212620"></script>   <!-- the simulator (built by sim/build.sh); missing: the page works without it -->
-<script type="module" src="editor.js?v=20261122212620"></script>
+<script src="../mvance.js?v=20261123200814"></script>   <!-- the simulator (built by sim/build.sh); missing: the page works without it -->
+<script type="module" src="editor.js?v=20261123200814"></script>

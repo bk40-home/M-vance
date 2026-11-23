@@ -31,7 +31,7 @@
 #endif
 
 #ifndef APP_NAME
-#define APP_NAME "M-VANCE"
+#define APP_NAME "JT-80X0"
 #endif
 #ifndef APP_VER
 #define APP_VER "dock"

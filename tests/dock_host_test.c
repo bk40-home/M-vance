@@ -156,8 +156,8 @@ int main(int argc, char **argv)
         return fails != 0;
     }
     wav_open(argc > 1 ? argv[1] : "dock.wav");
-    CHECK(hb_module.abi == HB_ABI && !strcmp(hb_module.name, "M-VANCE") &&
-          hb_module.flags == (HB_F_SCREEN | HB_F_PANEL) && hb_module.midi, "the descriptor: ABI 2, M-VANCE, screen + panel, midi()");
+    CHECK(hb_module.abi == HB_ABI && !strcmp(hb_module.name, "JT-80X0") &&
+          hb_module.flags == (HB_F_SCREEN | HB_F_PANEL) && hb_module.midi, "the descriptor: ABI 2, JT-80X0, screen + panel, midi()");
     CHECK(hb_module.init(&HOST) == 0, "init: ready");
     CHECK(fills > 0u && blits > 0u, "init: the home screen drawn (%u fills, %u blits)", fills, blits);
     quiet = run_ms(500);

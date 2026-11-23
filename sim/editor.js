@@ -182,7 +182,7 @@ function saveSyx() {                       // the edit as one program (03 00: sl
   let o = 0; for (const m of ms) { out.set(m, o); o += m.length; }
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([out], { type: 'application/octet-stream' }));
-  a.download = (nameOf(link.cur.up).trim().replace(/[^\w.-]+/g, '_') || 'mvance') + '.syx';
+  a.download = (nameOf(link.cur.up).trim().replace(/[^\w.-]+/g, '_') || 'jt80x0') + '.syx';
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }

@@ -1,0 +1,126 @@
+# JT-80x0's factory clips: two tracks, LOWER the bass, UPPER the melody, as the FM-1 plays them.
+#   python3 tools/demo/demo.py tools/demo/clips.demo        -> build/demo/clips.mp4
+# Needs firmware/gen/mv_fclips_local.h (the factory clips: git-ignored, third-party transcriptions).
+# Clip F<n> is CLIP 12 + n on SEQ 3/3 (after the 12 user clips). A program change leaves SPLIT, so each song
+# sets it again; a program is one sound for both parts (its LOWER patch is its UPPER until one is saved).
+# turn ... 0: a jump in one pass (exact on JT-80x0; a quick hand turn steps x4).
+
+name   JT-80x0
+theme  amber
+footer Rendered by the JT-80x0 firmware itself (tests/host.c): screen and sound as the engine makes them  ·  github.com/bk40-home/M-vance  ·  Clips: transcriptions, for demonstration
+
+0     title JT-80x0 | The sequencer: two tracks of factory clips
+
+# ---- Robert Miles: Children ----
+4     caption Robert Miles: Children | Piano and bass: factory clips F32 (UPPER) and F35 (LOWER)
++0    pc 2
++0.2  press GLO                             # PLAY MODE 1/2, 2/2, then PERFORM 1/2
++0.1  press GLO
++0.1  press GLO
++0.1  turn KNOB1 2 0                        # MODE SINGLE -> SPLIT
++0.1  press HOME
++0.1  hold OCT- 0.3                         # PART SELECT: OCT- held, OCT+: LOWER
++0.1  press OCT+
++0.3  press OCT-                            # (the octave step undone)
++0.1  press SEQ                             # SEQ 1/3, 2/3, 3/3: the clips
++0.1  press SEQ
++0.1  press SEQ
++0.1  turn KNOB1 46 0                       # CLIP F35
++0.1  turn KNOB4 -1 0                       # MODE LOAD
++0.1  press SAVE                            # -> LOWER
++0.4  hold OCT+ 0.3                         # PART SELECT: OCT+ held, OCT-: UPPER
++0.1  press OCT-
++0.3  press OCT+                            # (the octave step undone)
++0.1  turn KNOB1 -3 0                       # CLIP F32
++0.1  press SAVE                            # -> UPPER
++0.1  turn SELECT 17 0                      # TEMPO 137
++0.3  press PLAY                            # 8 bars
++0.3  press SEQ                             # SEQ 1/3: both tracks and their playheads
++6.71 press SEQ                             # SEQ 2/3: the piano roll
++7.00 press PLAY
+
+# ---- Tiësto: Adagio for Strings ----
++0.6  caption Tiësto: Adagio for Strings | Lead and bass: factory clips F26 (UPPER) and F25 (LOWER)
++0    pc 17
++0.2  press GLO                             # PLAY MODE 1/2, 2/2, then PERFORM 1/2
++0.1  press GLO
++0.1  press GLO
++0.1  turn KNOB1 2 0                        # MODE SINGLE -> SPLIT
++0.1  press HOME
++0.1  hold OCT- 0.3                         # PART SELECT: OCT- held, OCT+: LOWER
++0.1  press OCT+
++0.3  press OCT-                            # (the octave step undone)
++0.1  press SEQ                             # SEQ 1/3, 2/3, 3/3: the clips
++0.1  press SEQ
++0.1  press SEQ
++0.1  turn KNOB1 -7 0                       # CLIP F25
++0.1  turn KNOB4 -1 0                       # MODE LOAD
++0.1  press SAVE                            # -> LOWER
++0.4  hold OCT+ 0.3                         # PART SELECT: OCT+ held, OCT-: UPPER
++0.1  press OCT-
++0.3  press OCT+                            # (the octave step undone)
++0.1  turn KNOB1 1 0                        # CLIP F26
++0.1  press SAVE                            # -> UPPER
++0.1  turn SELECT 1 0                       # TEMPO 138
++0.3  press PLAY                            # 8 bars
++0.3  press SEQ                             # SEQ 1/3: both tracks and their playheads
++6.66 press SEQ                             # SEQ 2/3: the piano roll
++6.96 press PLAY
+
+# ---- Paul van Dyk: For an Angel ----
++0.6  caption Paul van Dyk: For an Angel | Pluck and bass: factory clips F38 (UPPER) and F36 (LOWER)
++0    pc 1
++0.2  press GLO                             # PLAY MODE 1/2, 2/2, then PERFORM 1/2
++0.1  press GLO
++0.1  press GLO
++0.1  turn KNOB1 2 0                        # MODE SINGLE -> SPLIT
++0.1  press HOME
++0.1  hold OCT- 0.3                         # PART SELECT: OCT- held, OCT+: LOWER
++0.1  press OCT+
++0.3  press OCT-                            # (the octave step undone)
++0.1  press SEQ                             # SEQ 1/3, 2/3, 3/3: the clips
++0.1  press SEQ
++0.1  press SEQ
++0.1  turn KNOB1 10 0                       # CLIP F36
++0.1  turn KNOB4 -1 0                       # MODE LOAD
++0.1  press SAVE                            # -> LOWER
++0.4  hold OCT+ 0.3                         # PART SELECT: OCT+ held, OCT-: UPPER
++0.1  press OCT-
++0.3  press OCT+                            # (the octave step undone)
++0.1  turn KNOB1 2 0                        # CLIP F38
++0.1  press SAVE                            # -> UPPER
++0.3  press PLAY                            # 8 bars
++0.3  press SEQ                             # SEQ 1/3: both tracks and their playheads
++6.66 press SEQ                             # SEQ 2/3: the piano roll
++6.96 press PLAY
+
+# ---- Above & Beyond: Sirens of the Sea ----
++0.6  caption Above & Beyond: Sirens of the Sea | Pluck and bass: factory clips F56 (UPPER) and F55 (LOWER)
++0    pc 5
++0.2  press GLO                             # PLAY MODE 1/2, 2/2, then PERFORM 1/2
++0.1  press GLO
++0.1  press GLO
++0.1  turn KNOB1 2 0                        # MODE SINGLE -> SPLIT
++0.1  press HOME
++0.1  hold OCT- 0.3                         # PART SELECT: OCT- held, OCT+: LOWER
++0.1  press OCT+
++0.3  press OCT-                            # (the octave step undone)
++0.1  press SEQ                             # SEQ 1/3, 2/3, 3/3: the clips
++0.1  press SEQ
++0.1  press SEQ
++0.1  turn KNOB1 17 0                       # CLIP F55
++0.1  turn KNOB4 -1 0                       # MODE LOAD
++0.1  press SAVE                            # -> LOWER
++0.4  hold OCT+ 0.3                         # PART SELECT: OCT+ held, OCT-: UPPER
++0.1  press OCT-
++0.3  press OCT+                            # (the octave step undone)
++0.1  turn KNOB1 1 0                        # CLIP F56
++0.1  press SAVE                            # -> UPPER
++0.1  turn SELECT -6 0                      # TEMPO 132
++0.3  press PLAY                            # 8 bars
++0.3  press SEQ                             # SEQ 1/3: both tracks and their playheads
++6.98 press SEQ                             # SEQ 2/3: the piano roll
++7.28 press PLAY
+
++0.6  title JT-80x0 | github.com/bk40-home/M-vance
++4.0  end

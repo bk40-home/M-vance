@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="fm1-count" content="__COUNT__">
-<title>M-vance editor</title>
+<title>JT-80x0 editor</title>
 <!-- The sound editor (Kris 15 Nov 2026: fm1-port/mvance-library-editor-proposal-2026-11-15.md, 5a 6a): the sound
      editing of the old bank editor (Part B, 13 Nov) on a page of its own. It edits what plays: the simulator on this
      page (its screen, every page as a tile you turn, the computer keys), or, with Link FM-1 on, the FM-1's sound (the
@@ -12,10 +12,10 @@
      The banks are the patch library's (../library.html): its Edit sends a program here, and Keep puts the edit back
      into that library slot (BroadcastChannel "mvance-edit"; Send in the library writes it to the FM-1). Write to
      slot puts the edit straight into a program slot on a connected FM-1.
-     WebMIDI with SysEx: Chrome or Edge, on https (GitHub Pages) or localhost. ?v=20261122212620: sim/build.sh stamps it. -->
-<link rel="stylesheet" href="theme.css?v=20261122212620">
-<script src="theme.js?v=20261122212620"></script>
-<script src="count.js?v=20261122212620"></script>
+     WebMIDI with SysEx: Chrome or Edge, on https (GitHub Pages) or localhost. ?v=20261123200814: sim/build.sh stamps it. -->
+<link rel="stylesheet" href="theme.css?v=20261123200814">
+<script src="theme.js?v=20261123200814"></script>
+<script src="count.js?v=20261123200814"></script>
 <style>
   body { background:var(--bg); color:var(--text); font-family:var(--font); margin:0; padding:16px; }
   .kit-top { margin:-16px -16px 12px; }
@@ -100,7 +100,7 @@
 </style>
 <header class="kit-top">
   <span class="badge">EDITOR</span>
-  <span class="name">M-vance</span>
+  <span class="name">JT-80x0</span>
   <span class="spacer"></span>
   <a class="btn" href="../library.html" target="mvance-library">Library</a>
   <a class="btn" href="index.html">Simulator</a>
@@ -144,5 +144,5 @@
   <summary>All pages <label>size <input id="tileSize" type="range" min="168" max="480" step="24" value="240" title="240: the screen's own size (sharpest)"></label></summary>
   <div id="pages"></div>
 </details>
-<script src="mvance.js?v=20261122212620"></script>   <!-- the simulator (built by sim/build.sh) -->
-<script type="module" src="editor.js?v=20261122212620"></script>
+<script src="mvance.js?v=20261123200814"></script>   <!-- the simulator (built by sim/build.sh) -->
+<script type="module" src="editor.js?v=20261123200814"></script>

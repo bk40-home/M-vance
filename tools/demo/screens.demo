@@ -1,0 +1,47 @@
+# JT-80x0's pages, as the screen shows them (theme PAPER): HOME, OSC 1 (Super Saw, DETUNE turned), OSC 2, FILTER
+# (CUTOFF swept), the envelopes, LFO 1, TONE, MULTI-FX, PERFORM, with chords playing so the scopes move.
+# Used for the screens in the "JP-8000 sound for under £50" video (22-23 Nov).
+#   python3 tools/demo/demo.py tools/demo/screens.demo --keep    -> build/demo/screens/f-*.ppm, build/demo/screens.mp4
+
+name   JT-80x0
+theme  amber
+0.2    press GLO
++0.05  press GLO
++0.05  press GLO
++0.05  press GLO
++0.05  press GLO
++0.05  press GLO
++0.1   turn KNOB1 6 0     # THEME PAPER (as Kris's FM-1)
++0.1   press HOME
++0.1   pc 41                # Pad 01: OSC 1 Super Saw
+1.0   note C3,G3,D#4,A#4 3.8 100
+5.0   note G#2,D#3,C4,G4 3.8 100
+9.0   note A#2,F3,D4,A4 3.8 100
+13.0   note G2,D3,A#3,F4 3.8 100
+17.0   note C3,G3,D#4,A#4 3.8 100
+21.0   note G#2,D#3,C4,G4 3.8 100
+25.0   note A#2,F3,D4,A4 3.8 100
+29.0   note G2,D3,A#3,F4 3.8 100
+33.0   note C3,G3,D#4,A#4 3.8 100
+37.0   note G#2,D#3,C4,G4 3.8 100
+41.0   note A#2,F3,D4,A4 3.8 100
+45.0   note G2,D3,A#3,F4 3.8 100
+49.0   note C3,G3,D#4,A#4 3.8 100
+53.0   note G#2,D#3,C4,G4 3.8 100
+7.0    press EDIT           # OSC 1
+8.0    turn KNOB2 40 3.0
+11.5   turn KNOB2 -40 2.5
+14.0   press EDIT           # the next EDIT page
+19.0   press SEL            # FILTER 1/2
+20.0   turn KNOB3 -60 3.0
+23.2   turn KNOB3 60 2.6
+26.0   press ENV
+31.0   press ENV
+36.0   press LFO
+41.0   press FX
+44.0   press FX
+47.0   press GLO
++0.05  press GLO
++0.05  press GLO
+51.0   press HOME
+56.0   end

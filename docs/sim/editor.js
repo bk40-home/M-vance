@@ -20,13 +20,13 @@
 //               muted sim's screen (scope, keys, SEQ pages) shows it
 // Nothing is sent to the FM-1 unless Connect, then Link or Write. ?load=/path.syx (same site): that file's first
 // program becomes the sound (the sound-match tool's "Open in editor").
-import { parseBankFile, nameOf, soundOf, soundCopy, soundEqual, itemFromSound, perfMsgs } from './bank/bank-model.js?v=20261122212620';
-import { FM1 } from './bank/fm1-midi.js?v=20261122212620';
-import { Link, GAP_MS } from './bank/link.js?v=20261122212620';
-import { mountPages } from './pages.js?v=20261122212620';
-import { startEngine } from './engine.js?v=20261122212620';
-import { mountSeq } from './seq-panel.js?v=20261122212620';
-import { Mirror } from './mirror.js?v=20261122212620';
+import { parseBankFile, nameOf, soundOf, soundCopy, soundEqual, itemFromSound, perfMsgs } from './bank/bank-model.js?v=20261123200814';
+import { FM1 } from './bank/fm1-midi.js?v=20261123200814';
+import { Link, GAP_MS } from './bank/link.js?v=20261123200814';
+import { mountPages } from './pages.js?v=20261123200814';
+import { startEngine } from './engine.js?v=20261123200814';
+import { mountSeq } from './seq-panel.js?v=20261123200814';
+import { Mirror } from './mirror.js?v=20261123200814';
 
 const NPROG = 64;                          // program slots on the FM-1
 const KEEP_WAIT_MS = 1500;                 // Keep: the library answers within this, or it is not open
@@ -182,7 +182,7 @@ function saveSyx() {                       // the edit as one program (03 00: sl
   let o = 0; for (const m of ms) { out.set(m, o); o += m.length; }
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([out], { type: 'application/octet-stream' }));
-  a.download = (nameOf(link.cur.up).trim().replace(/[^\w.-]+/g, '_') || 'mvance') + '.syx';
+  a.download = (nameOf(link.cur.up).trim().replace(/[^\w.-]+/g, '_') || 'jt80x0') + '.syx';
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
@@ -253,7 +253,7 @@ async function loadUrl() {
 }
 
 async function start() {
-  try { engine = await startEngine({ base: './', stamp: '?v=20261122212620', screen: $('screen') }); }
+  try { engine = await startEngine({ base: './', stamp: '?v=20261123200814', screen: $('screen') }); }
   catch (e) {                              // no simulator built: nothing to edit
     $('sound').hidden = true; document.querySelector('details.pages').hidden = true; $('nosim').style.display = 'block';
     console.warn('editor: no simulator:', e.message);

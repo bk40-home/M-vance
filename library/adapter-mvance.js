@@ -127,7 +127,7 @@
   function identityReply(d) {                /* F0 7E dev 06 02 mfr fam fam mem mem v v v v F7 */
     if (d.length < 15 || d[0] !== 0xF0 || d[1] !== 0x7E || d[3] !== 0x06 || d[4] !== 0x02) return null;
     if (d[5] === 0x7D && d[6] === 0x4D && d[7] === 0x56 && d[8] === 0x41 && d[9] === 0x4E)   /* 7D "MV" "AN" */
-      return {product: "M-VANCE", version: d[10] + "." + d[11] + (d[12] ? "." + d[12] : "")};
+      return {product: "JT-80X0", version: d[10] + "." + d[11] + (d[12] ? "." + d[12] : "")};
     if (d[5] === 0x41) return {product: "a Roland synthesizer (a JP-8000 / 8080?)", version: ""};
     return {product: "another device (manufacturer " + d[5].toString(16).toUpperCase() + "h)", version: ""};
   }
@@ -206,10 +206,10 @@
   FK.mvance = {sanitize, norm, nameOf, itemOf, fromHex, toHex, rq1, identityReply, PF_MAX, GAP_MS, take, swap, solo};   /* (the mock, the tests) */
   FK.adapter = {
     id: "mvance",
-    name: "M-vance",
-    product: /^M-VANCE$/,
+    name: "JT-80x0",
+    product: /^JT-80X0$/,
     deviceName: "FM-1",
-    portMatch: /fm-?1|m-?vave|dinghy|m-?vance/i,
+    portMatch: /fm-?1|m-?vave|dinghy|m-?vance|jt-?80x0/i,
     nameLength: NAME,
     bankSize: NPROG,
     deviceBanks: [{id: 0, name: "PROGRAMS", size: NPROG}],
@@ -257,7 +257,7 @@
     },
     factory() {
       const slots = D.factory.map(([u, l, f]) => ({up: fromHex(u), lo: fromHex(l), pf: fromHex(f)}));
-      return [{name: "M-vance factory", slots}];
+      return [{name: "JT-80x0 factory", slots}];
     },
     layers: {
       names: ["UPPER", "LOWER"],

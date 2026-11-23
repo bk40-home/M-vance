@@ -275,7 +275,7 @@ function wireInput() {
   //                    tracks' reports and reads, clock, START / STOP and notes -> mirror.js
   //   another input    (a keyboard) plays the sim, or, linked, the FM-1
   if (navigator.requestMIDIAccess) {
-    const FM1_NAME = /felucca|fm-?1|m-?vance|m-?vave|dinghy/i;
+    const FM1_NAME = /felucca|fm-?1|m-?vance|jt-?80x0|m-?vave|dinghy/i;
     navigator.requestMIDIAccess({ sysex: true }).then((access) => {
       const scan = () => {
         for (const inp of access.inputs.values()) {

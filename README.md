@@ -1,16 +1,19 @@
-<p align="center"><img src="assets/logo.png" width="480" alt="M-vance: seven fanned sawtooth waves in amber, a black plate with M-VANCE in pixel letters"></p>
+<p align="center"><img src="assets/logo.png" width="480" alt="JT-80x0: seven fanned sawtooth waves in amber, a black plate with JT-80X0 in pixel letters"></p>
 
-# M-vance
+# JT-80x0
 
 **A JP-8000/8080-style virtual analog for the M-VAVE FM-1: the JT-8000 synth engine, ported to the FM-1.**
 
-M-vance is open-source firmware for the M-VAVE FM-1. It is the FM-1 edition of the **JT-8000**, a JP-8000-style synth
+*Formerly M-vance (renamed 23 Nov 2026). The repository, its web addresses and the Firmware Hub identity
+FM-1_968080 are unchanged, so an FM-1 running M-vance takes JT-80x0 as an ordinary update and keeps its programs.*
+
+JT-80x0 is open-source firmware for the M-VAVE FM-1. It is the FM-1 edition of the **JT-8000**, a JP-8000-style synth
 for the Teensy 4.1: its floating-point DSP rewritten in C99 fixed point for the FM-1's chip (no FPU), with the JP's
 laws (envelope times, LFO rates, modulation depths, the filter's cutoff and resonance) measured against the JP-8000's
 own firmware running in the JE-8086 emulator. Super Saw, the JP filter, the multi-effects, delay, a plate reverb, an
 arpeggiator, a two-track sequencer and 64 programs, on eight voices.
 
-<p align="center"><img src="docs/img/home.png" width="240" alt="The M-vance home screen: the name, the program, the note, a keyboard with the keys that sound"></p>
+<p align="center"><img src="docs/img/home.png" width="240" alt="The JT-80x0 home screen: the name, the program, the note, a keyboard with the keys that sound"></p>
 
 - **Web page:** <https://bk40-home.github.io/M-vance/> (from `docs/`, published by `.github/workflows/pages.yml`)
 - **Cheat sheet:** [docs/cheatsheet.html](docs/cheatsheet.html): two A4 pages to print and keep by the FM-1
@@ -43,13 +46,13 @@ Integers only. The chip has a single-precision FPU, but only one object uses it:
 
 ## Bluetooth MIDI
 
-The FM-1 is a Bluetooth MIDI device called **M-vance XXXX**: connect to it from a Mac (Audio MIDI Setup > Bluetooth
+The FM-1 is a Bluetooth MIDI device called **JT-80x0 XXXX**: connect to it from a Mac (Audio MIDI Setup > Bluetooth
 Configuration), an iPhone or an iPad (the app's Bluetooth MIDI page). It plays what comes in and sends what USB sends
 (keys, knob CCs, program changes), but not the MIDI clock. **BT MIDI** on the GLO walk's MIDI page switches it ON or OFF
 and shows **LINKED** while a computer is connected. It is ON from the factory and kept with the settings. One link at a
 time, no pairing code. The program transfer and the library page stay on USB. Bluetooth starts at power-on, and the
 first second after that is silent while the radio calibrates. The stack is fm1-base's own (no JieLi library):
-`third_party/fm1-kit/firmware/fk_ble/README.md`. `./build.sh --no-ble` builds without it (`mvance-usb.fwsc`).
+`third_party/fm1-kit/firmware/fk_ble/README.md`. `./build.sh --no-ble` builds without it (`jt80x0-usb.fwsc`).
 
 ## Velocity, pressure and the JP's VELOCITY and CONTROL
 
@@ -78,7 +81,7 @@ The JP-8080's sections are pages on the FM-1's screen. A section button opens it
 loops); KNOB 1–4 edit the four knobs on screen, left to right; SELECT is the TEMPO (while a MIDI clock sets the tempo
 it steps the knob touched last instead); ALGORITHM walks every page; PRESETS picks the program (its list shows for
 2 s); HOME goes home. On HOME the four knobs are CUTOFF, RESO, DELAY (the send) and REVERB (the global level), under
-a scope of the output (the M-VANCE fan when nothing sounds). The keys light while their note plays (the keys, MIDI,
+a scope of the output (the JT-80X0 fan when nothing sounds). The keys light while their note plays (the keys, MIDI,
 the arp, the sequencer) and glow while it rings on in its release.
 
 Every screen has the same four bands: a header (the section, the page, a pip a page, the part edited, a cell a
@@ -110,8 +113,8 @@ table (`tests/run_docs.sh`), so it shows the panel exactly as the build has it.
   the package is checked first, another model's is refused, and a cut-off install is finished by running it again.
   On Windows close the library, the editor's link and any DAW first: one program at a time on the FM-1's MIDI port.
 - **The FM-1 Firmware Hub** (once listed): [thefirmwarehub.com](https://thefirmwarehub.com) in Chrome or Edge, the FM-1
-  on USB, pick M-vance. Going back to another firmware, or the official one, works the same way.
-- **From the command line:** `python3 tools/fm1_install.py mvance-X.Y.fwsc` (from a release, or your own build).
+  on USB, pick JT-80x0. Going back to another firmware, or the official one, works the same way.
+- **From the command line:** `python3 tools/fm1_install.py jt80x0-X.Y.fwsc` (from a release, or your own build).
 - **If it won't start:** hold **OCT-** while switching on: the USB rescue, no sound, only the updater. Install a
   working build (or another firmware from the hub) from there. Installing firmware is at your own risk.
 
@@ -119,12 +122,12 @@ table (`tests/run_docs.sh`), so it shows the panel exactly as the build has it.
 `firmware/latest.json` (`tools/flash_manifest.py`) beside the firmware page; a tag's release starts it. Page views and
 installs are counted with [GoatCounter](https://www.goatcounter.com) (open source, no cookies) at
 <https://bk40.goatcounter.com>, shared with M-Vsynth2's site (told apart by path; the repo variable `GOATCOUNTER_URL`
-points this site elsewhere). Local copies never count. The firmware page sends `M-vance/flash/start/<identity>`,
+points this site elsewhere). Local copies never count. The firmware page sends `JT-80x0/flash/start/<identity>` (`M-vance/...` before the rename),
 `.../done/<identity>` and `.../fail/<reason>`. GitHub's own figures: *Insights > Traffic* and each release's download counts.
 
 ## Build and run
 
-M-vance is built on [Dinghy](https://github.com/zvenson/dinghy) and keeps its platform (boot, USB, updates, audio,
+JT-80x0 is built on [Dinghy](https://github.com/zvenson/dinghy) and keeps its platform (boot, USB, updates, audio,
 storage) unchanged. You need Linux on x86-64 (or Windows with WSL, macOS with Docker), Python 3 with Pillow, the JieLi
 toolchain and three files of the JieLi AC79 SDK:
 
@@ -140,10 +143,11 @@ Then:
 ```sh
 sh tests/run_unit.sh                        # the engine's unit tests
 tests/run_host.sh [script]                  # the firmware on your computer: build/host/mvance.wav and the screens
+python3 tools/demo/demo.py tools/demo/tour.demo   # a demo video from the firmware: build/demo/tour.mp4 (needs ffmpeg; tools/demo/demo.py has the format)
 sh tests/run_docs.sh                        # the cheat sheet and the web page's screens, from the firmware
-./build.sh                                  # build/mvance.fwsc (refuses what would brick an FM-1)
-./build.sh --release 0.1                    # build/mvance-0.1.fwsc, the version on the screen
-python3 tools/fm1_install.py build/mvance.fwsc
+./build.sh                                  # build/jt80x0.fwsc (refuses what would brick an FM-1)
+./build.sh --release 0.1                    # build/jt80x0-0.1.fwsc, the version on the screen
+python3 tools/fm1_install.py build/jt80x0.fwsc
 ```
 
 The factory bank is a list, `tools/bank/factory.txt`: a source bank and patch per slot, its name and its edits.
@@ -162,32 +166,32 @@ programs (it does not ask again until the next new bank). SAVE's FACTORY mode br
 **Programs to and from a computer:** the patch library, [docs/library.html](docs/library.html), and the sound editor,
 [docs/sim/editor.html](docs/sim/editor.html) (Chrome or Edge, WebMIDI; open them from GitHub Pages, or run
 `python -m http.server` in `docs/` and open `http://localhost:8000/library.html`). The library is fm1-kit's page (the
-same as M-Vsynth2's) with M-vance's adapter (`library/`, built by `python3 tools/gen_library_page.py`): open `.syx` and
+same as M-Vsynth2's) with JT-80x0's adapter (`library/`, built by `python3 tools/gen_library_page.py`): open `.syx` and
 `.mid` banks of JP-8000/8080 SysEx above, the FM-1's 64 programs below; drag one or many down, **Send** writes only
 what changed and reads each slot back, **Read** pulls the 64, **Download** saves them as one `.syx`; the **Sandbox**
 tries it all with no FM-1. **Edit ▸** on a program opens it in the editor (the simulator, every page as a tile;
 **Link FM-1** edits the FM-1's own sound), whose **Keep in library** puts the edit back into that slot. The library
-refuses a device that is not running M-vance (it asks with the MIDI identity request). `python3 tools/make_bank.py --from-device FILE.syx`
+refuses a device that is not running JT-80x0 (it asks with the MIDI identity request). `python3 tools/make_bank.py --from-device FILE.syx`
 then makes those the factory bank: the file is kept as `tools/bank/device.syx`, `factory.txt` takes every slot from it
 (the old list goes to `tools/bank/history/`), and the bank is
-built. USB only (the TRS jack has no SysEx). The protocol, JP-8080 DT1 / RQ1 with one M-vance area for the
+built. USB only (the TRS jack has no SysEx). The protocol, JP-8080 DT1 / RQ1 with one JT-80x0 area for the
 performance bytes: `firmware/src/mv_xfer.h`; `python3 tests/xfer_test.py` checks it on the host build.
 
 `tests/scripts/*.txt` are host scripts (keys, buttons, knobs, MIDI over time; `tests/host.c` says what a line can
 do). The compare tools in `tools/compare/` (`run_compare.sh`) run the fixed-point code next to the JT-8000's float code.
 The chip's rules: [docs/RULES.md](docs/RULES.md); the platform's calls: [docs/API.md](docs/API.md); the SMK-37 build
-(not yet tested with M-vance): [docs/SMK37.md](docs/SMK37.md).
+(not yet tested with JT-80x0): [docs/SMK37.md](docs/SMK37.md).
 
 ## Credits and licence
 
-GPL-3.0-only, see [LICENSE](LICENSE) and [LICENSING.md](LICENSING.md) for who made what. M-vance (the engine, the
+GPL-3.0-only, see [LICENSE](LICENSE) and [LICENSING.md](LICENSING.md) for who made what. JT-80x0 (the engine, the
 panel, the programs, the tools and tests in `firmware/src/mv_*`, `tools/gen_*`, `tools/compare/`) is by Kris
 (bk40-home), ported from his JT-8000. It stands on [Dinghy](https://github.com/zvenson/dinghy) (zvenson), which carries
 the FM-1 platform of [Felucca](https://github.com/hugelton/Felucca) by Leo Kuroshita (Hügelton Instruments) with the
 changes of [SLOOP](https://github.com/isod89/sloop-fm1) (isod89); the arpeggiator is
 [Skiff](https://github.com/illuminus5/skiff)'s (illuminus5).
 
-JP-8000 and JP-8080 are trademarks of Roland Corporation; "M-VAVE" and "FM-1" belong to their owners. M-vance is not
+JP-8000 and JP-8080 are trademarks of Roland Corporation; "M-VAVE" and "FM-1" belong to their owners. JT-80x0 is not
 made by, endorsed by or affiliated with them, and none of these marks appear in the firmware.
 
-You can also try M-vance in the browser, no flashing needed, in the free community [FM-1 Emulator](https://fm1-emulator.atst.tools/).
+You can also try JT-80x0 in the browser, no flashing needed, in the free community [FM-1 Emulator](https://fm1-emulator.atst.tools/).

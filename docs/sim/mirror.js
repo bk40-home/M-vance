@@ -18,7 +18,7 @@
 //   fed        (the editor: its Sequences panel reads them already, and a second reader would cut its reads short) no
 //              readFm1: the panel hands each live track it reads to track()
 // No DOM, no timers but the read's give-up: tests drive it with pretend devices (mirror-test.mjs).
-import * as S from './seq-model.js?v=20261122212620';
+import * as S from './seq-model.js?v=20261123200814';
 
 export const READ_GIVE_UP_MS = 4000;      // a track not read in this long: the next one is asked for
 

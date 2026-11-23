@@ -12,7 +12,7 @@
 //   Ctrl+Z / Ctrl+Y       undo / redo (the panel's)
 // Like the roll it never changes the clip: each finished gesture calls opts.onEdit(points, what) with every CC's
 // points ({ t, cc, v }), and the panel makes the clip (seq-model.js withPoints) and keeps the undo.
-import { BAR, PPQN, PT_GRID, pointsOf } from './seq-model.js?v=20261122212620';
+import { BAR, PPQN, PT_GRID, pointsOf } from './seq-model.js?v=20261123200814';
 
 const KEYW = 34;                           // the label strip: as the roll's key strip, so the bars line up
 const R = 4;                               // a point's radius (px)

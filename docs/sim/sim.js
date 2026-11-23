@@ -11,8 +11,8 @@
 //    Linked, the sim also mirrors what the FM-1 plays (Kris 22 Nov: mirror.js): its tracks, its clock and START / STOP
 //    (CLK OUT on), its keys' notes and the notes played here, so the muted sim's scope, keys and SEQ pages show it.
 //  (Every page at once lives on the sound editor: editor.html; the banks on the library: ../library.html.)
-import { Link, GAP_MS } from './bank/link.js?v=20261122212620';   // ?v: build.sh's stamp
-import { Mirror } from './mirror.js?v=20261122212620';
+import { Link, GAP_MS } from './bank/link.js?v=20261123200814';   // ?v: build.sh's stamp
+import { Mirror } from './mirror.js?v=20261123200814';
 
 let M, pull, ctx, node, fbPtr, pullBuf;
 let apiKeys, apiBtn, apiEnc, apiMidi, apiSysex, sxBuf;   // the cwrapped engine entry points (mv_websim.h)
@@ -36,7 +36,7 @@ const indOf = {}, knobAng = {};                    // enc id -> its indicator el
 async function boot() {
   // the Emscripten factory (build.sh: MODULARIZE, EXPORT_NAME=MVance); the .wasm fetched with the build stamp too,
   // so it always matches mvance.js
-  M = await MVance({ locateFile: (path) => path + '?v=20261122212620' });
+  M = await MVance({ locateFile: (path) => path + '?v=20261123200814' });
   pull    = M.cwrap('wsim_pull', 'number', ['number', 'number']);
   apiKeys = M.cwrap('wsim_keys', null, ['number']);
   apiBtn  = M.cwrap('wsim_btn',  null, ['number', 'number']);
@@ -275,7 +275,7 @@ function wireInput() {
   //                    tracks' reports and reads, clock, START / STOP and notes -> mirror.js
   //   another input    (a keyboard) plays the sim, or, linked, the FM-1
   if (navigator.requestMIDIAccess) {
-    const FM1_NAME = /felucca|fm-?1|m-?vance|m-?vave|dinghy/i;
+    const FM1_NAME = /felucca|fm-?1|m-?vance|jt-?80x0|m-?vave|dinghy/i;
     navigator.requestMIDIAccess({ sysex: true }).then((access) => {
       const scan = () => {
         for (const inp of access.inputs.values()) {

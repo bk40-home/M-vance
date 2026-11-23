@@ -276,7 +276,7 @@ export function mountSeq(root, opts) {
     a.download = name; a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   }
-  const fileName = (p) => ((lanes[p].clip.name || lanes[p].from.replace(/\.midi?.*$/i, '')).trim().replace(/[^\w-]+/g, '_') || `mvance-${PART[p].toLowerCase()}`);
+  const fileName = (p) => ((lanes[p].clip.name || lanes[p].from.replace(/\.midi?.*$/i, '')).trim().replace(/[^\w-]+/g, '_') || `jt80x0-${PART[p].toLowerCase()}`);
   function factory(p) {
     const L = lanes[p], name = prompt('The factory clip\'s file name (it also names the clip, 16 characters):', fileName(p));
     if (!name) return;

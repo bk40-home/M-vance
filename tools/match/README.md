@@ -1,8 +1,8 @@
 <!-- SPDX-License-Identifier: GPL-3.0-only -->
-# Sound match: a recorded note in, an M-vance patch out
+# Sound match: a recorded note in, a JT-80x0 patch out
 
-You give it a WAV of **one held note**. It finds the M-vance (JP-8080) patch that sounds closest by repeatedly
-playing patches on the real M-vance engine and comparing them with your sample. Then it writes a page where you
+You give it a WAV of **one held note**. It finds the JT-80x0 (JP-8080) patch that sounds closest by repeatedly
+playing patches on the real JT-80x0 engine and comparing them with your sample. Then it writes a page where you
 can listen to the two side by side.
 
 ## Once: install what it needs (WSL)
@@ -49,7 +49,7 @@ If the browser doesn't open by itself, go to **http://localhost:8765**.
 4. To hear it on the FM-1: on the page, press **Open in bank editor** (Chrome or Edge). The patch is already in the
    editor's palette: press **Connect FM-1**, then **▶** next to it. To keep it, drag it into a slot, tick the slot
    and **Send ticked**. (From the command line: open the bank editor, `docs/sim/bank/editor.html` or Bank editor on
-   the M-vance site, and **Add source parts** with the `.syx`.)
+   the JT-80x0 site, and **Add source parts** with the `.syx`.)
 
 A whole folder of WAVs works too: `python3 tools/match/match.py samples/`.
 

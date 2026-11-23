@@ -27,12 +27,12 @@
 //              recording, a CLIP LOAD on the panel) is reported (6a): a lane with no unsent change follows it, one with
 //              a change asks Take / Keep mine
 // The editor (editor.js) passes the device and forwards area-04 messages to feed(). No DOM outside root.
-import * as S from './seq-model.js?v=20261122212620';
-import * as M from './seq-midi.js?v=20261122212620';
-import { Roll, noteName } from './seq-roll.js?v=20261122212620';
-import { AutoLane } from './seq-auto.js?v=20261122212620';
-import { SOUND_CCS } from './seq-ccs.js?v=20261122212620';
-import { mountPicker } from './seq-picker.js?v=20261122212620';
+import * as S from './seq-model.js?v=20261123200814';
+import * as M from './seq-midi.js?v=20261123200814';
+import { Roll, noteName } from './seq-roll.js?v=20261123200814';
+import { AutoLane } from './seq-auto.js?v=20261123200814';
+import { SOUND_CCS } from './seq-ccs.js?v=20261123200814';
+import { mountPicker } from './seq-picker.js?v=20261123200814';
 
 const PROBE_MS = 600;                      // a factory clip's head not answered in this long: no more of them
 const NFAC_MAX = 96;                       // factory clips the address can name (tt 20..7F)
@@ -276,7 +276,7 @@ export function mountSeq(root, opts) {
     a.download = name; a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   }
-  const fileName = (p) => ((lanes[p].clip.name || lanes[p].from.replace(/\.midi?.*$/i, '')).trim().replace(/[^\w-]+/g, '_') || `mvance-${PART[p].toLowerCase()}`);
+  const fileName = (p) => ((lanes[p].clip.name || lanes[p].from.replace(/\.midi?.*$/i, '')).trim().replace(/[^\w-]+/g, '_') || `jt80x0-${PART[p].toLowerCase()}`);
   function factory(p) {
     const L = lanes[p], name = prompt('The factory clip\'s file name (it also names the clip, 16 characters):', fileName(p));
     if (!name) return;

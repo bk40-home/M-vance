@@ -137,9 +137,9 @@ function exportSyx() {
   if (empty >= 0) { status(`slot ${empty + 1} is empty — every one of the 64 must be filled before export`, true); return; }
   const blob = new Blob([makeBankSyx(bank)], { type: 'application/octet-stream' });
   const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob); a.download = 'mvance-bank.syx'; a.click();
+  a.href = URL.createObjectURL(blob); a.download = 'jt80x0-bank.syx'; a.click();
   URL.revokeObjectURL(a.href);
-  status('exported mvance-bank.syx — build it with:  python3 tools/make_bank.py --from-device mvance-bank.syx');
+  status('exported jt80x0-bank.syx — build it with:  python3 tools/make_bank.py --from-device jt80x0-bank.syx');
 }
 
 // ---- a slot card: draggable (reorder), with UPPER / LOWER drop zones for parts ----

@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Kris (bk40-home) */
-/* M-VANCE as an fm1-dock module (joakimeriksson/fm1-dock, ABI 2): the M-vance firmware's own app and engine
+/* JT-80X0 (formerly M-vance) as an fm1-dock module (joakimeriksson/fm1-dock, ABI 2): the M-vance firmware's own app and engine
  * (firmware/src/mvance.c, mv_dsp.c), built with dock/module.cfg's switches (one part, 64 programs, no sequencer,
  * no DEBUG page, no SysEx transfer, delay lines of 900 ms: firmware/src/mv_build.h) on the host's services
  * (dock/mv_dock_platform.inc, by way of platform.c's DINGHY_DOCK). As OberVave's module (modules/obervave/): its
@@ -42,11 +42,11 @@ static int mvd_init(const hb_host_t *h)
     H = h;
     app_main();                                 /* the start-up and a first pass */
     dock_leds_resend();
-    H->log("m-vance: M-vance " APP_VER " (fm1-dock module)");
+    H->log("jt80x0: JT-80x0 " APP_VER " (fm1-dock module)");
     return 0;
 }
 
 static void mvd_release(void) { dock_release(); }
 
-HB_DESC = {HB_ABI, "M-VANCE", mvd_init, mvd_release, mvd_note, mvd_cc, mvd_render, mvd_ui, mvd_draw, 0, 0,
+HB_DESC = {HB_ABI, "JT-80X0", mvd_init, mvd_release, mvd_note, mvd_cc, mvd_render, mvd_ui, mvd_draw, 0, 0,
            HB_F_SCREEN | HB_F_PANEL, mvd_midi, 0};   /* (no HB_F_DATA: data() 0) */
