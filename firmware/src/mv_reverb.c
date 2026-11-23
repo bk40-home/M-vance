@@ -5,8 +5,10 @@
 #include "mv_fixed.h"
 #include "mv_rv_tables.h"
 
+#ifndef MV_RATE_RT                              /* (MV_RATE_RT: one rate by construction, mv_reverb.h) */
 #if defined(MV_FS) && MV_RV_FS != MV_FS
 #error "mv_reverb.c: MV_RV_FS must equal MV_FS (the engine's rate) in the firmware"
+#endif
 #endif
 
 /* lengths (samples, the JT's v1 values, not rescaled by the JT either) */
@@ -123,6 +125,9 @@ static inline int32_t rv_ap_tank(uint16_t *wp, int16_t *buf, uint32_t len, int32
 void mv_rv_process(mv_rv_t *r, int32_t *out, uint32_t n)
 {
     uint32_t i;
+    /* the output taps at this rate: constants on the FM-1; with MV_RATE_RT worked out once a call, not per frame */
+    const uint32_t t266 = RV_TAP(266), t2974 = RV_TAP(2974), t1913 = RV_TAP(1913);
+    const uint32_t t353 = RV_TAP(353), t3627 = RV_TAP(3627), t1228 = RV_TAP(1228);
     if (!r->on) return;                         /* LEVEL 0: bypassed, nothing calculated */
     for (i = 0; i < n; i++) {
         int32_t inl = mv_clamp(out[2u * i], -(1 << 25), 1 << 25) << 5;   /* Q15 -> Q20 */
@@ -162,8 +167,8 @@ void mv_rv_process(mv_rv_t *r, int32_t *out, uint32_t n)
         if (r->lod) r->fb[1] -= rv_lp(r->fb[1], &r->thp[1], r->lod, &r->e[3]);
         /* the output taps (a subtractive cross tap widens the image), x 0.3 */
         w0 = r->tw[0]; w1 = r->tw[1];
-        wl = ((int32_t)rv_tdl0[rv_rd(w0, RV_TAP(266), RV_T0)] + rv_tdl0[rv_rd(w0, RV_TAP(2974), RV_T0)] - rv_tdl1[rv_rd(w1, RV_TAP(1913), RV_T1)]) << 6;
-        wr = ((int32_t)rv_tdl1[rv_rd(w1, RV_TAP(353), RV_T1)] + rv_tdl1[rv_rd(w1, RV_TAP(3627), RV_T1)] - rv_tdl0[rv_rd(w0, RV_TAP(1228), RV_T0)]) << 6;
+        wl = ((int32_t)rv_tdl0[rv_rd(w0, t266, RV_T0)] + rv_tdl0[rv_rd(w0, t2974, RV_T0)] - rv_tdl1[rv_rd(w1, t1913, RV_T1)]) << 6;
+        wr = ((int32_t)rv_tdl1[rv_rd(w1, t353, RV_T1)] + rv_tdl1[rv_rd(w1, t3627, RV_T1)] - rv_tdl0[rv_rd(w0, t1228, RV_T0)]) << 6;
         wl = rv_mul(wl, RV_WET_SCALE); wr = rv_mul(wr, RV_WET_SCALE);
         if (r->mlp > 2147483u) { wl = rv_lp(wl, &r->olp[0], r->mlp, &r->e[4]); wr = rv_lp(wr, &r->olp[1], r->mlp, &r->e[5]); }
         if (r->mhp > 2147483u) {                /* (> 0.001: the JT's guard) */

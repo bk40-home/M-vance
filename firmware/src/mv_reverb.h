@@ -25,6 +25,10 @@
 #pragma once
 #include <stdint.h>
 
+#ifdef MV_RATE_RT                               /* the VIBE FM build: the rate is chosen at start (mv_rate.h) */
+#include "mv_rate.h"
+#define MV_RV_FS MV_FS
+#endif
 #ifndef MV_RV_FS
 #define MV_RV_FS 44100u                         /* = MV_FS; the compare builds it at 48000 */
 #endif

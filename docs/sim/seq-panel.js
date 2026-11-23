@@ -27,12 +27,12 @@
 //              recording, a CLIP LOAD on the panel) is reported (6a): a lane with no unsent change follows it, one with
 //              a change asks Take / Keep mine
 // The editor (editor.js) passes the device and forwards area-04 messages to feed(). No DOM outside root.
-import * as S from './seq-model.js?v=20261123200814';
-import * as M from './seq-midi.js?v=20261123200814';
-import { Roll, noteName } from './seq-roll.js?v=20261123200814';
-import { AutoLane } from './seq-auto.js?v=20261123200814';
-import { SOUND_CCS } from './seq-ccs.js?v=20261123200814';
-import { mountPicker } from './seq-picker.js?v=20261123200814';
+import * as S from './seq-model.js?v=20261123211538';
+import * as M from './seq-midi.js?v=20261123211538';
+import { Roll, noteName } from './seq-roll.js?v=20261123211538';
+import { AutoLane } from './seq-auto.js?v=20261123211538';
+import { SOUND_CCS } from './seq-ccs.js?v=20261123211538';
+import { mountPicker } from './seq-picker.js?v=20261123211538';
 
 const PROBE_MS = 600;                      // a factory clip's head not answered in this long: no more of them
 const NFAC_MAX = 96;                       // factory clips the address can name (tt 20..7F)

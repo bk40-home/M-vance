@@ -80,7 +80,11 @@ void mv_flt_lp(mv_flt_t *f, uint32_t g_q26, uint32_t r_q31)
 
 void mv_flt_cutoff(mv_flt_t *f, int32_t code_q8)
 {
+#ifdef MV_RATE_RT
+    const uint32_t N = MV_FLT_G_N;              /* the table of the rate in use (mv_rate.h) */
+#else
     enum { N = sizeof MV_FLT_G_Q26 / sizeof MV_FLT_G_Q26[0] };
+#endif
     uint32_t i, j;
     int32_t u, g0, g1, g2;
     int64_t g;

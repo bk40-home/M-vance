@@ -50,12 +50,23 @@
 #include <stdint.h>
 #include "mv_build.h"                         /* MV_DLY_MS: the delay lines' length */
 
+#ifdef MV_RATE_RT                               /* the VIBE FM build: the rate is chosen at start (mv_rate.h) */
+#include "mv_rate.h"
+#define MV_FX_FS MV_FS
+#define MV_FX_MLEN (mv_rate->fx_mlen)           /* the same formulas as below, at the rate in use (mv_rate.c) */
+#define MV_FX_DLEN (mv_rate->fx_dlen)
+#define MV_FX_MLEN_MAX (MV_RATE_FS_MAX * 50u / 1000u + 2u)        /* the lines' storage: the highest rate's */
+#define MV_FX_DLEN_MAX (MV_RATE_FS_MAX * MV_DLY_MS / 1000u + 3u)
+#else
 #ifndef MV_FX_FS
 #define MV_FX_FS 44100u                         /* = MV_FS (checked in mv_fx.c); the compare builds it at 48000 */
 #endif
 #define MV_FX_MLEN (MV_FX_FS * 50u / 1000u + 2u)       /* Multi-FX line: 50 ms + 2 (the JT's kModLen) */
 #define MV_FX_DLEN (MV_FX_FS * MV_DLY_MS / 1000u + 3u)  /* delay lines: MV_DLY_MS (1303 ms standalone; mv_build.h)
                                                    + the interpolation pair */
+#define MV_FX_MLEN_MAX MV_FX_MLEN               /* the lines' storage (MV_RATE_RT: the highest rate's) */
+#define MV_FX_DLEN_MAX MV_FX_DLEN
+#endif
 
 typedef struct {
     uint8_t key[6];                             /* bytes 61..66 the caches were built from (mv_fx_set) */

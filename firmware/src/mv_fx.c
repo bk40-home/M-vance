@@ -4,15 +4,17 @@
 #include "mv_fx.h"
 #include "mv_fixed.h"
 
+#ifndef MV_RATE_RT                              /* (MV_RATE_RT: one rate by construction, mv_fx.h) */
 #if defined(MV_FS) && MV_FX_FS != MV_FS
 #error "mv_fx.c: MV_FX_FS must equal MV_FS (the engine's rate) in the firmware"
+#endif
 #endif
 
 #define ONE 1048576                             /* 1.0 in the chain's Q20 */
 
 /* ---- the lines (the platform pool: zeroed at boot, outside the 96 KB of RAM) */
-static int32_t mline[MV_FX_MLEN] __attribute__((section(".pool")));      /* Multi-FX: x, Q20 */
-static int16_t dline[2][MV_FX_DLEN] __attribute__((section(".pool")));   /* delay L / R: Q13 (+-4.0) */
+static int32_t mline[MV_FX_MLEN_MAX] __attribute__((section(".pool")));      /* Multi-FX: x, Q20 */
+static int16_t dline[2][MV_FX_DLEN_MAX] __attribute__((section(".pool")));   /* delay L / R: Q13 (+-4.0) */
 
 /* ---- small helpers: control rate only (type / time changes), never per frame */
 

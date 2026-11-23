@@ -53,3 +53,6 @@ uint32_t mv_core1_wait_ticks(void) { return 0u; }
 #include "mv_seq.c"
 #include "mv_lim.c"
 #include "mv_voice.c"
+#ifdef MV_RATE_RT
+#include "mv_rate.c"                            /* the VIBE FM build: the rate's sets (mv_rate.h), after both rates' tables */
+#endif

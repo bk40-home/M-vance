@@ -22,7 +22,9 @@ enum {
 #define LOG2_CTL 4u                             /* MV_CTL = 16 frames */
 enum { MODE_POLY, MODE_MONO, MODE_UNISON };     /* play modes (mv_ev_drain) */
 /* X-MOD: 69 Hz of OSC1 deviation per knob step (JpXmodLaw, triangle calibration) as a Q32 step at MV_FS */
+#ifndef XMOD_STEP_Q32                           /* (MV_RATE_RT: the rate in use's, mv_rate.h) */
 #define XMOD_STEP_Q32 ((uint32_t)((69ull * 4294967296ull + MV_FS / 2u) / MV_FS))
+#endif
 #define XMOD_SAW_Q16   32768                    /* 0.50: saw family */
 #define XMOD_P50_Q16   19399                    /* 0.296: pulse at 50 % */
 #define XMOD_PSL_Q16   2147                     /* (0.296 - 0.277) / 0.58: per unit of |2 pw - 1| */
@@ -191,7 +193,9 @@ void mv_engine_note_direct(mv_engine_t *e, uint32_t note, uint32_t vel, uint32_t
 }
 
 /* ---- play modes (JT VoiceAllocator, the JP bytes 69..72, 243, 244), per part ---- */
+#ifndef GLIDE_SNAP                              /* (MV_RATE_RT: the rate in use's, mv_rate.h) */
 #define GLIDE_SNAP 9739u                        /* 0.1 Hz as a Q32 step at MV_FS: the JT's snap distance */
+#endif
 
 static uint32_t note_inc(uint32_t note) { return mv_pitch_inc((int32_t)note * 256); }   /* the note alone */
 
