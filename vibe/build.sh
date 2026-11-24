@@ -11,6 +11,7 @@ cd "$(dirname "$0")/.."
 ROOT=$(pwd)
 SDK=${VIBE_SDK:-$ROOT/../vibe-fm-sdk}
 [ -f "$SDK/tools/build.sh" ] || { echo "vibe/build.sh: no VIBE FM SDK at $SDK (set VIBE_SDK)"; exit 1; }
+[ "${CHECK:-1}" = 0 ] || command -v node >/dev/null 2>&1 || { echo "vibe/build.sh: Node is needed (vibe-check, wasmtest): install Node 22, e.g. nvm install 22"; exit 1; }
 FW="$ROOT/vibe/jt80x0"
 python3 tools/gen_params.py >/dev/null          # (the generated headers, as the FM-1 build makes them)
 python3 tools/gen_tables.py >/dev/null

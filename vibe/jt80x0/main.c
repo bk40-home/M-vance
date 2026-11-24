@@ -9,10 +9,13 @@
  * Two flows (VIBE_PARALLEL_AUDIO, a must): the engine is the audio flow's alone. The events hand it notes and program
  * changes through one queue (one writer, one reader: the data, VIBE_RELEASE, then the counter). The display reads only
  * what the events own, and one 32-bit value the audio writes (voices sounding). P3 brings the pages, P4 the DAW's
- * parameters, P5 saving. */
+ * parameters, P5 saving.
+ * Rates: the engine has tables for 44.1 and 48 kHz (mv_rate.h). A host at twice or four times one of them runs it there
+ * and doubles once or twice (jt_up.h, P2b): 88.2 / 96 / 176.4 / 192 kHz. Any other rate: silence, and the display says so. */
 #include "vibe.h"
 #include "vibe_gfx.h"
 #include "jt_core.h"
+#include "jt_up.h"
 
 VIBE_PARALLEL_AUDIO
 
@@ -31,7 +34,7 @@ static void q_push(uint32_t type, uint32_t a, uint32_t b)   /* (events) full: dr
 }
 
 /* ---- the events' state ---------------------------------------------------------------------------------------- */
-static uint32_t host_fs, rate_ok, prog, help;
+static uint32_t host_fs, up_k, prog, help;      /* up_k: host rate / engine rate (1, 2, 4); 0 = a rate we lack */
 static float enc_acc[VE_COUNT];
 static volatile uint32_t voices;                /* the audio's: voices sounding (the display shows it) */
 static const char *const HELP[] = {
@@ -69,7 +72,9 @@ static void prog_select(uint32_t n)
 void vibe_on_init(float sample_rate)
 {
     host_fs = (uint32_t)(sample_rate + 0.5f);
-    rate_ok = (uint32_t)jt_init(host_fs, 0u);   /* (the audio has not started: the engine is ours here) */
+    for (up_k = 1u; up_k <= 4u; up_k *= 2u)     /* the engine at the host's rate, else at a half, else a quarter */
+        if (host_fs % up_k == 0u && jt_init(host_fs / up_k, 0u)) break;   /* (the audio has not started: ours here) */
+    if (up_k > 4u) up_k = 0;
     prog = 0;
     vibe_notes(VIBE_NOTES);                     /* keys, MIDI and the DAW's notes all come as VIBE_EV_NOTE */
     pads_light();
@@ -104,16 +109,29 @@ void vibe_on_event(const vibe_event *e)
     }
 }
 
+/* m engine frames (a multiple of 16, at most JT_BLOCK) -> m x up_k host frames */
+static jt_hb up1, up2;
+static float up_l[2u * JT_BLOCK], up_r[2u * JT_BLOCK], en_l[JT_BLOCK], en_r[JT_BLOCK];
+static void piece(float *l, float *r, uint32_t m)
+{
+    if (up_k == 1u) { jt_render(l, r, m); return; }
+    jt_render(en_l, en_r, m);
+    if (up_k == 2u) { jt_hb_run(&up1, JT_UP1, JT_UP1_P, en_l, en_r, l, r, m); return; }
+    jt_hb_run(&up1, JT_UP1, JT_UP1_P, en_l, en_r, up_l, up_r, m);
+    jt_hb_run(&up2, JT_UP2, JT_UP2_P, up_l, up_r, l, r, 2u * m);
+}
+
 void vibe_on_audio(const float *in, float *l, float *r, int frames)
 {
-    /* the engine renders 16 frames at a time: straight into the host's block, and a block that is no multiple of 16
-     * ends through a 16-frame queue (what it holds plays first next time: at most 15 frames late) */
-    static float ql[16], qr_[16];
-    static uint32_t qpos = 16u;
-    uint32_t i = 0, n = (uint32_t)frames, w;
+    /* the engine renders 16 frames at a time: straight into the host's block, and a block that is no multiple of
+     * 16 x up_k ends through a queue of one such piece (what it holds plays first next time: at most 15 engine
+     * frames late) */
+    static float ql[16u * 4u], qr_[16u * 4u];
+    static uint32_t qpos, qlen;
+    uint32_t i = 0, n = (uint32_t)frames, w, piece_h = 16u * up_k;
     const vibe_transport_info *tp = vibe_transport();
     (void)in;
-    if (!rate_ok) {                             /* no tables for this rate: silence (the display says why) */
+    if (!up_k) {                                /* no tables for this rate: silence (the display says why) */
         for (i = 0; i < n; i++) l[i] = r[i] = 0.0f;
         return;
     }
@@ -129,14 +147,16 @@ void vibe_on_audio(const float *in, float *l, float *r, int frames)
         }
     }
     jt_tempo(tp->has && tp->bpm > 0.0f ? tp->bpm : 120.0f);
-    while (i < n && qpos < 16u) { l[i] = ql[qpos]; r[i] = qr_[qpos]; qpos++; i++; }
-    while (n - i >= 16u) {
-        uint32_t m = n - i >= JT_BLOCK ? JT_BLOCK : (n - i) & ~15u;
-        jt_render(l + i, r + i, m);
-        i += m;
+    while (i < n && qpos < qlen) { l[i] = ql[qpos]; r[i] = qr_[qpos]; qpos++; i++; }
+    while (n - i >= piece_h) {
+        uint32_t m = (n - i) / up_k;
+        m = m >= JT_BLOCK ? JT_BLOCK : m & ~15u;
+        piece(l + i, r + i, m);
+        i += m * up_k;
     }
     if (i < n) {
-        jt_render(ql, qr_, 16u);
+        piece(ql, qr_, 16u);
+        qlen = piece_h;
         for (qpos = 0; i < n; i++, qpos++) { l[i] = ql[qpos]; r[i] = qr_[qpos]; }
     }
     voices = mv_engine_active(&eng);
@@ -152,9 +172,10 @@ void vibe_on_draw(uint16_t *fb)
     vg_rect(0, 0, 480, 40, 0xFF8A1F);
     vg_text("JT-80x0", 14, 9, VG_BIG, 0x0E0F12, VG_LEFT);
     vg_text("JP-8080 SOUND", 466, 13, VG_BOLD, 0x0E0F12, VG_RIGHT);
-    if (!rate_ok) {
+    if (!up_k) {
         vg_text(vg_itoa((int)host_fs, num), 240, 110, VG_HUGE, 0xE6E8EE, VG_CENTER);
-        vg_text("Hz: this sample rate is not supported yet (44100 and 48000 are)", 240, 190, VG_MED, 0xB8BCC6, VG_CENTER);
+        vg_text("Hz: not a rate JT-80x0 plays at", 240, 190, VG_MED, 0xB8BCC6, VG_CENTER);
+        vg_text("44.1 / 48 kHz, x2 or x4 (88.2, 96, 176.4, 192)", 240, 216, VG_MED, 0xB8BCC6, VG_CENTER);
         return;
     }
     for (i = 0; i < 16u; i++) name[i] = (char)(MV_FACTORY[n][i] >= 32 && MV_FACTORY[n][i] < 127 ? MV_FACTORY[n][i] : ' ');

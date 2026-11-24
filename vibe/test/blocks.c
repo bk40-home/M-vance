@@ -5,8 +5,11 @@
  * The two streams must be the same, sample for sample: the 16-frame queue in vibe_on_audio loses nothing, repeats
  * nothing and adds nothing. Each way runs in a process of its own (the engine's lines are statics, zeroed once at
  * start as on the device: a second run in the same process would hear the first one's echoes).
- *   blocks fixed|random <file>   writes the first half (before the note-offs) as raw floats; blocks rate: 32 kHz is silent */
+ *   blocks fixed|random <file> [rate]   writes the first half (before the note-offs) as raw floats (default 44100; P2b:
+ *                                       96000 / 192000 go through the upsampler, its queue in host frames)
+ *   blocks rate                         32 kHz is silent */
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include "vibe.h"
 static vibe_transport_info tpi;
@@ -21,7 +24,8 @@ int vg_text(const char *s, int x, int y, int f, uint32_t c, int a) { (void)s; (v
 char *vg_itoa(int v, char *b) { sprintf(b, "%d", v); return b; }
 #include "../jt80x0/main.c"
 
-#define N (44100u * 3u)
+#define N (192000u * 3u)                         /* (room for the highest rate; `frames` below is the run's) */
+static uint32_t rate = 44100u, frames;
 static float A[2][N];
 
 static void note(int down, int id, float v)
@@ -34,13 +38,13 @@ static void note(int down, int id, float v)
 static void play(float (*o)[N], int random_sizes)
 {
     uint32_t done = 0, seed = 12345u;
-    vibe_on_init(44100.0f);
+    vibe_on_init((float)rate);
     note(1, 57, 0.9f); note(1, 64, 0.7f); note(1, 69, 0.5f);
-    while (done < N) {
+    while (done < frames) {
         uint32_t n = 128u;
         if (random_sizes) { seed = seed * 1664525u + 1013904223u; n = 1u + (seed >> 8) % 256u; }
-        if (n > N - done) n = N - done;
-        if (done >= N / 2u && done - n < N / 2u) { note(0, 57, 0); note(0, 64, 0); note(0, 69, 0); }
+        if (n > frames - done) n = frames - done;
+        if (done >= frames / 2u && done - n < frames / 2u) { note(0, 57, 0); note(0, 64, 0); note(0, 69, 0); }
         vibe_on_audio(0, o[0] + done, o[1] + done, (int)n);
         done += n;
     }
@@ -60,13 +64,15 @@ int main(int argc, char **argv)
         printf("32 kHz: %s\n", i == 64u ? "silent, as it should be" : "NOT silent");
         return i != 64u;
     }
-    if (argc != 3) return 2;
+    if (argc != 3 && argc != 4) return 2;
+    if (argc == 4) rate = (uint32_t)atoi(argv[3]);
+    frames = rate * 3u;
     play(A, !strcmp(argv[1], "random"));
-    for (i = 0; i < N / 2u - 256u; i++) if (A[0][i] > 0.01f || A[0][i] < -0.01f) loud++;
-    printf("%s blocks: %u loud frames\n", argv[1], loud);
+    for (i = 0; i < frames / 2u - 256u; i++) if (A[0][i] > 0.01f || A[0][i] < -0.01f) loud++;
+    printf("%u Hz, %s blocks: %u loud frames\n", rate, argv[1], loud);
     f = fopen(argv[2], "wb");
     /* (the note-offs land on a different frame with random blocks: up to the first block that holds N / 2) */
-    for (i = 0; i < N / 2u - 256u; i++) { fwrite(&A[0][i], 4, 1, f); fwrite(&A[1][i], 4, 1, f); }
+    for (i = 0; i < frames / 2u - 256u; i++) { fwrite(&A[0][i], 4, 1, f); fwrite(&A[1][i], 4, 1, f); }
     fclose(f);
     return loud < 1000u;
 }
