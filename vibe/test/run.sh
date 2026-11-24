@@ -35,4 +35,15 @@ for rate in 44100 96000 192000; do
     if cmp -s "$OUT/fixed.raw" "$OUT/random.raw"; then echo "blocks $rate Hz: random host blocks = 128-frame blocks, sample for sample"; else echo "blocks $rate Hz: DIFFER"; fail=1; fi
 done
 "$OUT/blocks" rate || fail=1
+# P3: the pages, edits, MIDI, sustain (main.c natively: ui_test check), and a played and edited run – the .wasm against
+# main.c built natively, the same events at the same blocks, the same hash (44.1 kHz, and 96: through the upsampler)
+cc -std=c99 -O2 -Wall -Wextra -Werror -Wno-unused-function -I"$SDK/sdk/include" -o "$OUT/ui_test" vibe/test/ui_test.c
+"$OUT/ui_test" check | tail -1 | grep -q " 0 of " && echo "ui: $("$OUT/ui_test" check | tail -1)" || { "$OUT/ui_test" check | tail -20; fail=1; }
+for rate in 44100 96000; do
+    mkdir -p "$OUT/ui-$rate"
+    "$OUT/ui_test" script $rate "$OUT/ui-$rate.json"
+    want=$("$OUT/ui_test" hash $rate | sed -n 's/.*out_hash \([0-9a-f]*\).*/\1/p')
+    got=$(node "$SDK/tools/wasmtest.mjs" "$SDK/build/jt80x0.wasm" "$OUT/ui-$rate.json" "$OUT/ui-$rate" $rate | sed -n 's/.*"out_hash":"\([0-9a-f]*\)".*/\1/p')
+    if [ "$want" = "$got" ] && [ -n "$got" ]; then echo "$rate Hz, played and edited: the .wasm = main.c natively ($got)"; else echo "$rate Hz, played and edited: DIFFER (.wasm $got, native $want)"; fail=1; fi
+done
 [ $fail = 0 ]

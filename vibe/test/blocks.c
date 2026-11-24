@@ -8,20 +8,7 @@
  *   blocks fixed|random <file> [rate]   writes the first half (before the note-offs) as raw floats (default 44100; P2b:
  *                                       96000 / 192000 go through the upsampler, its queue in host frames)
  *   blocks rate                         32 kHz is silent */
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include "vibe.h"
-static vibe_transport_info tpi;
-const vibe_transport_info *vibe_transport(void) { return &tpi; }
-void vibe_notes(int f) { (void)f; }
-void vibe_led_pad(int p, uint32_t c, float l) { (void)p; (void)c; (void)l; }
-void vg_controls(const char *t, const char *const *r, int n) { (void)t; (void)r; (void)n; }
-void vg_clear(uint32_t c) { (void)c; }
-void vg_rect(int x, int y, int w, int h, uint32_t c) { (void)x; (void)y; (void)w; (void)h; (void)c; }
-void vg_round(int x, int y, int w, int h, int r, uint32_t c) { (void)x; (void)y; (void)w; (void)h; (void)r; (void)c; }
-int vg_text(const char *s, int x, int y, int f, uint32_t c, int a) { (void)s; (void)x; (void)y; (void)f; (void)c; (void)a; return 0; }
-char *vg_itoa(int v, char *b) { sprintf(b, "%d", v); return b; }
+#include "stubs.h"
 #include "../jt80x0/main.c"
 
 #define N (192000u * 3u)                         /* (room for the highest rate; `frames` below is the run's) */
@@ -46,6 +33,7 @@ static void play(float (*o)[N], int random_sizes)
         if (n > frames - done) n = frames - done;
         if (done >= frames / 2u && done - n < frames / 2u) { note(0, 57, 0); note(0, 64, 0); note(0, 69, 0); }
         vibe_on_audio(0, o[0] + done, o[1] + done, (int)n);
+        stub_frames += n;
         done += n;
     }
 }
