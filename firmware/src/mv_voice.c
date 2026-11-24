@@ -110,8 +110,8 @@ static void morph_copy(uint8_t *dst, const uint8_t *b)
 }
 /* the views (RAM in .pool: 1.5 KB, the 96 KB is full): a part's bytes as it plays them (CONTROL, and VELOCITY at the
  * part's last note: what the part reads once for its voices), and each core's copy for a voice's own velocity */
-static uint8_t mv_pview[2][MV_PATCH_BYTES] __attribute__((section(".pool")));
-static uint8_t mv_vview[2][2][MV_PATCH_BYTES] __attribute__((section(".pool")));   /* [core][part] */
+static uint8_t mv_pview[2][MV_PATCH_BYTES] MV_POOL;
+static uint8_t mv_vview[2][2][MV_PATCH_BYTES] MV_POOL;   /* [core][part] */
 
 void mv_engine_init(mv_engine_t *e)
 {

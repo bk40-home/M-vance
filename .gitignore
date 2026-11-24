@@ -13,3 +13,7 @@ __pycache__/
 /tools/clips/Midi/
 docs/flash/firmware/
 /docs/_handover
+
+# VIBE FM build: the engine copied from firmware/ by vibe/build.sh (firmware/ is the source)
+/vibe/jt80x0/engine/
+/vibe/test/events.h

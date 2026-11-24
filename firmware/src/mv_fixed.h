@@ -8,6 +8,17 @@
 #pragma once
 #include <stdint.h>
 
+/* MV_POOL: where the big zeroed lines live (delay, Multi-FX, reverb, the voices' views). The FM-1: the platform's pool
+ * (.pool, zeroed at boot). The VIBE FM (wasm): plain statics, zeroed by the runtime; a named section there would ship
+ * its zeros in the .wasm (290 KB). */
+#ifndef MV_POOL
+#ifdef DINGHY_VIBE
+#define MV_POOL
+#else
+#define MV_POOL __attribute__((section(".pool")))
+#endif
+#endif
+
 static inline int32_t mv_clamp(int32_t v, int32_t lo, int32_t hi) { return v < lo ? lo : v > hi ? hi : v; }
 static inline int32_t mv_sat16(int32_t v) { return v > 32767 ? 32767 : v < -32767 ? -32767 : v; }
 

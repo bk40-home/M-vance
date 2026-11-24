@@ -30,12 +30,12 @@ static const uint16_t RV_DLEN[4] = {RV_D0, RV_D1, RV_D2, RV_D3};
 #define RV_QUIET_FRAMES (RV_T0 + RV_T1 + RV_A0 + RV_A1)        /* silent for a whole tank round: the tail has ended */
 
 /* the lines (the platform pool: zeroed at boot) */
-static int32_t rv_diff[RV_D0 + RV_D1 + RV_D2 + RV_D3] __attribute__((section(".pool")));        /* Q20 */
+static int32_t rv_diff[RV_D0 + RV_D1 + RV_D2 + RV_D3] MV_POOL;        /* Q20 */
 /* (one declaration each: a section attribute at the end of a list applies to its last name only) */
-static int16_t rv_tapf0[RV_A0] __attribute__((section(".pool")));                      /* tank allpasses, Q14 */
-static int16_t rv_tapf1[RV_A1] __attribute__((section(".pool")));
-static int16_t rv_tdl0[RV_T0] __attribute__((section(".pool")));                       /* tank delays, Q14 */
-static int16_t rv_tdl1[RV_T1] __attribute__((section(".pool")));
+static int16_t rv_tapf0[RV_A0] MV_POOL;                      /* tank allpasses, Q14 */
+static int16_t rv_tapf1[RV_A1] MV_POOL;
+static int16_t rv_tdl0[RV_T0] MV_POOL;                       /* tank delays, Q14 */
+static int16_t rv_tdl1[RV_T1] MV_POOL;
 
 /* ---- helpers */
 

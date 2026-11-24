@@ -6,13 +6,13 @@
  * broke updates (OberVave's finding). The DSP has no such ties: it touches no hardware and only C objects, so it
  * can take -O2 (unrolled inner loops, more in registers) without the platform seeing it. mvance.c includes only
  * the headers and calls mv_engine_* / mv_cc_apply / mv_patch_*; platform.c starts the second core
- * through mv_core1_start. */
+ * through mv_core1_start. DINGHY_VIBE (the VIBE FM build, vibe/jt80x0): no hardware here either, one core. */
 /* The second core (Melodee's, hal/fm1_multicore.h + src/audio_worker.h; as M-Vsynth2's vs_dsp.c): CPU1 polls a mailbox
  * from RAM. Stage D0: it starts and idles; the engine does not hand it voices yet (MV_PAR_* are unused until D1).
  * The only hardware this file touches. Not on a computer, in a browser, or as an fm1-dock module (the dock's host
  * firmware owns CPU1): those are one core */
 #include <stdint.h>                              /* uint32_t for the mv_core1_* accessors on every build path */
-#if !defined(DINGHY_HOST) && !defined(DINGHY_WEBSIM) && !defined(DINGHY_DOCK)
+#if !defined(DINGHY_HOST) && !defined(DINGHY_WEBSIM) && !defined(DINGHY_DOCK) && !defined(DINGHY_VIBE)
 #include "fm1_time.h"
 #include "fm1_dual.h"
 #if MELODEE_DUAL_CORE

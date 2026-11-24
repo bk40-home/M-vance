@@ -13,8 +13,8 @@
 #define ONE 1048576                             /* 1.0 in the chain's Q20 */
 
 /* ---- the lines (the platform pool: zeroed at boot, outside the 96 KB of RAM) */
-static int32_t mline[MV_FX_MLEN_MAX] __attribute__((section(".pool")));      /* Multi-FX: x, Q20 */
-static int16_t dline[2][MV_FX_DLEN_MAX] __attribute__((section(".pool")));   /* delay L / R: Q13 (+-4.0) */
+static int32_t mline[MV_FX_MLEN_MAX] MV_POOL;      /* Multi-FX: x, Q20 */
+static int16_t dline[2][MV_FX_DLEN_MAX] MV_POOL;   /* delay L / R: Q13 (+-4.0) */
 
 /* ---- small helpers: control rate only (type / time changes), never per frame */
 
