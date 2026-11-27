@@ -77,11 +77,16 @@ static void h_sense_set(uint32_t a, uint32_t b, uint32_t c, uint32_t d) { (void)
 static int h_c1_run(void (*fn)(uint32_t), uint32_t arg) { (void)fn; (void)arg; return 0; }
 static int h_c1_wait(void) { return 0; }
 static void h_key_base(uint32_t n) { (void)n; }
+/* by name (Kris 27 Nov): fm1-dock appends fields to hb_host_t (pack_find, ...); one this host does not give stays 0,
+ * and the build keeps going against fm1-dock's main whatever it has added since */
 static const hb_host_t HOST = {
-    HB_ABI, sizeof(hb_host_t), h_ms, h_ticks, h_log, h_log_u32, h_fill, h_text, h_cv_begin, h_cv_rect, h_cv_line,
-    h_cv_pixel, h_cv_text, h_cv_blit, h_led, h_rand, h_load, h_save, h_midi_send, h_master, h_blit, h_text_w,
-    h_bank_load, h_bank_save, h_sense_keys, h_key_sense, h_sense_set, h_bank_load_n, h_bank_save_n, h_bank_free,
-    h_c1_run, h_c1_wait, HB_BOARD_FM1, h_key_base,
+    .abi = HB_ABI, .size = sizeof(hb_host_t), .ms = h_ms, .ticks = h_ticks, .log = h_log, .log_u32 = h_log_u32,
+    .fill = h_fill, .text = h_text, .cv_begin = h_cv_begin, .cv_rect = h_cv_rect, .cv_line = h_cv_line,
+    .cv_pixel = h_cv_pixel, .cv_text = h_cv_text, .cv_blit = h_cv_blit, .led = h_led, .rand = h_rand, .load = h_load,
+    .save = h_save, .midi_send = h_midi_send, .master = h_master, .blit = h_blit, .text_w = h_text_w,
+    .bank_load = h_bank_load, .bank_save = h_bank_save, .sense_keys = h_sense_keys, .key_sense = h_key_sense,
+    .sense_set = h_sense_set, .bank_load_n = h_bank_load_n, .bank_save_n = h_bank_save_n, .bank_free = h_bank_free,
+    .c1_run = h_c1_run, .c1_wait = h_c1_wait, .board = HB_BOARD_FM1, .key_base = h_key_base,
 };
 
 /* the module's RAM (its .data + .bss): what fm1-dock copies and clears at each start. Here: the linker's symbols for
