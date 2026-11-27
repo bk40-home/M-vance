@@ -86,16 +86,22 @@ void mv_flt_cutoff(mv_flt_t *f, int32_t code_q8)
     enum { N = sizeof MV_FLT_G_Q26 / sizeof MV_FLT_G_Q26[0] };
 #endif
     uint32_t i, j;
-    int32_t u, g0, g1, g2;
-    int64_t g;
+    int32_t u;
+    int64_t g, g0, g1, g2;                      /* (64-bit: entries past g = 32 are above INT32_MAX; read as int32 they
+                                                   wrapped negative – up to 31 cents off and falling near the ceiling) */
     code_q8 = mv_clamp(code_q8, MV_FLT_FLOOR_Q8, f->ceil_q8) - MV_FLT_G_CODE0_Q8;   /* >= 0 */
-    /* quadratic through entries j..j+2 (quarter codes; j stops 3 short of the end), u = position from j, Q6 */
+    /* quadratic through entries j..j+2 (quarter codes), u = position from j, Q6. j stops 4 short of the end (Kris 25 Nov:
+     * the P1 finding, option B): the table's last entry lies past the 0.49 fs ceiling, where tan runs to its pole, and a
+     * quadratic through it bent the last quarter code down (6.6 cents, g falling 0.2 %); through the three below it the
+     * pole is within 2.5 cents of tan to the ceiling and g only rises (tests/mv_flt_g_test.c) */
     i = (uint32_t)code_q8 >> 6;
-    j = i < N - 3u ? i : N - 3u;
+    j = i < N - 4u ? i : N - 4u;
     u = code_q8 - (int32_t)(j << 6);
-    g0 = (int32_t)MV_FLT_G_Q26[j]; g1 = (int32_t)MV_FLT_G_Q26[j + 1u]; g2 = (int32_t)MV_FLT_G_Q26[j + 2u];
-    g = g0 + (((int64_t)u * (g1 - g0)) >> 6) + (((int64_t)u * (u - 64) * ((int64_t)g2 - 2 * (int64_t)g1 + g0)) >> 13);
-    if (code_q8 >= f->ceil_q8 - MV_FLT_G_CODE0_Q8) g = f->ceil_g;   /* at the ceiling: exact, not the Q8 code */
+    g0 = (int64_t)MV_FLT_G_Q26[j]; g1 = (int64_t)MV_FLT_G_Q26[j + 1u]; g2 = (int64_t)MV_FLT_G_Q26[j + 2u];
+    g = g0 + (((int64_t)u * (g1 - g0)) >> 6) + (((int64_t)u * (u - 64) * (g2 - 2 * g1 + g0)) >> 13);
+    if (code_q8 >= f->ceil_q8 - MV_FLT_G_CODE0_Q8 || g > (int64_t)f->ceil_g) g = f->ceil_g;   /* at the ceiling: exact,
+                                                   not the Q8 code; and never past it (the quadratic's overshoot in the
+                                                   last quarter code: g stays within int32, as f->g holds it) */
     flt_coefs(f, (uint32_t)g);
 }
 

@@ -72,6 +72,7 @@ static int fk_ble_state(void) { return FK_BLE_OFF; }
 #endif
 #include "mv_patch.h"                          /* the JP-8080 patch: table, CC map, SysEx (Stage 4) */
 #include "mv_voice.h"                          /* the voice engine; its code is mv_dsp.c, built apart at -O2 */
+#include "../../third_party/fm1-kit/firmware/fk_sustain/fk_sustain.h"   /* the sustain pedal, CC64 (Kris 25 Nov: all engines) */
 #include "mv_prog.c"                           /* the programs: in this unit, it saves with platform.c (static) */
 #if MV_XFER
 #include "mv_xfer.c"                           /* the program transfer over SysEx (Kris 4 Nov: F1 + F2) */
@@ -278,12 +279,18 @@ static void ctl_from(uint32_t src, uint32_t v)
 }
 /* a key down: played on its part(s) (LOCAL ON), sent on their channel(s); returned: the channels (bit per channel) and
  * KEY_LOCAL if it sounds here; 0 nothing */
+/* sustain (fk_sustain, Kris 25 Nov): CC64 from USB, the TRS jack or Bluetooth holds the SOUND's note-offs – a key let go
+ * and a MIDI note-off – until the pedal comes up; MIDI out is sent as always (the computer sustains its own) */
+static fk_sus_t sus;
+static void sus_release(void *ctx, uint32_t note, uint32_t mask) { (void)ctx; mv_engine_note_to(&eng, note, 0, mask); }
+
 static uint32_t key_on(uint32_t note, uint32_t vel)
 {
     uint32_t to, chm = 0, c;
     if (note > 127u || !vel) return 0;
     to = key_parts(note);
     if (!(ui.midi & MV_MIDI_LOCALOFF)) {        /* LOCAL ON: the sound plays the key */
+        fk_sus_note_on(&sus, note);
         mv_engine_note_direct(&eng, note, vel, to);   /* (the JP has no fixed velocity -> amp: it is a morph target) */
         chm = KEY_LOCAL;
     }
@@ -295,7 +302,8 @@ static uint32_t key_on(uint32_t note, uint32_t vel)
 static void key_off(uint32_t note, uint32_t chm)   /* a key up: its note ends, on the channels its note-on used */
 {
     uint32_t c;
-    if (chm & KEY_LOCAL)                        /* it sounded here (LOCAL ON when it went down) */
+    if ((chm & KEY_LOCAL) && fk_sus_note_off(&sus, note, MV_TO_ROUTE))   /* it sounded here (LOCAL ON when it went
+                                                   down), and no pedal holds it */
         mv_engine_note_off(&eng, note);         /* (a key-up reaches every part: harmless where it did not play) */
     for (c = 0; c < 16u; c++) if (chm >> c & 1u) midi_send(0x80u | c, note, 0);
 }
@@ -556,12 +564,13 @@ static void midi_in(void)
             if (!cu || cu - 1u == ch) to |= MV_TO_UP;
             if (eng.perf[MV_PF_MODE] != MV_KEY_SINGLE && (!cl || cl - 1u == ch)) to |= MV_TO_LO;
             if (!to) continue;                  /* not our channel */
-            if (ty == 0x90u && d2) { if (d1 < 128u) mv_engine_note_to(&eng, d1, d2, to); midi_src = (uint32_t)src; continue; }
-            if (ty == 0x80u || ty == 0x90u) { mv_engine_note_to(&eng, d1, 0, to); continue; }
+            if (ty == 0x90u && d2) { if (d1 < 128u) { fk_sus_note_on(&sus, d1); mv_engine_note_to(&eng, d1, d2, to); } midi_src = (uint32_t)src; continue; }
+            if (ty == 0x80u || ty == 0x90u) { if (fk_sus_note_off(&sus, d1, to)) mv_engine_note_to(&eng, d1, 0, to); continue; }
         }
         if (ty == 0xE0u) eng.bend14 = (int32_t)((uint32_t)d2 << 7 | d1) - 8192;   /* pitch bend */
         else if (ty == 0xD0u) ctl_from(1u, d1);  /* channel pressure: the JP's CONTROL (morph) */
         else if (ty == 0xB0u && d1 == 1u) eng.wheel = d2;                            /* mod wheel: LFO2 in */
+        else if (ty == 0xB0u && d1 == 64u) (void)fk_sus_pedal(&sus, d2, sus_release, 0);   /* sustain (no JP CC 64) */
         else if (ty == 0xB0u) {                 /* the JP MODE2 CCs: into the part(s) PANEL edits (not by channel, as the
                                                    JT: one keyboard on one channel can still edit either part) */
             /* (the sequencer, Kris 20 Nov: a CC that moved a part's sound is a knob move to it: recorded into an

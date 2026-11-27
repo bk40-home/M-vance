@@ -5,8 +5,9 @@
  *   SOUND  OSC 1 · OSC 2 1/2 · 2/2 · OSC COMMON · FILTER 1/2 · 2/2 · AMP · PLAY MODE 1/2 · 2/2
  *   ENV    PITCH ENV · FILTER ENV · AMP ENV        LFO  LFO 1/3 · 2/3 · 3/3 (SYNC)
  *   ARP    ARP 1/2 · 2/2 (K4 again: the arp on / off)   FX  TONE · MULTI-FX · DELAY 1/2 · 2/2 · REVERB 1/2 · 2/2
- *   SEQ    (P6)      F2 PERFORM 1/2 · 2/2      F6 GLOBAL
+ *   SEQ    SEQ 1/3 · 2/3 · CLIP (P6: jt_seq.h)      F2 PERFORM 1/2 · 2/2      F6 GLOBAL
  *   PLAY   the start page (RETURN): the program, and the FM-1's HOME knobs – CUTOFF, RESO, the delay's send, REVERB
+ *   SAVE   F5 (P5): TO · CURSOR · CHAR · MODE (WRITE / SWAP / FACTORY), as the FM-1's; F5 again does it (main.c)
  * The labels, the short value names and the edit rules are the FM-1's (mv_ui.c col_label, choice_name, col_value,
  * mv_ui_turn): the same words on both. Everything here edits ED (jt_edit.h), the control flow's. */
 #pragma once
@@ -23,11 +24,16 @@
 #define P_VOICES 0x180u
 #define P_TEMPO 0x181u
 #define P_MIDICH 0x182u
+#define P_PVELO 0x183u                          /* PATCH VELO: OFF / PATCH (the FM-1's KEYS > VELO SW) */
+#define P_SV 0x190u                             /* SAVE: + 0 TO, 1 CURSOR, 2 CHAR, 3 MODE */
+#define P_SQ 0x1A0u                             /* SEQ (P6): + 0 LENGTH, QUANT, MUTE L, MUTE U, TRANSPOSE, ROOT, CLIP, MODE,
+                                                   CURSOR, CHAR (jt_seq.h) */
+#define P_SQ_N 10u
 #define IS_PATCH(p) ((p) < 0x100u)
 
-enum { G_SOUND, G_ENV, G_LFO, G_ARP, G_FX, G_SEQ, G_PERF, G_GLOBAL, G_PLAY, G_N };   /* (K1-K6 = the first six) */
-static const char *const G_NAME[G_N] = {"SOUND", "ENV", "LFO", "ARP", "FX", "SEQ", "PERFORM", "GLOBAL", "PLAY"};
-static const uint32_t G_RGB[G_N] = {0xB38CFF, 0xF5C93F, 0x6EE7A8, 0xFF6A1A, 0x3FA9F5, 0xFF5A8A, 0xFF8A1F, 0x8A93A6, 0xFF8A1F};
+enum { G_SOUND, G_ENV, G_LFO, G_ARP, G_FX, G_SEQ, G_PERF, G_GLOBAL, G_PLAY, G_SAVE, G_N };   /* (K1-K6 = the first six) */
+static const char *const G_NAME[G_N] = {"SOUND", "ENV", "LFO", "ARP", "FX", "SEQ", "PERFORM", "GLOBAL", "PLAY", "SAVE"};
+static const uint32_t G_RGB[G_N] = {0xB38CFF, 0xF5C93F, 0x6EE7A8, 0xFF6A1A, 0x3FA9F5, 0xFF5A8A, 0xFF8A1F, 0x8A93A6, 0xFF8A1F, 0xFF5A4D};
 
 typedef struct { const char *title, *chip; uint8_t group; uint16_t p[4]; } jt_page_t;   /* chip: its tab (fits 9 across) */
 static const jt_page_t PAGES[] = {
@@ -55,16 +61,21 @@ static const jt_page_t PAGES[] = {
     {"DELAY 2/2", "DELAY+", G_FX, {P_DSYNC, P_NONE, P_NONE, P_NONE}},
     {"REVERB 1/2", "REVERB", G_FX, {P_RV + MV_RV_LEVEL, P_RV + MV_RV_SIZE, P_RV + MV_RV_HIDAMP, P_RV + MV_RV_LODAMP}},
     {"REVERB 2/2", "REVERB+", G_FX, {P_RV + MV_RV_LOWPASS, P_RV + MV_RV_HIPASS, P_RV + MV_RV_FREEZE, P_NONE}},
-    {"SEQ", "SEQ", G_SEQ, {P_NONE, P_NONE, P_NONE, P_NONE}},         /* (P6) */
+    {"SEQ 1/3", "SEQ 1/3", G_SEQ, {P_SQ + 0, P_SQ + 1, P_SQ + 2, P_SQ + 3}},   /* LENGTH QUANT MUTE L MUTE U */
+    {"SEQ 2/3", "SEQ 2/3", G_SEQ, {P_SQ + 4, P_SQ + 5, P_NONE, P_NONE}},       /* TRANSPOSE ROOT */
+    {"CLIP", "CLIP", G_SEQ, {P_SQ + 6, P_SQ + 7, P_SQ + 8, P_SQ + 9}},        /* CLIP MODE CURSOR CHAR (F5: do it) */
     {"PERFORM 1/2", "PERFORM 1/2", G_PERF, {P_PF + MV_PF_MODE, P_PF + MV_PF_SPLIT, P_PF + MV_PF_BAL, P_NONE}},
     {"PERFORM 2/2", "PERFORM 2/2", G_PERF, {P_PF + MV_PF_VSPLIT, P_PF + MV_PF_ARP, P_PF + MV_PF_CHLO, P_PF + MV_PF_CHUP}},
-    {"GLOBAL", "GLOBAL", G_GLOBAL, {P_VOICES, P_TEMPO, P_MIDICH, P_NONE}},
+    {"GLOBAL", "GLOBAL", G_GLOBAL, {P_VOICES, P_TEMPO, P_MIDICH, P_PVELO}},
+    {"SAVE", "SAVE", G_SAVE, {P_SV + 0, P_SV + 1, P_SV + 2, P_SV + 3}},
 };
 #define NPAGES (sizeof PAGES / sizeof PAGES[0])
 
 /* ---- the panel's state (the control flow's) ------------------------------------------------------------------- */
 enum { PANEL_UPPER, PANEL_LOWER, PANEL_BOTH };
 static uint32_t pg, panel, g_last[G_N];         /* the page shown; the part(s) edited; each group's last page */
+enum { SV_WRITE, SV_SWAP, SV_FACTORY };
+static uint32_t sv_to, sv_pos, sv_mode, sv_back; /* SAVE: the slot, the name's cursor, what F5 does; the page to go back to */
 
 static uint32_t group_first(uint32_t g) { uint32_t i; for (i = 0; i < NPAGES; i++) if (PAGES[i].group == g) return i; return 0; }
 static uint32_t group_count(uint32_t g) { uint32_t i, n = 0; for (i = 0; i < NPAGES; i++) n += PAGES[i].group == g; return n; }
@@ -91,14 +102,20 @@ static uint32_t ed_part(uint32_t p, int *both)
 }
 
 /* ---- labels and values (mv_ui.c col_label / choice_name / col_value, on ED) ------------------------------------ */
+static int sq_label(uint32_t p, const char **l);   /* (the SEQ values: jt_seq.h) */
+static int sq_value(uint32_t p, char *s, float *fill);
+static int sq_turn(uint32_t p, int32_t step);
+static int32_t sq_span(uint32_t p);
 static const char *p_label(uint32_t p)
 {
+    const char *sl;
     static const char *const C1A[7] = {"DETUNE", "OFFSET", "CUTOFF", "HARMON", "PW", "SHAPE", "SHAPE"};
     static const char *const C1B[7] = {"MIX", "LFO1", "RESO", "FEEDBK", "PWM", "LFO1", "LFO1"};
     static const char *const C2A[4] = {"PW", "SHAPE", "SHAPE", "CUTOFF"};
     static const char *const C2B[4] = {"PWM", "LFO1", "LFO1", "RESO"};
     int both;
     const uint8_t *b = ED.part[ed_part(p, &both)].b;
+    if (sq_label(p, &sl)) return sl;
     switch (p) {
     case P_PF + MV_PF_MODE: return "MODE";
     case P_PF + MV_PF_SPLIT: return "SPLIT";
@@ -112,6 +129,7 @@ static const char *p_label(uint32_t p)
     case P_MIDICH: return "MIDI CH";
     case P_VOICES: return "VOICES";
     case P_TEMPO: return "TEMPO";
+    case P_PVELO: return "VELO SW";
     case P_RV + MV_RV_LEVEL: return "LEVEL";
     case P_RV + MV_RV_SIZE: return "SIZE";
     case P_RV + MV_RV_HIDAMP: return "HI DAMP";
@@ -127,6 +145,10 @@ static const char *p_label(uint32_t p)
     case P_ARP + MV_ARP_SWING: return "SWING";
     case P_ARP + MV_ARP_CHANCE: return "CHANCE";
     case P_ARP + MV_ARP_ORDER: return "ORDER";
+    case P_SV + 0: return "TO";
+    case P_SV + 1: return "CURSOR";
+    case P_SV + 2: return "CHAR";
+    case P_SV + 3: return "MODE";
     case 31: return C1A[b[30] < 7u ? b[30] : 5u];
     case 32: return C1B[b[30] < 7u ? b[30] : 5u];
     case 37: return C2A[b[33] & 3u];
@@ -219,9 +241,20 @@ static void p_value(uint32_t p, char *s, float *fill, int *bip)
     const char *c;
     int both;
     *fill = 0.0f; *bip = 0; s[0] = 0;
-    if (p == P_NONE) return;
+    if (p == P_NONE || sq_value(p, s, fill)) return;
+    if (p >= P_SV && p < P_SV + 4u) {           /* SAVE */
+        static const char *const SVM[3] = {"WRITE", "SWAP", "FACTORY"};
+        uint32_t k = p - P_SV, c;
+        if (k == 0u) { s[0] = (char)('A' + sv_to / 16u); s[1] = '-'; s_num(s + 2, (int32_t)(sv_to % 16u + 1u), 0); *fill = (float)sv_to / 63.0f; }
+        else if (k == 1u) { s_num(s, (int32_t)sv_pos + 1, 0); *fill = (float)sv_pos / 15.0f; }
+        else if (k == 2u) { c = ED.part[0].b[sv_pos % MV_NAME_LEN]; if (c == ' ') s_copy(s, "SPC"); else { s[0] = (char)c; s[1] = 0; } *fill = (float)(c - 32u) / 93.0f; }
+        else { s_copy(s, SVM[sv_mode % 3u]); *fill = (float)sv_mode / 2.0f; }
+        return;
+    }
     if (p == P_VOICES) { s_num(s, ED.nv, 0); *fill = (float)ED.nv / (float)MV_NV; return; }
     if (p == P_TEMPO) { s_num(s, ED.tempo, 0); *fill = (float)(ED.tempo - 40) / 200.0f; return; }
+    if (p == P_PVELO) { s_copy(s, ED.pvelo ? "PATCH" : "OFF"); *fill = (float)ED.pvelo; return; }   /* (PATCH: each
+                                                   patch's own VELO SW decides, as on the FM-1) */
     if (p == P_MIDICH) { if (ED.midich) s_num(s, ED.midich, 0); else s_copy(s, "OMNI"); *fill = (float)ED.midich / 16.0f; return; }
     if (p == P_LSYNC || p == 17u) {             /* RATE 1 shows the SYNC while its part is synced */
         uint32_t sy = ED.perf[MV_PF_SYNC(ed_part(p, &both))];
@@ -282,15 +315,27 @@ static int32_t p_span(uint32_t p)               /* how far the value goes (SHIFT
     if (p >= P_ARP && p < P_ARP + MV_ARP_N) return MV_ARP_MAX[p - P_ARP] - MV_ARP_MIN[p - P_ARP];
     if (p == P_PF + MV_PF_SPLIT || p == P_PF + MV_PF_BAL) return 127;
     if (p == P_TEMPO) return 200;
+    if (p >= P_SV && p < P_SV + 4u) return p == P_SV + 0u ? 63 : 0;   /* (SHIFT steps TO by 8: a bank half) */
+    if (p >= P_SQ && p < P_SQ + P_SQ_N) return sq_span(p);
     return 16;
 }
 static void p_turn(uint32_t p, int32_t step)
 {
     int both;
-    if (p == P_NONE || !step) return;
+    if (p == P_NONE || !step || sq_turn(p, step)) return;
+    if (p >= P_SV && p < P_SV + 4u) {           /* SAVE: the slot, the cursor, a character of the name (ASCII 32..125,
+                                                   as the JP's: the name is UPPER's bytes 0..15), the mode */
+        uint32_t k = p - P_SV;
+        if (k == 0u) sv_to = (uint32_t)clampi((int32_t)sv_to + step, 0, (int32_t)MV_NPROG - 1);
+        else if (k == 1u) sv_pos = (uint32_t)clampi((int32_t)sv_pos + step, 0, (int32_t)MV_NAME_LEN - 1);
+        else if (k == 2u) { uint8_t *c = &ED.part[0].b[sv_pos % MV_NAME_LEN]; *c = (uint8_t)clampi((int32_t)*c + step, 32, 125); }
+        else sv_mode = (uint32_t)clampi((int32_t)sv_mode + step, 0, 2);
+        return;
+    }
     if (p == P_VOICES) { ED.nv = (uint8_t)clampi(ED.nv + step, 1, (int32_t)MV_NV); return; }
     if (p == P_TEMPO) { ED.tempo = (uint8_t)clampi(ED.tempo + step, 40, 240); return; }
     if (p == P_MIDICH) { ED.midich = (uint8_t)clampi(ED.midich + step, 0, 16); return; }
+    if (p == P_PVELO) { ED.pvelo = (uint8_t)clampi(ED.pvelo + step, 0, 1); return; }
     if (p == P_LSYNC) {
         uint32_t k = MV_PF_SYNC(ed_part(p, &both));
         ED.perf[k] = (uint8_t)clampi(ED.perf[k] + step, 0, (int32_t)MV_LFO1_SYNC_N - 1);

@@ -108,6 +108,21 @@ void mv_seq_start(mv_seq_t *s)
 
 /* an event played (RAM or flash alike): the note's last start ends (at the pitch it started at), then a note-on
  * starts at the offset now (TRANSPOSE), held to 0..127 */
+void mv_seq_locate(mv_seq_t *s, const volatile uint8_t *set, uint32_t song, mv_seq_emit_t emit, void *ctx)
+{
+    uint32_t i;
+    for (i = 0; i < 2u; i++) {
+        mv_seq_track_t *T = &s->t[i];
+        uint32_t len = mv_seq_len(set, i);
+        flush(T, i, emit, ctx);
+        T->len = (uint16_t)len;
+        T->tick = (uint16_t)(song % len);
+        if (T->rom) rom_seek(T, T->tick);
+        else T->next = (uint16_t)at_or_after(T, T->tick);
+    }
+    s->acc = 0; s->ticks = song; s->first = 1;
+}
+
 static void play_ev(mv_seq_track_t *T, uint32_t part, uint32_t note, uint32_t vel, mv_seq_emit_t emit, void *ctx)
 {
     uint32_t p = T->played[note];
@@ -186,7 +201,7 @@ static void step(mv_seq_t *s, const volatile uint8_t *set, mv_seq_emit_t emit, v
         if (!T->rom) touch_step(s, T);          /* (recording automation: a RAM track) */
         if (T->rom) {                           /* a factory clip, from flash: the events at this tick */
             while (T->rhave && T->rt == T->tick) {
-                uint32_t t, n, v;
+                uint32_t t = 0, n = 0, v = 0;     /* (no event left: rhave 0, these unused) */
                 if (muted) {}
                 else if (T->rv & MV_SEQ_PT) emit(ctx, i, T->rn, T->rv);   /* a point: to the engine */
                 else play_ev(T, i, T->rn, T->rv, emit, ctx);

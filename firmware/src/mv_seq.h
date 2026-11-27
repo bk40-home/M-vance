@@ -145,6 +145,10 @@ typedef void (*mv_seq_emit_t)(void *ctx, uint32_t part, uint32_t note, uint32_t 
 
 void mv_seq_init(mv_seq_t *s);                  /* empty tracks, stopped */
 void mv_seq_start(mv_seq_t *s);                 /* from bar 1: tick 0 plays on the next mv_seq_tick */
+/* from song tick `song` (a DAW's position: JT-80x0 on VIBE FM, Kris 26 Nov): each track at song mod its LENGTH, its next
+ * event from there, nothing before it played; ticks = song (a clock lock counts from it). The notes the tracks started
+ * end first. That tick plays on the next mv_seq_tick, as mv_seq_start's tick 0 does */
+void mv_seq_locate(mv_seq_t *s, const volatile uint8_t *set, uint32_t song, mv_seq_emit_t emit, void *ctx);
 /* stopped: the keys still being recorded get their note-offs (now), every note the tracks started ends */
 void mv_seq_stop(mv_seq_t *s, const volatile uint8_t *set, mv_seq_emit_t emit, void *ctx);
 /* n samples on, at beat samples a quarter note. lock: after a MIDI START, the tick the latest clock pulse is (the

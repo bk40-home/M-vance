@@ -18,9 +18,13 @@ for t in mv_fixed_test mv_patch_test mv_pitch_test mv_env_test mv_lfo_test mv_jv
     cc $CF -o "$OUT/$t" "tests/$t.c" -lm
     "$OUT/$t"
 done
+# the filter's cutoff -> g to the ceiling (Kris 25 Nov: the P1 finding), as the FM-1 and at the VIBE's 48 kHz
+cc $CF -o "$OUT/mv_flt_g_test" tests/mv_flt_g_test.c -lm && "$OUT/mv_flt_g_test"
+cc $CF -DMV_RATE_RT -o "$OUT/mv_flt_g_test48" tests/mv_flt_g_test.c -lm && "$OUT/mv_flt_g_test48"
 # the rate chosen at start (mv_rate.h, the VIBE FM build): 44.1 / 48 kHz in seconds and hertz (Kris 23 Nov 2026)
 cc $CF -DMV_RATE_RT -o "$OUT/mv_rate_test" tests/mv_rate_test.c -lm
 "$OUT/mv_rate_test"
+OUT="$OUT" python3 tests/sustain_test.py       # the sustain pedal, CC 64 (fk_sustain, Kris 25 Nov), through the app
 python3 tests/xfer_test.py                     # the program transfer (mv_xfer.h) on the host build
 python3 tests/seq_xfer_test.py                 # the tracks and clips over SysEx (mv_seqx.h, Kris 20 Nov) on the host build
 python3 tests/seq_auto_host_test.py            # the sequencer's automation: recorded, played, takeover, STOP (Kris 20 Nov)

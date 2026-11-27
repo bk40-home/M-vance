@@ -126,7 +126,7 @@ void mv_engine_init(mv_engine_t *e)
     for (v = 0; v < MV_RV_N; v++) e->rvb[v] = 0;   /* reverb off until the settings load (mvance.c) */
     mv_arp_init(&e->arp);
     for (v = 0; v < MV_ARP_N; v++) e->arpb[v] = MV_ARP_DEF[v];   /* arp off (its defaults) until the settings load */
-    e->tempo = 120; e->arp_beat = 22050u; e->arp_start = 0; e->arp_live = 0;
+    e->tempo = 120; e->arp_beat = 22050u; e->arp_start = 0; e->arp_live = 0; e->seq_at = 0;
     mv_seq_init(&e->seq);                       /* the sequencer: empty and stopped, its defaults until the settings */
     for (v = 0; v < MV_SQ_N; v++) e->seqb[v] = MV_SQ_DEF[v];
     e->seq_run = 0; e->seq_restart = 0; e->seq_arm = 0; e->seq_clear[0] = e->seq_clear[1] = 0;
@@ -505,11 +505,12 @@ int32_t mv_engine_point(mv_engine_t *e)
 static void seq_block(mv_engine_t *e, uint32_t n)
 {
     uint32_t run = e->seq_run != 0u, arm = run ? e->seq_arm & 3u : 0u, i;
-    if (run != e->seq_live || (run && e->seq_restart)) {
+    if (run != e->seq_live || (run && (e->seq_restart || e->seq_at))) {
         if (e->seq_live) mv_seq_stop(&e->seq, e->seqb, seq_emit, e);   /* its notes end, held recordings close */
-        if (run) mv_seq_start(&e->seq);         /* bar 1 */
+        if (run && e->seq_at) mv_seq_locate(&e->seq, e->seqb, e->seq_at - 1u, seq_emit, e);   /* a DAW's position */
+        else if (run) mv_seq_start(&e->seq);    /* bar 1 */
         e->seq_live = (uint8_t)run;
-        e->seq_restart = 0;
+        e->seq_restart = 0; e->seq_at = 0;
         e->seq_armed = 0;                       /* (stopped: nothing is armed; started: armed again just below) */
     }
     if (e->seq_load) {                          /* a clip LOADed (phase 3): into its track, running or not; a

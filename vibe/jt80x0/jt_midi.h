@@ -5,32 +5,26 @@
  *                  gate (a part listens on its CH LO / CH UP, else on MIDI CH; 0 = OMNI; SINGLE: UPPER only)
  *   pitch bend     the engine's bend14            channel pressure   CONTROL (the JP's morph)
  *   CC1            the mod wheel (LFO2 in)        CC64, PEDAL        sustain (new on the VIBE: note-offs held)
+ *                  (fm1-kit's fk_sustain, Kris 25 Nov: the same module as the FM-1's – one sustain for all engines)
  *   other CCs      the JP MODE2 CCs edit the part(s) PANEL edits (ED: the page follows)
  *   program change the program
  * The control flow's; everything reaches the audio through the queue (jt_edit.h). */
 #pragma once
 #include "jt_pages.h"
+#include "../../third_party/fm1-kit/firmware/fk_sustain/fk_sustain.h"
 
-static uint32_t sus_on;                         /* the pedal held */
-static uint8_t sus_held[128];                   /* a note let go while it was: its MV_TO_* mask, sent on pedal up */
+static fk_sus_t sus;                            /* (zeroed: pedal up, nothing held) */
+static void sus_release(void *ctx, uint32_t note, uint32_t mask) { (void)ctx; (void)q_push(Q_NOTE, (mask & 3u) << 8 | note, 0); }
 
 static void note_send(uint32_t note, uint32_t vel, uint32_t to)
 {
     if (note >= 128u || !(to & 3u)) return;
-    if (vel) sus_held[note] = 0;                /* (struck again: the next let-go decides) */
-    else if (sus_on) { sus_held[note] |= (uint8_t)to; return; }
+    if (vel) fk_sus_note_on(&sus, note);
+    else if (!fk_sus_note_off(&sus, note, to)) return;   /* (held: the pedal sends it) */
     (void)q_push(Q_NOTE, (to & 3u) << 8 | note, vel);
 }
 
-static void sustain(uint32_t on)
-{
-    uint32_t n;
-    if (on == sus_on) return;
-    sus_on = on;
-    if (on) return;
-    for (n = 0; n < 128u; n++)
-        if (sus_held[n]) { (void)q_push(Q_NOTE, (uint32_t)sus_held[n] << 8 | n, 0); sus_held[n] = 0; }
-}
+static void sustain(uint32_t on) { (void)fk_sus_pedal(&sus, on ? 127u : 0u, sus_release, 0); }
 
 /* the channel gate (the JT's PerfRouter, mvance.c midi_in): which parts hear channel ch (0..15) */
 static uint32_t gate(uint32_t ch)

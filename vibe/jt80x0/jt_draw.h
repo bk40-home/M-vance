@@ -6,6 +6,7 @@
 #include "vibe_gfx.h"
 #include "vibe_dsp.h"                           /* vd_sin (the dials) */
 #include "jt_pages.h"
+#include "jt_seq.h"
 
 #define BG 0x0B0D12
 #define FG 0xE6EAF2
@@ -65,8 +66,10 @@ static void prog_name(uint32_t n, char *num, char *name)   /* "A-7", "Pluck 07" 
 
 static void header(uint32_t prog, uint32_t col)
 {
-    char num[12], name[17];
+    char num[12], name[18];
+    uint32_t i;
     prog_name(prog, num, name);
+    if (jt_edited(prog)) { for (i = 0; name[i]; i++) {} name[i] = '*'; name[i + 1u] = 0; }   /* edited, not saved */
     vg_rect(0, 0, 480, 36, CELL);
     vg_rect(0, 34, 480, 2, col);
     vg_text(num, 12, 7, VG_BIG, col, VG_LEFT);
@@ -84,6 +87,76 @@ static void chips(uint32_t col)
         vg_round(x, 42, w - 6, 26, 5, on ? col : CELL);
         vg_text(PAGES[f + i].chip, x + (w - 6) / 2, 47, VG_BOLD, on ? BG : DIM, VG_CENTER);
     }
+}
+
+/* SAVE: what F5 will do, and the name with its cursor */
+static void save_view(uint32_t col)
+{
+    static const char *const WHAT[3] = {"WRITE", "SWAP", "FACTORY"};
+    char num[12], name[18], to[8];
+    uint32_t i;
+    int x;
+    prog_name(prog, num, name);
+    to[0] = (char)('A' + sv_to / 16u); to[1] = '-'; vg_itoa((int)(sv_to % 16u + 1u), to + 2);
+    vg_text(WHAT[sv_mode % 3u], 12, 236, VG_BOLD, col, VG_LEFT);
+    if (sv_mode == 2u) { vg_text(to, 90, 236, VG_BOLD, FG, VG_LEFT); vg_text("back to the factory's", 130, 236, VG_BOLD, DIM, VG_LEFT); }
+    else { vg_text(num, 90, 236, VG_BOLD, FG, VG_LEFT); vg_text(sv_mode == 1u ? "<->" : "->", 130, 236, VG_BOLD, DIM, VG_LEFT); vg_text(to, 160, 236, VG_BOLD, FG, VG_LEFT); }
+    vg_text("F5 does it, RETURN leaves", 468, 236, VG_SMALL, DIM, VG_RIGHT);
+    for (i = 0, x = 12; i < 16u; i++, x += 16) {   /* the name, the cursor's character boxed */
+        char c[2];
+        c[0] = (char)ED.part[0].b[i]; c[1] = 0;
+        if (c[0] < 32 || c[0] > 126) c[0] = ' ';
+        if (i == sv_pos) vg_round(x - 1, 256, 15, 22, 3, col);
+        vg_text(c, x + 6, 259, VG_MED, i == sv_pos ? BG : FG, VG_CENTER);
+    }
+}
+
+/* SEQ (P6): each track – where it plays (bar.beat), its events, armed, muted; the transport; on CLIP the clip's name */
+static void seq_view(uint32_t col)
+{
+    static const char *const PN[2] = {"UPPER", "LOWER"};
+    char t[40], d[12];
+    uint32_t p, i, k, run = sq_pub_run;
+    (void)sq_read();
+    for (p = 0; p < 2u; p++) {
+        uint32_t tk = sq_pub_tick[p], arm = sq_pub_arm >> p & 1u, x = 12u + p * 236u;
+        const char *c;
+        i = 0;
+        for (c = PN[p]; *c; c++) t[i++] = *c;
+        t[i++] = ' ';
+        if (run) {                              /* bar.beat */
+            vg_itoa((int)(tk / MV_SEQ_BAR + 1u), d); for (k = 0; d[k]; k++) t[i++] = d[k];
+            t[i++] = '.'; t[i++] = (char)('1' + tk % MV_SEQ_BAR / MV_SEQ_PPQN); t[i++] = ' ';
+        }
+        vg_itoa((int)sq_view[p].n, d); for (k = 0; d[k]; k++) t[i++] = d[k];
+        for (c = " ev"; *c; c++) t[i++] = *c;
+        if (ED.sq[MV_SQ_MUTE(p)]) for (c = " MUTE"; *c; c++) t[i++] = *c;
+        t[i] = 0;
+        if (arm) vg_round((int)x - 4, 206, 8, 20, 3, 0xFF2030u);
+        vg_text(t, (int)x + 8, 208, VG_BOLD, p == sq_trk() ? FG : DIM, VG_LEFT);
+    }
+    vg_text(sq_pub_lead ? "HOST" : run ? "PLAY" : "STOP", 468, 252, VG_BOLD, run ? 0x30E060u : DIM, VG_RIGHT);
+    if (PAGES[pg].p[0] == P_SQ + 6u) {          /* CLIP: the name, the cursor's character boxed */
+        int x;
+        for (i = 0, x = 12; i < JT_CLIP_NAME; i++, x += 16) {
+            char c[2];
+            c[0] = cl_name[i]; c[1] = 0;
+            if (i == cl_pos) vg_round(x - 1, 228, 15, 22, 3, col);
+            vg_text(c, x + 6, 231, VG_MED, i == cl_pos ? BG : FG, VG_CENTER);
+        }
+        vg_text(cl_mode ? "F5 saves PART's track here" : "F5 loads it into PART's track", 468, 231, VG_SMALL, DIM, VG_RIGHT);
+    }
+}
+
+/* the CLEAR question (REC held 1 s) */
+static void ask_view(void)
+{
+    static const char *const WHAT[3] = {"ALL", "NOTES", "AUTOMATION"};
+    const char *who = sq_ask_mask == 3u ? "CLEAR BOTH TRACKS?" : sq_ask_mask & 1u ? "CLEAR UPPER?" : "CLEAR LOWER?";
+    vg_round(70, 110, 340, 96, 8, CELL2);
+    vg_text(who, 240, 120, VG_BIG, FG, VG_CENTER);
+    vg_text(WHAT[sq_ask_mode % 3u], 240, 154, VG_BOLD, 0xFF5A8Au, VG_CENTER);
+    vg_text("a knob: what · REC: yes · other: no", 240, 180, VG_SMALL, DIM, VG_CENTER);
 }
 
 static void softkeys(const char *const *cap, uint32_t lit, uint32_t dim)   /* F1-F6: bit i lit / dimmed */

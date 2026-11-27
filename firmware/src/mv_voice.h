@@ -183,6 +183,8 @@ typedef struct {
                                                    ISR clears) */
     volatile uint8_t seq_ext;                   /* started by MIDI START: the ticks held to the clock's pulses */
     volatile uint32_t seq_pulse;                /* MIDI clock pulses since that START (main loop counts them) */
+    volatile uint32_t seq_at;                   /* a start or jump to song tick seq_at - 1 (0: none): mv_seq_locate in place
+                                                   of bar 1 (a DAW's position: JT-80x0 on VIBE FM; the FM-1 sets none) */
     uint8_t seq_live, seq_armed;                /* the transport and the arming the ISR is running with */
     mv_seq_ev_t seq_lbuf[MV_SEQ_NEV];           /* a clip to load (phase 3): the main loop fills it, then asks .. */
     uint16_t seq_ln;                            /* .. its events, .. */

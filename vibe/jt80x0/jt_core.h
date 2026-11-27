@@ -46,14 +46,18 @@ static void jt_tempo(float bpm)
     mv_engine_sync(&eng);
 }
 
-/* n frames (a multiple of 16, at most JT_BLOCK) of the engine, as floats */
+/* n frames (a multiple of 16, at most JT_BLOCK) of the engine, as floats: 16 at a time, JT_PIECE_HOOK() before each
+ * (main.c: the sequencer's clock and its clips, P6; the engine works in 16-frame blocks, so the sound is the same) */
 #define JT_BLOCK 256u
+#ifndef JT_PIECE_HOOK
+#define JT_PIECE_HOOK() ((void)0)
+#endif
 static int32_t jt_buf[2u * JT_BLOCK];
 static void jt_render(float *l, float *r, uint32_t n)
 {
     uint32_t j;
     for (j = 0; j < 2u * n; j++) jt_buf[j] = 0;  /* (the engine adds into it) */
-    mv_engine_render(&eng, jt_buf, n);
+    for (j = 0; j < n; j += 16u) { JT_PIECE_HOOK(); mv_engine_render(&eng, jt_buf + 2u * j, 16u); }
     for (j = 0; j < n; j++) {
         l[j] = (float)jt_buf[2u * j] * (1.0f / 32768.0f);
         r[j] = (float)jt_buf[2u * j + 1u] * (1.0f / 32768.0f);
